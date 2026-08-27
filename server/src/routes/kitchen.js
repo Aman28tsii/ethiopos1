@@ -5,15 +5,10 @@ import { pool } from "../config/database.js";
 
 const router = express.Router();
 
-// All routes require authentication and company context
 router.use(protect);
 router.use(requireCompanyContext);
 
-// ============================================================
-// KITCHEN ROUTES (Branch-level)
-// ============================================================
-
-// Get kitchen orders
+// GET: Kitchen Orders
 router.get("/orders", authorizeBranch, allowKitchen, async (req, res) => {
     try {
         const branchId = req.user.branch_id;
@@ -23,15 +18,19 @@ router.get("/orders", authorizeBranch, allowKitchen, async (req, res) => {
                 ko.order_id,
                 ko.status,
                 ko.created_at,
+                ko.started_at,
+                ko.completed_at,
                 o.order_number,
                 o.customer_name,
                 o.table_id,
+                o.total_amount,
                 t.table_number,
                 COALESCE(
                     json_agg(
                         json_build_object(
                             "name", p.name,
-                            "quantity", oi.quantity
+                            "quantity", oi.quantity,
+                            "price", oi.unit_price
                         )
                     ) FILTER (WHERE p.id IS NOT NULL), 
                     "[]"
@@ -41,10 +40,15 @@ router.get("/orders", authorizeBranch, allowKitchen, async (req, res) => {
             LEFT JOIN tables t ON o.table_id = t.id
             LEFT JOIN order_items oi ON o.id = oi.order_id
             LEFT JOIN products p ON oi.product_id = p.id
-            WHERE ko.status IN ("pending", "preparing")
+            WHERE ko.status IN ('pending', 'preparing')
               AND o.branch_id = $1
-            GROUP BY ko.id, o.order_number, o.customer_name, o.table_id, ko.status, ko.created_at, t.table_number
-            ORDER BY ko.created_at ASC
+            GROUP BY ko.id, o.order_number, o.customer_name, o.table_id, ko.status, ko.created_at, t.table_number, o.total_amount
+            ORDER BY 
+                CASE ko.status
+                    WHEN 'pending' THEN 1
+                    WHEN 'preparing' THEN 2
+                END,
+                ko.created_at ASC
         `, [branchId]);
         res.json({ success: true, data: result.rows });
     } catch (err) {
@@ -53,7 +57,7 @@ router.get("/orders", authorizeBranch, allowKitchen, async (req, res) => {
     }
 });
 
-// Update order status
+// PUT: Update Order Status
 router.put("/orders/:orderId/status", authorizeBranch, allowKitchen, async (req, res) => {
     const { orderId } = req.params;
     const { status } = req.body;
@@ -64,26 +68,22 @@ router.put("/orders/:orderId/status", authorizeBranch, allowKitchen, async (req,
             "SELECT id FROM orders WHERE id = $1 AND branch_id = $2",
             [orderId, branchId]
         );
-        
         if (orderCheck.rows.length === 0) {
             return res.status(404).json({ success: false, error: "Order not found" });
         }
-        
         const result = await pool.query(
             `UPDATE kitchen_orders 
              SET status = $1, 
-                 started_at = CASE WHEN $1 = "preparing" AND status = "pending" THEN NOW() ELSE started_at END,
-                 completed_at = CASE WHEN $1 = "ready" THEN NOW() ELSE completed_at END,
+                 started_at = CASE WHEN $1 = 'preparing' AND status = 'pending' THEN NOW() ELSE started_at END,
+                 completed_at = CASE WHEN $1 = 'ready' THEN NOW() ELSE completed_at END,
                  updated_at = NOW()
              WHERE order_id = $2
              RETURNING *`,
             [status, orderId]
         );
-        
         if (status === "ready") {
             await pool.query("UPDATE orders SET status = $1 WHERE id = $2", ["ready", orderId]);
         }
-        
         res.json({
             success: true,
             message: `Order status updated to ${status}`,
@@ -95,7 +95,7 @@ router.put("/orders/:orderId/status", authorizeBranch, allowKitchen, async (req,
     }
 });
 
-// Get completed orders
+// GET: Completed Orders
 router.get("/completed", authorizeBranch, allowKitchen, async (req, res) => {
     try {
         const branchId = req.user.branch_id;
@@ -105,7 +105,7 @@ router.get("/completed", authorizeBranch, allowKitchen, async (req, res) => {
             FROM kitchen_orders ko
             JOIN orders o ON ko.order_id = o.id
             LEFT JOIN tables t ON o.table_id = t.id
-            WHERE ko.status IN ("ready", "completed")
+            WHERE ko.status IN ('ready', 'completed')
               AND o.branch_id = $1
             ORDER BY ko.completed_at DESC
             LIMIT 30
@@ -117,19 +117,19 @@ router.get("/completed", authorizeBranch, allowKitchen, async (req, res) => {
     }
 });
 
-// Get kitchen stats
+// GET: Kitchen Stats
 router.get("/stats", authorizeBranch, allowKitchen, async (req, res) => {
     try {
         const branchId = req.user.branch_id;
         const result = await pool.query(`
             SELECT 
-                COUNT(CASE WHEN ko.status = "pending" THEN 1 END) as pending_count,
-                COUNT(CASE WHEN ko.status = "preparing" THEN 1 END) as preparing_count,
-                COUNT(CASE WHEN ko.status = "ready" THEN 1 END) as ready_count
+                COUNT(CASE WHEN ko.status = 'pending' THEN 1 END) as pending_count,
+                COUNT(CASE WHEN ko.status = 'preparing' THEN 1 END) as preparing_count,
+                COUNT(CASE WHEN ko.status = 'ready' THEN 1 END) as ready_count
             FROM kitchen_orders ko
             JOIN orders o ON ko.order_id = o.id
             WHERE o.branch_id = $1
-              AND ko.created_at >= NOW() - INTERVAL "24 hours"
+              AND ko.created_at >= NOW() - INTERVAL '24 hours'
         `, [branchId]);
         res.json({ success: true, data: result.rows[0] });
     } catch (err) {
