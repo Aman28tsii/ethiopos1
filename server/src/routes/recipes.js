@@ -1,4 +1,4 @@
-﻿import express from 'express';
+﻿import express from "express";
 import {
     getAllRecipes,
     getRecipeByProduct,
@@ -12,46 +12,42 @@ import {
     getAllIngredientsWithWastage,
     getLowStockIngredients,
     getProductsWithoutRecipes,
-    getRecipeCount,
-    getProductCost  // ✅ ADD THIS
-} from '../controllers/recipeController.js';
-import { protect, allowManager, allowOwner } from '../middleware/auth.js';
+    getRecipeCount
+} from "../controllers/recipeController.js";
+import { protect, allowManager, allowOwner } from "../middleware/auth.js";
+import { authorizeCompany, authorizeBranch, requireCompanyContext } from "../middleware/authorization.js";
 
 const router = express.Router();
 
-// All routes require authentication
+// All routes require authentication and company context
 router.use(protect);
+router.use(requireCompanyContext);
 
-// ============================================
-// RECIPE MANAGEMENT
-// ============================================
-router.get('/', allowManager, getAllRecipes);
-router.get('/product/:productId', allowManager, getRecipeByProduct);
-router.post('/product/:productId', allowManager, createOrUpdateRecipe);
-router.delete('/:id', allowOwner, deleteRecipe);
-router.delete('/ingredient/:id', allowOwner, deleteRecipeIngredient);
+// ============================================================
+// RECIPE MANAGEMENT (Company-level)
+// ============================================================
+router.get("/", authorizeCompany, allowManager, getAllRecipes);
+router.get("/product/:productId", authorizeCompany, allowManager, getRecipeByProduct);
+router.post("/product/:productId", authorizeCompany, allowManager, createOrUpdateRecipe);
+router.delete("/:id", authorizeCompany, allowOwner, deleteRecipe);
+router.delete("/ingredient/:id", authorizeCompany, allowOwner, deleteRecipeIngredient);
 
-// ✅ ADD THIS ROUTE - Product Cost
-router.get('/cost/:productId', allowManager, getProductCost);
+// Products without recipes (Company-level)
+router.get("/products-without", authorizeCompany, allowManager, getProductsWithoutRecipes);
+router.get("/count", authorizeCompany, allowManager, getRecipeCount);
 
-// ============================================
-// PRODUCTS WITHOUT RECIPES
-// ============================================
-router.get('/products-without', allowManager, getProductsWithoutRecipes);
-router.get('/count', allowManager, getRecipeCount);
+// ============================================================
+// WASTAGE REPORTS (Branch-level)
+// ============================================================
+router.get("/wastage-report", authorizeBranch, allowManager, getWastageReport);
+router.get("/order/:orderId/wastage", authorizeBranch, allowManager, getOrderWastage);
+router.post("/order/:orderId/calculate-wastage", authorizeBranch, allowManager, calculateOrderWastage);
 
-// ============================================
-// WASTAGE REPORTS
-// ============================================
-router.get('/wastage-report', allowManager, getWastageReport);
-router.get('/order/:orderId/wastage', allowManager, getOrderWastage);
-router.post('/order/:orderId/calculate-wastage', allowManager, calculateOrderWastage);
-
-// ============================================
-// INGREDIENT WASTAGE SETTINGS
-// ============================================
-router.put('/ingredient/:id/wastage', allowOwner, updateIngredientWastage);
-router.get('/ingredients', allowManager, getAllIngredientsWithWastage);
-router.get('/ingredients/low-stock', allowManager, getLowStockIngredients);
+// ============================================================
+// INGREDIENT WASTAGE SETTINGS (Branch-level)
+// ============================================================
+router.put("/ingredient/:id/wastage", authorizeBranch, allowOwner, updateIngredientWastage);
+router.get("/ingredients", authorizeBranch, allowManager, getAllIngredientsWithWastage);
+router.get("/ingredients/low-stock", authorizeBranch, allowManager, getLowStockIngredients);
 
 export default router;

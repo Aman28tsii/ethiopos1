@@ -1,81 +1,119 @@
-﻿import express from 'express';
-import { protect, restrictTo } from '../middleware/auth.js';
-import { pool } from '../config/database.js';
+﻿import express from "express";
+import { protect, allowOwner } from "../middleware/auth.js";
+import { authorizeCompany, requireCompanyContext } from "../middleware/authorization.js";
+import { pool } from "../config/database.js";
 
 const router = express.Router();
 
-router.get('/', protect, restrictTo('owner', 'admin'), async (req, res) => {
+// All customer routes require authentication, company context, and owner role
+router.use(protect);
+router.use(requireCompanyContext);
+router.use(authorizeCompany);
+router.use(allowOwner);
+
+// GET ALL CUSTOMERS (Company-level)
+router.get("/", async (req, res) => {
   try {
+    const companyId = req.user.company_id;
     const result = await pool.query(
-      'SELECT id, name, email, phone, address, loyalty_points, total_spent, visit_count, notes, created_at, last_visit FROM customers ORDER BY name ASC'
+      `SELECT id, name, email, phone, address, loyalty_points, total_spent, visit_count, notes, created_at, last_visit
+       FROM customers 
+       WHERE company_id = $1
+       ORDER BY name ASC`,
+      [companyId]
     );
     res.json({ success: true, data: result.rows });
   } catch (err) {
-    console.error('Get customers error:', err);
+    console.error("Get customers error:", err);
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
-// FIXED: Simple query without error
-router.get('/:id', protect, restrictTo('owner', 'admin'), async (req, res) => {
+// GET CUSTOMER BY ID (Company-validated)
+router.get("/:id", async (req, res) => {
   try {
     const { id } = req.params;
-    const result = await pool.query('SELECT * FROM customers WHERE id = ', [id]);
+    const companyId = req.user.company_id;
+    const result = await pool.query(
+      `SELECT * FROM customers WHERE id = $1 AND company_id = $2`,
+      [id, companyId]
+    );
     if (result.rows.length === 0) {
-      return res.status(404).json({ success: false, error: 'Customer not found' });
+      return res.status(404).json({ success: false, error: "Customer not found" });
     }
     res.json({ success: true, data: result.rows[0] });
   } catch (err) {
-    console.error('Get customer error:', err);
+    console.error("Get customer error:", err);
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
-router.post('/', protect, restrictTo('owner', 'admin'), async (req, res) => {
+// CREATE CUSTOMER (Company-level)
+router.post("/", async (req, res) => {
   const { name, email, phone, address, notes } = req.body;
-  if (!name) {
-    return res.status(400).json({ success: false, error: 'Name is required' });
-  }
+  const companyId = req.user.company_id;
+  
   try {
     const result = await pool.query(
-      'INSERT INTO customers (name, email, phone, address, notes, created_at) VALUES (, , , , , NOW()) RETURNING *',
-      [name, email || null, phone || null, address || null, notes || null]
+      `INSERT INTO customers (company_id, name, email, phone, address, notes, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, NOW())
+       RETURNING *`,
+      [companyId, name, email, phone, address, notes]
     );
     res.status(201).json({ success: true, data: result.rows[0] });
   } catch (err) {
-    console.error('Create customer error:', err);
+    console.error("Create customer error:", err);
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
-router.put('/:id', protect, restrictTo('owner', 'admin'), async (req, res) => {
+// UPDATE CUSTOMER (Company-validated)
+router.put("/:id", async (req, res) => {
   const { id } = req.params;
   const { name, email, phone, address, loyalty_points, total_spent, visit_count, notes } = req.body;
+  const companyId = req.user.company_id;
+  
   try {
     const result = await pool.query(
-      'UPDATE customers SET name = COALESCE(, name), email = COALESCE(, email), phone = COALESCE(, phone), address = COALESCE(, address), loyalty_points = COALESCE(, loyalty_points), total_spent = COALESCE(, total_spent), visit_count = COALESCE(, visit_count), notes = COALESCE(, notes), updated_at = NOW() WHERE id =  RETURNING *',
-      [name, email, phone, address, loyalty_points, total_spent, visit_count, notes, id]
+      `UPDATE customers 
+       SET name = COALESCE($1, name),
+           email = COALESCE($2, email),
+           phone = COALESCE($3, phone),
+           address = COALESCE($4, address),
+           loyalty_points = COALESCE($5, loyalty_points),
+           total_spent = COALESCE($6, total_spent),
+           visit_count = COALESCE($7, visit_count),
+           notes = COALESCE($8, notes),
+           updated_at = NOW()
+       WHERE id = $9 AND company_id = $10
+       RETURNING *`,
+      [name, email, phone, address, loyalty_points, total_spent, visit_count, notes, id, companyId]
     );
     if (result.rows.length === 0) {
-      return res.status(404).json({ success: false, error: 'Customer not found' });
+      return res.status(404).json({ success: false, error: "Customer not found" });
     }
     res.json({ success: true, data: result.rows[0] });
   } catch (err) {
-    console.error('Update customer error:', err);
+    console.error("Update customer error:", err);
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
-router.delete('/:id', protect, restrictTo('owner', 'admin'), async (req, res) => {
+// DELETE CUSTOMER (Company-validated)
+router.delete("/:id", async (req, res) => {
   try {
     const { id } = req.params;
-    const result = await pool.query('DELETE FROM customers WHERE id =  RETURNING id', [id]);
+    const companyId = req.user.company_id;
+    const result = await pool.query(
+      "DELETE FROM customers WHERE id = $1 AND company_id = $2 RETURNING id",
+      [id, companyId]
+    );
     if (result.rows.length === 0) {
-      return res.status(404).json({ success: false, error: 'Customer not found' });
+      return res.status(404).json({ success: false, error: "Customer not found" });
     }
-    res.json({ success: true, message: 'Customer deleted successfully' });
+    res.json({ success: true, message: "Customer deleted successfully" });
   } catch (err) {
-    console.error('Delete customer error:', err);
+    console.error("Delete customer error:", err);
     res.status(500).json({ success: false, error: err.message });
   }
 });

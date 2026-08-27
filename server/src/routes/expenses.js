@@ -1,4 +1,4 @@
-﻿import express from 'express';
+﻿import express from "express";
 import {
   getAllExpenses,
   getExpenseById,
@@ -7,21 +7,25 @@ import {
   deleteExpense,
   getExpenseSummary,
   getExpenseCategories
-} from '../controllers/expenseController.js';
-import { protect, restrictTo } from '../middleware/auth.js';
+} from "../controllers/expenseController.js";
+import { protect, allowOwner } from "../middleware/auth.js";
+import { authorizeCompany, authorizeBranch, requireCompanyContext } from "../middleware/authorization.js";
 
 const router = express.Router();
 
-// All expense routes require authentication and owner/admin role
+// All expense routes require authentication, company context, and owner role
 router.use(protect);
-router.use(restrictTo('owner', 'admin'));
+router.use(requireCompanyContext);
+router.use(authorizeCompany);
+router.use(allowOwner);
 
-router.get('/', getAllExpenses);
-router.get('/summary', getExpenseSummary);
-router.get('/categories', getExpenseCategories);
-router.get('/:id', getExpenseById);
-router.post('/', createExpense);
-router.put('/:id', updateExpense);
-router.delete('/:id', deleteExpense);
+// Branch-level expense routes
+router.get("/", authorizeBranch, getAllExpenses);
+router.get("/summary", authorizeBranch, getExpenseSummary);
+router.get("/categories", authorizeBranch, getExpenseCategories);
+router.get("/:id", authorizeBranch, getExpenseById);
+router.post("/", authorizeBranch, createExpense);
+router.put("/:id", authorizeBranch, updateExpense);
+router.delete("/:id", authorizeBranch, deleteExpense);
 
 export default router;

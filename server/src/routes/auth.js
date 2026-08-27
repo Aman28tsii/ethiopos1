@@ -1,4 +1,5 @@
-﻿import express from 'express';
+﻿// server/src/routes/auth.js
+import express from 'express';
 import {
   login,
   signup,
@@ -13,7 +14,8 @@ import {
   updateUser,
   deleteUser
 } from '../controllers/authController.js';
-import { protect, restrictTo } from '../middleware/auth.js';
+import { protect, allowOwner } from '../middleware/auth.js';
+import { authorizeCompany, authorizeBranch, requireCompanyContext } from '../middleware/authorization.js';
 
 const router = express.Router();
 
@@ -22,18 +24,22 @@ router.post('/login', login);
 router.post('/signup', signup);
 router.post('/verify', verifyToken);
 
-// Protected routes (need login)
+// Protected routes
 router.use(protect);
+
+// All routes below require company context
+router.use(requireCompanyContext);
+
 router.get('/me', getCurrentUser);
 router.post('/logout', logout);
 
-// Admin/Owner only routes
-router.get('/users', restrictTo('admin', 'owner'), getAllUsers);
-router.get('/users/pending', restrictTo('admin', 'owner'), getPendingUsers);
-router.put('/users/:id/approve', restrictTo('admin', 'owner'), approveUser);
-router.delete('/users/:id/reject', restrictTo('admin', 'owner'), rejectUser);
-router.put('/users/:id', restrictTo('admin', 'owner'), updateUser);
-router.delete('/users/:id', restrictTo('admin', 'owner'), deleteUser);
-router.get('/performance', protect, restrictTo('admin', 'owner', 'manager'), getStaffPerformance);
+// Owner only routes - with company isolation
+router.get('/users', authorizeCompany, allowOwner, getAllUsers);
+router.get('/users/pending', authorizeCompany, allowOwner, getPendingUsers);
+router.put('/users/:id/approve', authorizeCompany, allowOwner, approveUser);
+router.delete('/users/:id/reject', authorizeCompany, allowOwner, rejectUser);
+router.put('/users/:id', authorizeCompany, allowOwner, updateUser);
+router.delete('/users/:id', authorizeCompany, allowOwner, deleteUser);
+router.get('/performance', authorizeCompany, allowOwner, getStaffPerformance);
 
 export default router;
