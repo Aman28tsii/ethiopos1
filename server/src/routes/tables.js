@@ -9,10 +9,12 @@ router.use(protect);
 router.use(requireCompanyContext);
 router.use(authorizeBranch);
 
-// GET: All tables - enforce branch from user context
+// GET: All tables - ignore query param, use user context
 router.get("/", async (req, res) => {
     try {
+        // Always use the authenticated user's branch_id
         const branchId = req.user.branch_id;
+        
         const result = await pool.query(
             `SELECT t.id, t.table_number, t.capacity, t.status, t.waiter_id,
                     u.name as waiter_name
@@ -35,7 +37,7 @@ router.get("/available", async (req, res) => {
         const result = await pool.query(
             `SELECT id, table_number, capacity
              FROM tables 
-             WHERE branch_id = $1 AND status = 'available'
+             WHERE branch_id = $1 AND status = "available"
              ORDER BY table_number ASC`,
             [branchId]
         );
@@ -46,12 +48,15 @@ router.get("/available", async (req, res) => {
     }
 });
 
+// CREATE TABLE
 router.post("/", allowManager, async (req, res) => {
     const { table_number, capacity, status } = req.body;
     const branchId = req.user.branch_id;
+    
     if (!table_number || !capacity) {
         return res.status(400).json({ success: false, error: "Table number and capacity are required" });
     }
+    
     try {
         const result = await pool.query(
             `INSERT INTO tables (branch_id, table_number, capacity, status) 
@@ -70,6 +75,7 @@ router.put("/:id", allowManager, async (req, res) => {
     const { id } = req.params;
     const { table_number, capacity, status } = req.body;
     const branchId = req.user.branch_id;
+    
     try {
         const result = await pool.query(
             `UPDATE tables 
@@ -94,15 +100,17 @@ router.put("/:id", allowManager, async (req, res) => {
 router.delete("/:id", allowManager, async (req, res) => {
     const { id } = req.params;
     const branchId = req.user.branch_id;
+    
     try {
         const activeOrders = await pool.query(
             `SELECT id FROM orders 
-             WHERE table_id = $1 AND status NOT IN ('completed', 'cancelled')`,
+             WHERE table_id = $1 AND status NOT IN ("completed", "cancelled")`,
             [id]
         );
         if (activeOrders.rows.length > 0) {
             return res.status(400).json({ success: false, error: "Cannot delete table with active orders." });
         }
+        
         const result = await pool.query(
             "DELETE FROM tables WHERE id = $1 AND branch_id = $2 RETURNING id",
             [id, branchId]
@@ -122,9 +130,11 @@ router.put("/:id/status", allowManager, async (req, res) => {
     const { status } = req.body;
     const branchId = req.user.branch_id;
     const validStatuses = ["available", "occupied", "reserved", "cleaning"];
+    
     if (!validStatuses.includes(status)) {
         return res.status(400).json({ success: false, error: "Invalid status" });
     }
+    
     try {
         const result = await pool.query(
             `UPDATE tables 
