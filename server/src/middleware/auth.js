@@ -1,4 +1,5 @@
 ﻿import jwt from 'jsonwebtoken';
+import { query } from '../config/database.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your_super_secret_key';
 
@@ -6,7 +7,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'your_super_secret_key';
 const roleHierarchy = {
   'kitchen': 1,
   'waiter': 2,
-  'cashier': 4,  // ✅ Cashier level 4
+  'cashier': 4,
   'manager': 5,
   'owner': 6,
   'admin': 6
@@ -16,7 +17,7 @@ const roleHierarchy = {
 export const ALLOWED_ROLES = ['kitchen', 'waiter', 'cashier', 'manager', 'owner', 'admin', 'bar', 'both'];
 
 // Verify token and attach user to request
-export const protect = (req, res, next) => {
+export const protect = async (req, res, next) => {
   const token = req.headers.authorization?.split(' ')[1];
   
   if (!token) {
@@ -25,7 +26,35 @@ export const protect = (req, res, next) => {
   
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
-    req.user = decoded;
+    
+    // Fetch full user details including company_id and branch_id
+    const result = await query(
+      `SELECT id, name, email, role, status, is_active, company_id, branch_id 
+       FROM users WHERE id = $1`,
+      [decoded.id]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(401).json({ success: false, error: 'User not found.' });
+    }
+    
+    const user = result.rows[0];
+    
+    if (user.status !== 'active' || !user.is_active) {
+      return res.status(401).json({ success: false, error: 'Account is not active.' });
+    }
+    
+    // Attach user data to request
+    req.user = {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      status: user.status,
+      company_id: user.company_id,
+      branch_id: user.branch_id
+    };
+    
     next();
   } catch (error) {
     return res.status(401).json({ success: false, error: 'Invalid or expired token.' });
@@ -53,7 +82,7 @@ export const hasRole = (requiredRole) => {
 // Role-specific middleware
 export const allowOwner = hasRole('owner');
 export const allowManager = hasRole('manager');
-export const allowCashier = hasRole('cashier');  // ✅ Cashier middleware
+export const allowCashier = hasRole('cashier');
 export const allowWaiter = hasRole('waiter');
 export const allowKitchen = hasRole('kitchen');
 export const allowOrderTaker = hasRole('order_taker');
@@ -86,4 +115,14 @@ export const isOwner = (req) => {
 export const isManagerOrAbove = (req) => {
   const role = req.user?.role;
   return role === 'owner' || role === 'admin' || role === 'manager';
+};
+
+// Get company_id from user
+export const getCompanyId = (req) => {
+  return req.user?.company_id || null;
+};
+
+// Get branch_id from user
+export const getBranchId = (req) => {
+  return req.user?.branch_id || null;
 };

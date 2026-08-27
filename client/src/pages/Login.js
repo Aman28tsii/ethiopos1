@@ -34,6 +34,14 @@ const Login = ({ onLogin }) => {
         const user = response.data.user;
         const token = response.data.token;
         
+        // Store company_id and branch_id
+        if (user.company_id) {
+          localStorage.setItem('company_id', user.company_id);
+        }
+        if (user.branch_id) {
+          localStorage.setItem('branch_id', user.branch_id);
+        }
+        
         // Call the onLogin callback
         onLogin(user, token);
         

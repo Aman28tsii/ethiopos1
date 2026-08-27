@@ -9,7 +9,14 @@ const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
 
 const generateToken = (user) => {
   return jwt.sign(
-    { id: user.id, email: user.email, role: user.role, name: user.name },
+    { 
+      id: user.id, 
+      email: user.email, 
+      role: user.role, 
+      name: user.name,
+      company_id: user.company_id,
+      branch_id: user.branch_id
+    },
     JWT_SECRET,
     { expiresIn: JWT_EXPIRES_IN }
   );
@@ -24,7 +31,7 @@ export const login = catchAsync(async (req, res) => {
   }
   
   const result = await query(
-    `SELECT id, name, email, password, role, status, is_active FROM users WHERE email = $1`,
+    `SELECT id, name, email, password, role, status, is_active, company_id, branch_id FROM users WHERE email = $1`,
     [email.toLowerCase().trim()]
   );
   
@@ -61,7 +68,9 @@ export const login = catchAsync(async (req, res) => {
       name: user.name,
       email: user.email,
       role: user.role,
-      status: user.status
+      status: user.status,
+      company_id: user.company_id,
+      branch_id: user.branch_id
     }
   });
 });
@@ -96,9 +105,9 @@ export const signup = catchAsync(async (req, res) => {
   const hashedPassword = await bcrypt.hash(password, 12);
   
   const result = await query(
-    `INSERT INTO users (business_id, name, email, password, role, phone, status, is_active)
-     VALUES (1, $1, $2, $3, $4, $5, 'pending', false)
-     RETURNING id, name, email, role, status, created_at`,
+    `INSERT INTO users (business_id, name, email, password, role, phone, status, is_active, company_id, branch_id)
+     VALUES (1, $1, $2, $3, $4, $5, 'pending', false, (SELECT id FROM companies LIMIT 1), (SELECT id FROM branches LIMIT 1))
+     RETURNING id, name, email, role, status, created_at, company_id, branch_id`,
     [name.trim(), email.toLowerCase().trim(), hashedPassword, userRole, phone || null]
   );
   
@@ -134,7 +143,7 @@ export const approveUser = catchAsync(async (req, res) => {
     `UPDATE users 
      SET status = 'active', role = $1, is_active = true
      WHERE id = $2 AND status = 'pending'
-     RETURNING id, name, email, role, status`,
+     RETURNING id, name, email, role, status, company_id, branch_id`,
     [role, id]
   );
   
@@ -171,7 +180,7 @@ export const rejectUser = catchAsync(async (req, res) => {
 // Get all users
 export const getAllUsers = catchAsync(async (req, res) => {
   const result = await query(
-    `SELECT id, name, email, role, phone, status, is_active, created_at, last_login
+    `SELECT id, name, email, role, phone, status, is_active, created_at, last_login, company_id, branch_id
      FROM users ORDER BY created_at DESC`
   );
   
@@ -181,7 +190,7 @@ export const getAllUsers = catchAsync(async (req, res) => {
 // Get current user
 export const getCurrentUser = catchAsync(async (req, res) => {
   const result = await query(
-    `SELECT id, name, email, role, phone, status, created_at FROM users WHERE id = $1`,
+    `SELECT id, name, email, role, phone, status, created_at, company_id, branch_id FROM users WHERE id = $1`,
     [req.user.id]
   );
   
@@ -199,7 +208,7 @@ export const verifyToken = catchAsync(async (req, res) => {
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
     const user = await query(
-      'SELECT id, name, email, role, status FROM users WHERE id = $1',
+      'SELECT id, name, email, role, status, company_id, branch_id FROM users WHERE id = $1',
       [decoded.id]
     );
     
@@ -312,9 +321,10 @@ export const getStaffPerformance = catchAsync(async (req, res) => {
       AND s.created_at >= NOW() - INTERVAL '${days} days'
       AND s.status = 'completed'
     WHERE u.role IN ('cashier', 'waiter', 'manager', 'owner', 'admin')
+    AND u.company_id = $1
     GROUP BY u.id, u.name, u.role
     ORDER BY total_revenue DESC
-  `);
+  `, [req.user.company_id]);
   
   const ordersByWaiter = await query(`
     SELECT 
@@ -328,9 +338,10 @@ export const getStaffPerformance = catchAsync(async (req, res) => {
       AND o.created_at >= NOW() - INTERVAL '${days} days'
       AND o.status != 'cancelled'
     WHERE u.role = 'waiter'
+    AND u.company_id = $1
     GROUP BY u.id, u.name
     ORDER BY total_orders DESC
-  `);
+  `, [req.user.company_id]);
   
   res.json({
     success: true,
