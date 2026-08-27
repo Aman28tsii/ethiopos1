@@ -1,6 +1,6 @@
 ﻿import express from "express";
 import { protect, allowManager, allowWaiter, allowOwner } from "../middleware/auth.js";
-import { authorizeCompany, authorizeBranch, requireCompanyContext, requireBranchContext } from "../middleware/authorization.js";
+import { authorizeBranch, requireCompanyContext } from "../middleware/authorization.js";
 import { pool } from "../config/database.js";
 
 const router = express.Router();
@@ -9,7 +9,7 @@ router.use(protect);
 router.use(requireCompanyContext);
 router.use(authorizeBranch);
 
-// GET: All tables (branch filtered)
+// GET: All tables - enforce branch from user context
 router.get("/", async (req, res) => {
     try {
         const branchId = req.user.branch_id;
