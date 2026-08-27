@@ -29,7 +29,6 @@ router.get("/", async (req, res) => {
     }
 });
 
-// GET: Available tables
 router.get("/available", async (req, res) => {
     try {
         const branchId = req.user.branch_id;
@@ -47,7 +46,6 @@ router.get("/available", async (req, res) => {
     }
 });
 
-// POST: Create table
 router.post("/", allowManager, async (req, res) => {
     const { table_number, capacity, status } = req.body;
     const branchId = req.user.branch_id;
@@ -68,7 +66,6 @@ router.post("/", allowManager, async (req, res) => {
     }
 });
 
-// PUT: Update table
 router.put("/:id", allowManager, async (req, res) => {
     const { id } = req.params;
     const { table_number, capacity, status } = req.body;
@@ -94,7 +91,6 @@ router.put("/:id", allowManager, async (req, res) => {
     }
 });
 
-// DELETE: Delete table
 router.delete("/:id", allowManager, async (req, res) => {
     const { id } = req.params;
     const branchId = req.user.branch_id;
@@ -121,7 +117,6 @@ router.delete("/:id", allowManager, async (req, res) => {
     }
 });
 
-// PUT: Update table status
 router.put("/:id/status", allowManager, async (req, res) => {
     const { id } = req.params;
     const { status } = req.body;

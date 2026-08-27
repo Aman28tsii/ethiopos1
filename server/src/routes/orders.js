@@ -208,7 +208,7 @@ router.post("/", authorizeBranch, allowWaiter, async (req, res) => {
             
             if (table_id && order_type === 'dine_in') {
                 await client.query(`
-                    UPDATE tables SET status = "occupied", current_order_id = $1 WHERE id = $2
+                    UPDATE tables SET status = 'occupied', current_order_id = $1 WHERE id = $2
                 `, [orderId, table_id]);
             }
             
@@ -401,7 +401,7 @@ router.put("/confirm/:orderId", authorizeBranch, allowWaiter, async (req, res) =
         if (order.table_id) {
             await client.query(`
                 UPDATE tables 
-                SET status = "occupied", current_order_id = $1, pending_order_id = NULL, updated_at = NOW()
+                SET status = 'occupied', current_order_id = $1, pending_order_id = NULL, updated_at = NOW()
                 WHERE id = $2
             `, [orderId, order.table_id]);
         }

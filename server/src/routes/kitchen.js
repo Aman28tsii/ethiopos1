@@ -8,7 +8,6 @@ const router = express.Router();
 router.use(protect);
 router.use(requireCompanyContext);
 
-// GET: Kitchen Orders
 router.get("/orders", authorizeBranch, allowKitchen, async (req, res) => {
     try {
         const branchId = req.user.branch_id;
@@ -28,12 +27,12 @@ router.get("/orders", authorizeBranch, allowKitchen, async (req, res) => {
                 COALESCE(
                     json_agg(
                         json_build_object(
-                            "name", p.name,
-                            "quantity", oi.quantity,
-                            "price", oi.unit_price
+                            'name', p.name,
+                            'quantity', oi.quantity,
+                            'price', oi.unit_price
                         )
                     ) FILTER (WHERE p.id IS NOT NULL), 
-                    "[]"
+                    '[]'
                 ) as items
             FROM kitchen_orders ko
             JOIN orders o ON ko.order_id = o.id
@@ -57,7 +56,6 @@ router.get("/orders", authorizeBranch, allowKitchen, async (req, res) => {
     }
 });
 
-// PUT: Update Order Status
 router.put("/orders/:orderId/status", authorizeBranch, allowKitchen, async (req, res) => {
     const { orderId } = req.params;
     const { status } = req.body;
@@ -81,8 +79,8 @@ router.put("/orders/:orderId/status", authorizeBranch, allowKitchen, async (req,
              RETURNING *`,
             [status, orderId]
         );
-        if (status === "ready") {
-            await pool.query("UPDATE orders SET status = $1 WHERE id = $2", ["ready", orderId]);
+        if (status === 'ready') {
+            await pool.query("UPDATE orders SET status = $1 WHERE id = $2", ['ready', orderId]);
         }
         res.json({
             success: true,
@@ -95,7 +93,6 @@ router.put("/orders/:orderId/status", authorizeBranch, allowKitchen, async (req,
     }
 });
 
-// GET: Completed Orders
 router.get("/completed", authorizeBranch, allowKitchen, async (req, res) => {
     try {
         const branchId = req.user.branch_id;
@@ -117,7 +114,6 @@ router.get("/completed", authorizeBranch, allowKitchen, async (req, res) => {
     }
 });
 
-// GET: Kitchen Stats
 router.get("/stats", authorizeBranch, allowKitchen, async (req, res) => {
     try {
         const branchId = req.user.branch_id;

@@ -13,20 +13,17 @@ import { authorizeCompany, requireCompanyContext } from "../middleware/authoriza
 
 const router = express.Router();
 
-// ============================================================
-// PUBLIC ROUTES (No auth - but still company filtered)
-// ============================================================
+// Public routes
 router.get("/", validatePagination, getAllProducts);
 router.get("/categories", getCategories);
 router.get("/:id", getProductById);
 
-// ============================================================
-// PROTECTED ROUTES
-// ============================================================
+// Protected routes
 router.use(protect);
 router.use(requireCompanyContext);
 
-router.get("/all", authorizeCompany, allowManager, getAllProducts);
+// Admin view - use the same route but with auth
+router.get("/admin", authorizeCompany, allowManager, getAllProducts);
 router.post("/", authorizeCompany, allowOwner, validateProduct, createProduct);
 router.put("/:id", authorizeCompany, allowOwner, validateProduct, updateProduct);
 router.delete("/:id", authorizeCompany, allowOwner, deleteProduct);
