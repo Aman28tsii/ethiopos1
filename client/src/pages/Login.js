@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Store, Mail, Lock, Loader2, Eye, EyeOff } from 'lucide-react';
 import API from '../api/axios';
 import { useLanguage } from '../context/LanguageContext';
 
 const Login = ({ onLogin }) => {
   const { t } = useLanguage();
+  const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -30,7 +31,27 @@ const Login = ({ onLogin }) => {
       });
       
       if (response.data.success) {
-        onLogin(response.data.user, response.data.token);
+        const user = response.data.user;
+        const token = response.data.token;
+        
+        // Call the onLogin callback
+        onLogin(user, token);
+        
+        // Navigate based on role
+        const role = user.role;
+        if (role === 'admin' || role === 'owner') {
+          navigate('/owner/dashboard');
+        } else if (role === 'manager') {
+          navigate('/manager/dashboard');
+        } else if (role === 'cashier') {
+          navigate('/cashier/pos');
+        } else if (role === 'waiter') {
+          navigate('/waiter/tables');
+        } else if (role === 'kitchen') {
+          navigate('/kitchen/orders');
+        } else {
+          navigate('/dashboard');
+        }
       }
     } catch (err) {
       console.error('Login error:', err);
