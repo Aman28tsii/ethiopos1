@@ -17,6 +17,8 @@ import ingredientRoutes from './routes/ingredients.js';
 import recipeRoutes from './routes/recipes.js';
 import categoryRoutes from './routes/categories.js';
 import customerRoutes from './routes/customers.js';
+import kitchenRoutes from './routes/kitchen.js';
+
 import { errorHandler, notFound } from './middleware/errorHandler.js';
 
 dotenv.config();
@@ -54,6 +56,7 @@ app.use('/api/ingredients', ingredientRoutes);
 app.use('/api/recipes', recipeRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/customers', customerRoutes);
+app.use('/api/kitchen', kitchenRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {
