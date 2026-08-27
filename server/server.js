@@ -67,7 +67,9 @@ app.get('/api/health', (req, res) => {
 
 // 404 handler
 app.use(notFound);
-
+app.get('/health', (req, res) => {
+    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
 // Error handler
 app.use(errorHandler);
 
