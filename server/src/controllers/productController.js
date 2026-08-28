@@ -1,6 +1,6 @@
 // server/src/controllers/productController.js
 
-import { query } from '../config/database.js';
+import { query } from '../config/database.js';  // ← This is the correct import
 import { AppError, catchAsync } from '../middleware/errorHandler.js';
 
 // ============================================
@@ -10,7 +10,7 @@ export const getAllProducts = catchAsync(async (req, res) => {
     const { limit = 100, offset = 0 } = req.pagination || {};
     const companyId = req.query.companyId || req.user?.company_id || 1;
     
-    const result = await pool.query(
+    const result = await query(  // ← Use 'query' not 'pool.query'
         `SELECT id, name, price, category, description, is_available, company_id 
          FROM products 
          WHERE company_id = $1 AND is_available = true 
@@ -27,7 +27,7 @@ export const getAllProducts = catchAsync(async (req, res) => {
 export const getAllProductsAdmin = catchAsync(async (req, res) => {
     const companyId = req.user.company_id || req.params.companyId;
     
-    const result = await pool.query(
+    const result = await query(
         `SELECT id, name, price, category, description, is_available, company_id, created_at 
          FROM products 
          WHERE company_id = $1 
@@ -44,7 +44,7 @@ export const getProductById = catchAsync(async (req, res) => {
     const { id } = req.params;
     const companyId = req.query.companyId || req.user?.company_id || 1;
     
-    const result = await pool.query(
+    const result = await query(
         `SELECT id, name, price, category, description, is_available, company_id 
          FROM products 
          WHERE id = $1 AND company_id = $2`,
@@ -67,7 +67,7 @@ export const createProduct = catchAsync(async (req, res) => {
         throw new AppError('Name and price are required', 400);
     }
     
-    const result = await pool.query(
+    const result = await query(
         `INSERT INTO products (company_id, name, price, category, description, is_available) 
          VALUES ($1, $2, $3, $4, $5, true) 
          RETURNING id, name, price, category, description, is_available, company_id`,
@@ -89,7 +89,7 @@ export const updateProduct = catchAsync(async (req, res) => {
     const { name, price, category, is_available, description } = req.body;
     const companyId = req.user.company_id;
     
-    const result = await pool.query(
+    const result = await query(
         `UPDATE products 
          SET name = COALESCE($1, name), 
              price = COALESCE($2, price), 
@@ -120,7 +120,7 @@ export const deleteProduct = catchAsync(async (req, res) => {
     const { id } = req.params;
     const companyId = req.user.company_id;
     
-    const result = await pool.query(
+    const result = await query(
         'UPDATE products SET is_available = false WHERE id = $1 AND company_id = $2 RETURNING id',
         [id, companyId]
     );
@@ -141,7 +141,7 @@ export const deleteProduct = catchAsync(async (req, res) => {
 export const getCategories = catchAsync(async (req, res) => {
     const companyId = req.query.companyId || req.user?.company_id || 1;
     
-    const result = await pool.query(
+    const result = await query(
         `SELECT DISTINCT category FROM products 
          WHERE company_id = $1 AND is_available = true AND category IS NOT NULL 
          ORDER BY category`,
