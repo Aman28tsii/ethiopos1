@@ -1,18 +1,24 @@
 ﻿import express from "express";
 import { protect, allowManager, allowWaiter, allowOwner } from "../middleware/auth.js";
-import { authorizeBranch, requireCompanyContext } from "../middleware/authorization.js";
+import { authorizeCompany, authorizeBranch, requireCompanyContext } from "../middleware/authorization.js";
 import { pool } from "../config/database.js";
 
 const router = express.Router();
 
+// ============================================================
+// All routes require authentication, company context, and branch isolation
+// ============================================================
 router.use(protect);
 router.use(requireCompanyContext);
 router.use(authorizeBranch);
 
-// GET: All tables - ignore query param, use user context
+// ============================================================
+// GET: All tables (Branch-filtered — IGNORES query param)
+// ============================================================
 router.get("/", async (req, res) => {
     try {
-        // Always use the authenticated user's branch_id
+        // ALWAYS use the authenticated user's branch_id
+        // NEVER trust the query parameter for security
         const branchId = req.user.branch_id;
         
         const result = await pool.query(
@@ -31,13 +37,17 @@ router.get("/", async (req, res) => {
     }
 });
 
+// ============================================================
+// GET: Available tables (Branch-filtered)
+// ============================================================
 router.get("/available", async (req, res) => {
     try {
         const branchId = req.user.branch_id;
+        
         const result = await pool.query(
             `SELECT id, table_number, capacity
              FROM tables 
-             WHERE branch_id = $1 AND status = "available"
+             WHERE branch_id = $1 AND status = 'available'
              ORDER BY table_number ASC`,
             [branchId]
         );
@@ -48,22 +58,41 @@ router.get("/available", async (req, res) => {
     }
 });
 
-// CREATE TABLE
+// ============================================================
+// POST: Create table (Branch-level)
+// ============================================================
 router.post("/", allowManager, async (req, res) => {
     const { table_number, capacity, status } = req.body;
     const branchId = req.user.branch_id;
     
     if (!table_number || !capacity) {
-        return res.status(400).json({ success: false, error: "Table number and capacity are required" });
+        return res.status(400).json({ 
+            success: false, 
+            error: "Table number and capacity are required" 
+        });
     }
     
     try {
+        // Check if table number already exists in this branch
+        const existing = await pool.query(
+            "SELECT id FROM tables WHERE table_number = $1 AND branch_id = $2",
+            [table_number, branchId]
+        );
+        
+        if (existing.rows.length > 0) {
+            return res.status(400).json({ 
+                success: false, 
+                error: `Table ${table_number} already exists in this branch` 
+            });
+        }
+        
         const result = await pool.query(
             `INSERT INTO tables (branch_id, table_number, capacity, status) 
              VALUES ($1, $2, $3, $4) 
              RETURNING id, table_number, capacity, status`,
             [branchId, table_number, capacity, status || "available"]
         );
+        
         res.status(201).json({ success: true, data: result.rows[0] });
     } catch (err) {
         console.error("Create table error:", err);
@@ -71,6 +100,9 @@ router.post("/", allowManager, async (req, res) => {
     }
 });
 
+// ============================================================
+// PUT: Update table (Branch-validated)
+// ============================================================
 router.put("/:id", allowManager, async (req, res) => {
     const { id } = req.params;
     const { table_number, capacity, status } = req.body;
@@ -87,9 +119,11 @@ router.put("/:id", allowManager, async (req, res) => {
              RETURNING id, table_number, capacity, status`,
             [table_number, capacity, status, id, branchId]
         );
+        
         if (result.rows.length === 0) {
             return res.status(404).json({ success: false, error: "Table not found" });
         }
+        
         res.json({ success: true, data: result.rows[0] });
     } catch (err) {
         console.error("Update table error:", err);
@@ -97,27 +131,37 @@ router.put("/:id", allowManager, async (req, res) => {
     }
 });
 
+// ============================================================
+// DELETE: Delete table (Branch-validated)
+// ============================================================
 router.delete("/:id", allowManager, async (req, res) => {
     const { id } = req.params;
     const branchId = req.user.branch_id;
     
     try {
+        // Check if table has active orders
         const activeOrders = await pool.query(
             `SELECT id FROM orders 
-             WHERE table_id = $1 AND status NOT IN ("completed", "cancelled")`,
+             WHERE table_id = $1 AND status NOT IN ('completed', 'cancelled')`,
             [id]
         );
+        
         if (activeOrders.rows.length > 0) {
-            return res.status(400).json({ success: false, error: "Cannot delete table with active orders." });
+            return res.status(400).json({ 
+                success: false, 
+                error: "Cannot delete table with active orders." 
+            });
         }
         
         const result = await pool.query(
             "DELETE FROM tables WHERE id = $1 AND branch_id = $2 RETURNING id",
             [id, branchId]
         );
+        
         if (result.rows.length === 0) {
             return res.status(404).json({ success: false, error: "Table not found" });
         }
+        
         res.json({ success: true, message: "Table deleted successfully" });
     } catch (err) {
         console.error("Delete table error:", err);
@@ -125,14 +169,20 @@ router.delete("/:id", allowManager, async (req, res) => {
     }
 });
 
+// ============================================================
+// PUT: Update table status (Branch-validated)
+// ============================================================
 router.put("/:id/status", allowManager, async (req, res) => {
     const { id } = req.params;
     const { status } = req.body;
     const branchId = req.user.branch_id;
-    const validStatuses = ["available", "occupied", "reserved", "cleaning"];
     
+    const validStatuses = ["available", "occupied", "reserved", "cleaning"];
     if (!validStatuses.includes(status)) {
-        return res.status(400).json({ success: false, error: "Invalid status" });
+        return res.status(400).json({ 
+            success: false, 
+            error: "Invalid status" 
+        });
     }
     
     try {
@@ -143,9 +193,11 @@ router.put("/:id/status", allowManager, async (req, res) => {
              RETURNING id, table_number, status`,
             [status, id, branchId]
         );
+        
         if (result.rows.length === 0) {
             return res.status(404).json({ success: false, error: "Table not found" });
         }
+        
         res.json({ success: true, data: result.rows[0] });
     } catch (err) {
         console.error("Update table status error:", err);
