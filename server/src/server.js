@@ -1,108 +1,112 @@
-﻿import express from 'express';
-import cors from 'cors';
-import dotenv from 'dotenv';
-import { createServer } from 'http';
-import { Server } from 'socket.io';
-import { testConnection } from './config/database.js';
-import authRoutes from './routes/auth.js';
-import productRoutes from './routes/products.js';
-import saleRoutes from './routes/sales.js';
-import orderRoutes from './routes/orders.js';
-import tableRoutes from './routes/tables.js';
-import waiterRoutes from './routes/waiter.js';
-import dashboardRoutes from './routes/dashboard.js';
-import expenseRoutes from './routes/expenses.js';
-import profitRoutes from './routes/profit.js';
-import ingredientRoutes from './routes/ingredients.js';
-import recipeRoutes from './routes/recipes.js';
-import categoryRoutes from './routes/categories.js';
-import customerRoutes from './routes/customers.js';
-import kitchenRoutes from './routes/kitchen.js';
-
-import { errorHandler, notFound } from './middleware/errorHandler.js';
+﻿import express from "express";
+import cors from "cors";
+import helmet from "helmet";
+import dotenv from "dotenv";
+import { createServer } from "http";
+import { Server as SocketServer } from "socket.io";
+import { pool, testConnection } from "./config/database.js";
+import authRoutes from "./routes/auth.js";
+import dashboardRoutes from "./routes/dashboard.js";
+import expenseRoutes from "./routes/expenses.js";
+import ingredientRoutes from "./routes/ingredients.js";
+import kitchenRoutes from "./routes/kitchen.js";
+import orderRoutes from "./routes/orders.js";
+import productRoutes from "./routes/products.js";
+import profitRoutes from "./routes/profit.js";
+import recipeRoutes from "./routes/recipes.js";
+import saleRoutes from "./routes/sales.js";
+import tableRoutes from "./routes/tables.js";
+import waiterRoutes from "./routes/waiter.js";
+import categoryRoutes from "./routes/categories.js";
+import customerRoutes from "./routes/customers.js";
+import { errorHandler, notFound } from "./middleware/errorHandler.js";
 
 dotenv.config();
 
 const app = express();
-const httpServer = createServer(app);
-const io = new Server(httpServer, {
-  cors: {
-    origin: '*',
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH']
-  }
+const server = createServer(app);
+const io = new SocketServer(server, {
+    cors: {
+        origin: process.env.CORS_ORIGIN || "http://localhost:3000",
+        methods: ["GET", "POST", "PUT", "DELETE"],
+        credentials: true
+    },
+    path: "/socket.io"
 });
 
-const PORT = process.env.PORT || 5000;
+app.set("io", io);
 
 // Middleware
-app.use(cors());
+app.use(helmet({
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+    contentSecurityPolicy: false
+}));
+app.use(cors({
+    origin: process.env.CORS_ORIGIN || "http://localhost:3000",
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"]
+}));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Make io accessible to routes
-app.set('io', io);
-
 // Routes
-app.use('/api/auth', authRoutes);
-app.use('/api/products', productRoutes);
-app.use('/api/sales', saleRoutes);
-app.use('/api/orders', orderRoutes);
-app.use('/api/tables', tableRoutes);
-app.use('/api/waiter', waiterRoutes);
-app.use('/api/dashboard', dashboardRoutes);
-app.use('/api/expenses', expenseRoutes);
-app.use('/api/profit', profitRoutes);
-app.use('/api/ingredients', ingredientRoutes);
-app.use('/api/recipes', recipeRoutes);
-app.use('/api/categories', categoryRoutes);
-app.use('/api/customers', customerRoutes);
-app.use('/api/kitchen', kitchenRoutes);
+app.use("/api/auth", authRoutes);
+app.use("/api/dashboard", dashboardRoutes);
+app.use("/api/expenses", expenseRoutes);
+app.use("/api/ingredients", ingredientRoutes);
+app.use("/api/kitchen", kitchenRoutes);
+app.use("/api/orders", orderRoutes);
+app.use("/api/products", productRoutes);
+app.use("/api/profit", profitRoutes);
+app.use("/api/recipes", recipeRoutes);
+app.use("/api/sales", saleRoutes);
+app.use("/api/tables", tableRoutes);
+app.use("/api/waiter", waiterRoutes);
+app.use("/api/categories", categoryRoutes);
+app.use("/api/customers", customerRoutes);
 
 // Health check
-app.get('/api/health', (req, res) => {
-  res.json({ 
-    success: true, 
-    message: 'Server is running',
-    timestamp: new Date().toISOString(),
-    uptime: process.uptime()
-  });
+app.get("/health", (req, res) => {
+    res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
-// 404 handler
-app.use(notFound);
+// Root
+app.get("/", (req, res) => {
+    res.json({
+        name: "EthioPOS API",
+        version: "1.0.0",
+        status: "running",
+        endpoints: "/api/*"
+    });
+});
 
-// Error handler
+// Error handling
+app.use(notFound);
 app.use(errorHandler);
 
-// Socket.io connection
-io.on('connection', (socket) => {
-  console.log('Client connected:', socket.id);
-  
-  socket.on('disconnect', () => {
-    console.log('Client disconnected:', socket.id);
-  });
+// Socket.io
+io.on("connection", (socket) => {
+    console.log("🔌 Client connected:", socket.id);
+    socket.on("join_waiter", (waiterId) => {
+        socket.join(`waiter_${waiterId}`);
+    });
+    socket.on("join_kitchen", () => {
+        socket.join("kitchen");
+    });
+    socket.on("disconnect", () => {
+        console.log("🔌 Client disconnected:", socket.id);
+    });
 });
 
-// Start server
-async function startServer() {
-  const dbConnected = await testConnection();
-  
-  if (!dbConnected) {
-    console.error('Database connection failed. Exiting...');
-    process.exit(1);
-  }
-  
-  httpServer.listen(PORT, () => {
-    console.log('Server running on http://localhost:' + PORT);
-    console.log('Products API: http://localhost:' + PORT + '/api/products');
-    console.log('Sales API: http://localhost:' + PORT + '/api/sales');
-    console.log('Orders API: http://localhost:' + PORT + '/api/orders');
-    console.log('Tables API: http://localhost:' + PORT + '/api/tables');
-    console.log('WebSocket enabled - Real-time updates active');
-  });
-}
-
-startServer().catch((err) => {
-  console.error('Failed to start server:', err);
-  process.exit(1);
+const PORT = process.env.PORT || 5000;
+server.listen(PORT, async () => {
+    console.log(`🚀 Server running on port ${PORT}`);
+    console.log(`🔗 API: http://localhost:${PORT}/api`);
+    console.log(`🔌 WebSocket: ws://localhost:${PORT}/socket.io`);
+    const dbConnected = await testConnection();
+    if (dbConnected) console.log("✅ Database connected successfully");
+    else console.log("❌ Database connection failed");
 });
+
+export { app, server, io };
