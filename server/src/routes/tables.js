@@ -9,15 +9,11 @@ router.use(protect);
 router.use(requireCompanyContext);
 router.use(authorizeBranch);
 
-// GET: All tables - ALWAYS use user's branch from JWT
+// GET: All tables
 router.get("/", async (req, res) => {
     try {
         const branchId = req.user.branch_id;
-        
-        const result = await pool.query(
-            "SELECT id, table_number, capacity, status, waiter_id FROM tables WHERE branch_id =  ORDER BY table_number ASC",
-            [branchId]
-        );
+        const result = await pool.query("SELECT id, table_number, capacity, status, waiter_id FROM tables WHERE branch_id = $1 ORDER BY table_number ASC", [branchId]);
         res.json({ success: true, data: result.rows });
     } catch (err) {
         console.error("Get tables error:", err);
@@ -29,10 +25,7 @@ router.get("/", async (req, res) => {
 router.get("/available", async (req, res) => {
     try {
         const branchId = req.user.branch_id;
-        const result = await pool.query(
-            "SELECT id, table_number, capacity FROM tables WHERE branch_id =  AND status = 'available' ORDER BY table_number ASC",
-            [branchId]
-        );
+        const result = await pool.query("SELECT id, table_number, capacity FROM tables WHERE branch_id = $1 AND status = 'available' ORDER BY table_number ASC", [branchId]);
         res.json({ success: true, data: result.rows });
     } catch (err) {
         console.error("Get available tables error:", err);
@@ -47,10 +40,7 @@ router.post("/", allowManager, async (req, res) => {
         return res.status(400).json({ success: false, error: "Table number and capacity are required" });
     }
     try {
-        const result = await pool.query(
-            "INSERT INTO tables (branch_id, table_number, capacity, status) VALUES (, , , ) RETURNING *",
-            [branchId, table_number, capacity, status || "available"]
-        );
+        const result = await pool.query("INSERT INTO tables (branch_id, table_number, capacity, status) VALUES ($1, $2, $3, $4) RETURNING *", [branchId, table_number, capacity, status || "available"]);
         res.status(201).json({ success: true, data: result.rows[0] });
     } catch (err) {
         console.error("Create table error:", err);
@@ -63,10 +53,7 @@ router.put("/:id", allowManager, async (req, res) => {
     const { table_number, capacity, status } = req.body;
     const branchId = req.user.branch_id;
     try {
-        const result = await pool.query(
-            "UPDATE tables SET table_number = COALESCE(, table_number), capacity = COALESCE(, capacity), status = COALESCE(, status), updated_at = NOW() WHERE id =  AND branch_id =  RETURNING *",
-            [table_number, capacity, status, id, branchId]
-        );
+        const result = await pool.query("UPDATE tables SET table_number = COALESCE($1, table_number), capacity = COALESCE($2, capacity), status = COALESCE($3, status), updated_at = NOW() WHERE id = $4 AND branch_id = $5 RETURNING *", [table_number, capacity, status, id, branchId]);
         if (result.rows.length === 0) {
             return res.status(404).json({ success: false, error: "Table not found" });
         }
@@ -81,17 +68,11 @@ router.delete("/:id", allowManager, async (req, res) => {
     const { id } = req.params;
     const branchId = req.user.branch_id;
     try {
-        const activeOrders = await pool.query(
-            "SELECT id FROM orders WHERE table_id =  AND status NOT IN ('completed', 'cancelled')",
-            [id]
-        );
+        const activeOrders = await pool.query("SELECT id FROM orders WHERE table_id = $1 AND status NOT IN ('completed', 'cancelled')", [id]);
         if (activeOrders.rows.length > 0) {
             return res.status(400).json({ success: false, error: "Cannot delete table with active orders." });
         }
-        const result = await pool.query(
-            "DELETE FROM tables WHERE id =  AND branch_id =  RETURNING id",
-            [id, branchId]
-        );
+        const result = await pool.query("DELETE FROM tables WHERE id = $1 AND branch_id = $2 RETURNING id", [id, branchId]);
         if (result.rows.length === 0) {
             return res.status(404).json({ success: false, error: "Table not found" });
         }
@@ -111,10 +92,7 @@ router.put("/:id/status", allowManager, async (req, res) => {
         return res.status(400).json({ success: false, error: "Invalid status" });
     }
     try {
-        const result = await pool.query(
-            "UPDATE tables SET status = , updated_at = NOW() WHERE id =  AND branch_id =  RETURNING *",
-            [status, id, branchId]
-        );
+        const result = await pool.query("UPDATE tables SET status = $1, updated_at = NOW() WHERE id = $2 AND branch_id = $3 RETURNING *", [status, id, branchId]);
         if (result.rows.length === 0) {
             return res.status(404).json({ success: false, error: "Table not found" });
         }
