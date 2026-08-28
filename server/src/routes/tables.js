@@ -1,4 +1,6 @@
-﻿import express from "express";
+﻿// server/src/routes/tables.js
+
+import express from "express";
 import { protect, allowManager, allowOwner } from "../middleware/auth.js";
 import { 
     authorizeCompany, 

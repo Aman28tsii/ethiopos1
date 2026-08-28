@@ -45,28 +45,30 @@ const RealTimeNotifications = memo(() => {
         }
       }
       
-      if (role === 'kitchen' || role === 'manager' || role === 'owner' || role === 'admin') {
-        try {
-          // FIXED: Changed from /kitchen/orders to /orders/kitchen
-          const pendingOrdersRes = await API.get('/orders/kitchen');
-          const pendingOrders = pendingOrdersRes.data.data || [];
-          const pendingCount = pendingOrders.filter(o => o.status === 'pending').length;
-          
-          if (pendingCount > 0) {
+      // In RealTimeNotifications.js, find the fetchNotifications function
+// and update the kitchen orders fetch:
+
+if (role === 'kitchen' || role === 'manager' || role === 'owner' || role === 'admin') {
+    try {
+        // ✅ FIXED: Changed from /orders/kitchen to /kitchen/orders
+        const pendingOrdersRes = await API.get('/kitchen/orders');
+        const pendingOrders = pendingOrdersRes.data.data || [];
+        const pendingCount = pendingOrders.filter(o => o.status === 'pending').length;
+        
+        if (pendingCount > 0) {
             newNotifications.push({
-              id: 'pending-orders-' + Date.now(),
-              type: 'info',
-              message: pendingCount + ' ' + t('newOrdersWaiting'),
-              time: new Date().toLocaleTimeString(),
-              read: false,
-              link: '/kitchen/orders'
+                id: 'pending-orders-' + Date.now(),
+                type: 'info',
+                message: pendingCount + ' ' + t('newOrdersWaiting'),
+                time: new Date().toLocaleTimeString(),
+                read: false,
+                link: '/kitchen/orders'
             });
-          }
-        } catch (err) {
-          console.log('Kitchen orders not available for this role');
         }
-      }
-      
+    } catch (err) {
+        console.log('Kitchen orders not available for this role');
+    }
+}
       setNotifications(prev => {
         const existingIds = new Set(prev.map(n => n.id.split('-')[0]));
         const uniqueNew = newNotifications.filter(n => !existingIds.has(n.id.split('-')[0]));
