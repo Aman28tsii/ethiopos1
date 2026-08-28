@@ -169,6 +169,7 @@ router.post("/", authorizeBranch, allowManager, async (req, res) => {
     }
     
     try {
+        // Check if table exists - if it does, return error
         const duplicateCheck = await pool.query(
             "SELECT id FROM tables WHERE table_number = $1 AND branch_id = $2",
             [table_number, branchId]
