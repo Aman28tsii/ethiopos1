@@ -1,4 +1,5 @@
 ﻿// server/src/routes/auth.js
+
 import express from 'express';
 import {
   login,
@@ -12,7 +13,8 @@ import {
   getStaffPerformance,
   logout,
   updateUser,
-  deleteUser
+  deleteUser,
+  switchBranch  // ← This is the controller function
 } from '../controllers/authController.js';
 import { protect, allowOwner } from '../middleware/auth.js';
 import { 
@@ -26,16 +28,24 @@ import { pool } from '../config/database.js';
 
 const router = express.Router();
 
-// Public routes
+// ============================================================
+// PUBLIC ROUTES
+// ============================================================
 router.post('/login', login);
 router.post('/signup', signup);
 router.post('/verify', verifyToken);
 
-// Protected routes
+// ============================================================
+// PROTECTED ROUTES
+// ============================================================
 router.use(protect);
 
 // Get current user with branch/company info
 router.get('/me', getCurrentUser);
+
+// ============================================================
+// BRANCH ROUTES (STEP 3)
+// ============================================================
 
 // Get available branches for owner
 router.get('/branches', protect, getOwnerBranches, async (req, res) => {
@@ -71,56 +81,14 @@ router.get('/branches', protect, getOwnerBranches, async (req, res) => {
     });
 });
 
-// Switch branch (Owner only)
-router.post('/switch-branch', protect, allowOwner, async (req, res) => {
-    const { branchId } = req.body;
-    
-    if (!branchId) {
-        return res.status(400).json({ 
-            success: false, 
-            error: 'Branch ID required' 
-        });
-    }
-    
-    try {
-        // Verify branch belongs to owner's company
-        const branchCheck = await pool.query(
-            'SELECT id, name FROM branches WHERE id = $1 AND company_id = $2 AND is_active = true',
-            [branchId, req.user.company_id]
-        );
-        
-        if (branchCheck.rows.length === 0) {
-            return res.status(403).json({ 
-                success: false, 
-                error: 'Branch not accessible' 
-            });
-        }
-        
-        // Generate new JWT with updated branch
-        const jwt = req.headers.authorization?.split(' ')[1];
-        if (jwt) {
-            // Return new token with updated branch
-            const newToken = jwt; // In real implementation, generate new token
-            res.json({ 
-                success: true, 
-                message: 'Branch switched successfully',
-                branch: branchCheck.rows[0],
-                token: newToken
-            });
-        } else {
-            res.json({ 
-                success: true, 
-                message: 'Branch switched successfully',
-                branch: branchCheck.rows[0]
-            });
-        }
-    } catch (err) {
-        console.error('Switch branch error:', err);
-        res.status(500).json({ success: false, error: err.message });
-    }
-});
+// ============================================================
+// SWITCH BRANCH (USES CONTROLLER - KEEP ONLY THIS ONE)
+// ============================================================
+router.post('/switch-branch', protect, allowOwner, switchBranch);
 
-// All other auth routes...
+// ============================================================
+// USER MANAGEMENT (Owner only)
+// ============================================================
 router.get('/users', authorizeCompany, allowOwner, getAllUsers);
 router.get('/users/pending', authorizeCompany, allowOwner, getPendingUsers);
 router.put('/users/:id/approve', authorizeCompany, allowOwner, approveUser);
@@ -128,6 +96,10 @@ router.delete('/users/:id/reject', authorizeCompany, allowOwner, rejectUser);
 router.put('/users/:id', authorizeCompany, allowOwner, updateUser);
 router.delete('/users/:id', authorizeCompany, allowOwner, deleteUser);
 router.get('/performance', authorizeCompany, allowOwner, getStaffPerformance);
+
+// ============================================================
+// LOGOUT
+// ============================================================
 router.post('/logout', logout);
 
 export default router;

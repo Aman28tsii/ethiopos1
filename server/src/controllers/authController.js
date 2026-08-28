@@ -1,3 +1,5 @@
+// server/src/controllers/authController.js
+
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { query } from '../config/database.js';
@@ -6,8 +8,6 @@ import { ALLOWED_ROLES } from '../middleware/auth.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your_super_secret_key';
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
-
-// server/src/controllers/authController.js - Updated JWT generation
 
 const generateToken = (user) => {
   return jwt.sign(
@@ -24,7 +24,9 @@ const generateToken = (user) => {
   );
 };
 
-// Login user
+// ============================================================
+// LOGIN
+// ============================================================
 export const login = catchAsync(async (req, res) => {
   const { email, password } = req.body;
   
@@ -77,7 +79,9 @@ export const login = catchAsync(async (req, res) => {
   });
 });
 
-// Signup
+// ============================================================
+// SIGNUP
+// ============================================================
 export const signup = catchAsync(async (req, res) => {
   const { name, email, password, phone, role } = req.body;
   
@@ -89,7 +93,6 @@ export const signup = catchAsync(async (req, res) => {
     return res.status(400).json({ success: false, error: 'Password must be at least 6 characters' });
   }
   
-  // Validate role
   const userRole = role || 'staff';
   if (!ALLOWED_ROLES.includes(userRole) && userRole !== 'staff') {
     return res.status(400).json({ success: false, error: `Invalid role: ${userRole}. Allowed roles: ${ALLOWED_ROLES.join(', ')}` });
@@ -120,7 +123,9 @@ export const signup = catchAsync(async (req, res) => {
   });
 });
 
-// Get pending users
+// ============================================================
+// GET PENDING USERS
+// ============================================================
 export const getPendingUsers = catchAsync(async (req, res) => {
   const result = await query(
     `SELECT id, name, email, phone, status, created_at
@@ -131,12 +136,13 @@ export const getPendingUsers = catchAsync(async (req, res) => {
   res.json({ success: true, data: result.rows });
 });
 
-// Approve user
+// ============================================================
+// APPROVE USER
+// ============================================================
 export const approveUser = catchAsync(async (req, res) => {
   const { id } = req.params;
   const { role = 'staff' } = req.body;
   
-  // Validate role
   if (!ALLOWED_ROLES.includes(role)) {
     return res.status(400).json({ success: false, error: `Invalid role: ${role}. Allowed roles: ${ALLOWED_ROLES.join(', ')}` });
   }
@@ -160,7 +166,9 @@ export const approveUser = catchAsync(async (req, res) => {
   });
 });
 
-// Reject user
+// ============================================================
+// REJECT USER
+// ============================================================
 export const rejectUser = catchAsync(async (req, res) => {
   const { id } = req.params;
   
@@ -179,7 +187,9 @@ export const rejectUser = catchAsync(async (req, res) => {
   });
 });
 
-// Get all users
+// ============================================================
+// GET ALL USERS
+// ============================================================
 export const getAllUsers = catchAsync(async (req, res) => {
   const result = await query(
     `SELECT id, name, email, role, phone, status, is_active, created_at, last_login, company_id, branch_id
@@ -189,7 +199,9 @@ export const getAllUsers = catchAsync(async (req, res) => {
   res.json({ success: true, data: result.rows });
 });
 
-// Get current user
+// ============================================================
+// GET CURRENT USER
+// ============================================================
 export const getCurrentUser = catchAsync(async (req, res) => {
   const result = await query(
     `SELECT id, name, email, role, phone, status, created_at, company_id, branch_id FROM users WHERE id = $1`,
@@ -199,7 +211,9 @@ export const getCurrentUser = catchAsync(async (req, res) => {
   res.json({ success: true, user: result.rows[0] });
 });
 
-// Verify token
+// ============================================================
+// VERIFY TOKEN
+// ============================================================
 export const verifyToken = catchAsync(async (req, res) => {
   const token = req.headers.authorization?.split(' ')[1];
   
@@ -224,17 +238,20 @@ export const verifyToken = catchAsync(async (req, res) => {
   }
 });
 
-// Logout
+// ============================================================
+// LOGOUT
+// ============================================================
 export const logout = catchAsync(async (req, res) => {
   res.json({ success: true, message: 'Logged out successfully' });
 });
 
-// Update user
+// ============================================================
+// UPDATE USER
+// ============================================================
 export const updateUser = catchAsync(async (req, res) => {
   const { id } = req.params;
   const { name, email, role, phone, station_type } = req.body;
   
-  // Validate role
   if (role && !ALLOWED_ROLES.includes(role)) {
     return res.status(400).json({ success: false, error: `Invalid role: ${role}. Allowed roles: ${ALLOWED_ROLES.join(', ')}` });
   }
@@ -280,7 +297,9 @@ export const updateUser = catchAsync(async (req, res) => {
   });
 });
 
-// Delete user
+// ============================================================
+// DELETE USER
+// ============================================================
 export const deleteUser = catchAsync(async (req, res) => {
   const { id } = req.params;
   
@@ -296,7 +315,9 @@ export const deleteUser = catchAsync(async (req, res) => {
   });
 });
 
-// Get staff performance data
+// ============================================================
+// GET STAFF PERFORMANCE
+// ============================================================
 export const getStaffPerformance = catchAsync(async (req, res) => {
   const { period = 'month' } = req.query;
   
@@ -353,4 +374,76 @@ export const getStaffPerformance = catchAsync(async (req, res) => {
       period: period
     }
   });
+});
+
+// ============================================================
+// SWITCH BRANCH (NEW — ADDED FOR STEP 3)
+// ============================================================
+export const switchBranch = catchAsync(async (req, res) => {
+    const { branchId } = req.body;
+    const userId = req.user.id;
+    const companyId = req.user.company_id;
+    
+    if (!branchId) {
+        return res.status(400).json({
+            success: false,
+            error: 'Branch ID required'
+        });
+    }
+    
+    // Verify branch belongs to user's company
+    const branchCheck = await query(
+        'SELECT id, name, is_active FROM branches WHERE id = $1 AND company_id = $2',
+        [branchId, companyId]
+    );
+    
+    if (branchCheck.rows.length === 0) {
+        return res.status(403).json({
+            success: false,
+            error: 'Branch not accessible for this company'
+        });
+    }
+    
+    if (!branchCheck.rows[0].is_active) {
+        return res.status(403).json({
+            success: false,
+            error: 'Branch is inactive'
+        });
+    }
+    
+    // Update user's branch in database
+    await query(
+        'UPDATE users SET branch_id = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+        [branchId, userId]
+    );
+    
+    // Get updated user data
+    const userResult = await query(
+        `SELECT id, name, email, role, phone, status, is_active, company_id, branch_id 
+         FROM users WHERE id = $1`,
+        [userId]
+    );
+    
+    const updatedUser = userResult.rows[0];
+    
+    // Generate new JWT with updated branch
+    const newToken = generateToken(updatedUser);
+    
+    res.json({
+        success: true,
+        message: 'Branch switched successfully',
+        token: newToken,
+        user: {
+            id: updatedUser.id,
+            name: updatedUser.name,
+            email: updatedUser.email,
+            role: updatedUser.role,
+            company_id: updatedUser.company_id,
+            branch_id: updatedUser.branch_id
+        },
+        branch: {
+            id: branchCheck.rows[0].id,
+            name: branchCheck.rows[0].name
+        }
+    });
 });
