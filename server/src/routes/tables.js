@@ -17,6 +17,55 @@ router.use(requireCompanyContext);
 router.use(authorizeCompany);
 
 // ============================================================
+// GET ALL TABLES (Branch-isolated) - Normal staff
+// ============================================================
+router.get("/", authorizeBranch, async (req, res) => {
+    try {
+        const branchId = req.user.branch_id;
+        const companyId = req.user.company_id;
+        
+        const result = await pool.query(
+            `SELECT id, table_number, capacity, status, waiter_id, 
+                    assigned_waiter_id, self_assigned, 
+                    current_order_id, pending_order_id,
+                    created_at, updated_at
+             FROM tables 
+             WHERE company_id = $1 AND branch_id = $2 
+             ORDER BY table_number ASC`,
+            [companyId, branchId]
+        );
+        
+        res.json({ success: true, data: result.rows });
+    } catch (err) {
+        console.error("Get tables error:", err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// ============================================================
+// GET AVAILABLE TABLES (Branch-isolated)
+// ============================================================
+router.get("/available", authorizeBranch, async (req, res) => {
+    try {
+        const branchId = req.user.branch_id;
+        const companyId = req.user.company_id;
+        
+        const result = await pool.query(
+            `SELECT id, table_number, capacity 
+             FROM tables 
+             WHERE company_id = $1 AND branch_id = $2 AND status = 'available' 
+             ORDER BY table_number ASC`,
+            [companyId, branchId]
+        );
+        
+        res.json({ success: true, data: result.rows });
+    } catch (err) {
+        console.error("Get available tables error:", err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// ============================================================
 // GET TABLES FOR OWNER - MUST BE BEFORE /:id
 // ============================================================
 router.get("/owner", allowOwner, async (req, res) => {
@@ -75,55 +124,6 @@ router.get("/owner", allowOwner, async (req, res) => {
 });
 
 // ============================================================
-// GET ALL TABLES (Branch-isolated)
-// ============================================================
-router.get("/", authorizeBranch, async (req, res) => {
-    try {
-        const branchId = req.user.branch_id;
-        const companyId = req.user.company_id;
-        
-        const result = await pool.query(
-            `SELECT id, table_number, capacity, status, waiter_id, 
-                    assigned_waiter_id, self_assigned, 
-                    current_order_id, pending_order_id,
-                    created_at, updated_at
-             FROM tables 
-             WHERE company_id = $1 AND branch_id = $2 
-             ORDER BY table_number ASC`,
-            [companyId, branchId]
-        );
-        
-        res.json({ success: true, data: result.rows });
-    } catch (err) {
-        console.error("Get tables error:", err);
-        res.status(500).json({ success: false, error: err.message });
-    }
-});
-
-// ============================================================
-// GET AVAILABLE TABLES (Branch-isolated)
-// ============================================================
-router.get("/available", authorizeBranch, async (req, res) => {
-    try {
-        const branchId = req.user.branch_id;
-        const companyId = req.user.company_id;
-        
-        const result = await pool.query(
-            `SELECT id, table_number, capacity 
-             FROM tables 
-             WHERE company_id = $1 AND branch_id = $2 AND status = 'available' 
-             ORDER BY table_number ASC`,
-            [companyId, branchId]
-        );
-        
-        res.json({ success: true, data: result.rows });
-    } catch (err) {
-        console.error("Get available tables error:", err);
-        res.status(500).json({ success: false, error: err.message });
-    }
-});
-
-// ============================================================
 // GET TABLE BY ID - MUST BE AFTER /owner AND /available
 // ============================================================
 router.get("/:id", authorizeBranch, async (req, res) => {
@@ -131,6 +131,14 @@ router.get("/:id", authorizeBranch, async (req, res) => {
         const { id } = req.params;
         const branchId = req.user.branch_id;
         const companyId = req.user.company_id;
+        
+        // Validate id is a number
+        if (isNaN(parseInt(id))) {
+            return res.status(400).json({ 
+                success: false, 
+                error: "Invalid table ID" 
+            });
+        }
         
         const result = await pool.query(
             `SELECT id, table_number, capacity, status, waiter_id, 
@@ -169,7 +177,7 @@ router.post("/", authorizeBranch, allowManager, async (req, res) => {
     }
     
     try {
-        // Check if table exists - if it does, return error
+        // Check for duplicate table number in this branch
         const duplicateCheck = await pool.query(
             "SELECT id FROM tables WHERE table_number = $1 AND branch_id = $2",
             [table_number, branchId]
@@ -208,7 +216,16 @@ router.put("/:id", authorizeBranch, allowManager, async (req, res) => {
     const branchId = req.user.branch_id;
     const companyId = req.user.company_id;
     
+    // Validate id is a number
+    if (isNaN(parseInt(id))) {
+        return res.status(400).json({ 
+            success: false, 
+            error: "Invalid table ID" 
+        });
+    }
+    
     try {
+        // Verify table exists and belongs to this branch
         const tableCheck = await pool.query(
             "SELECT id FROM tables WHERE id = $1 AND company_id = $2 AND branch_id = $3",
             [id, companyId, branchId]
@@ -244,7 +261,16 @@ router.delete("/:id", authorizeBranch, allowManager, async (req, res) => {
     const branchId = req.user.branch_id;
     const companyId = req.user.company_id;
     
+    // Validate id is a number
+    if (isNaN(parseInt(id))) {
+        return res.status(400).json({ 
+            success: false, 
+            error: "Invalid table ID" 
+        });
+    }
+    
     try {
+        // Verify table exists
         const tableCheck = await pool.query(
             "SELECT id FROM tables WHERE id = $1 AND company_id = $2 AND branch_id = $3",
             [id, companyId, branchId]
@@ -254,6 +280,7 @@ router.delete("/:id", authorizeBranch, allowManager, async (req, res) => {
             return res.status(404).json({ success: false, error: "Table not found" });
         }
         
+        // Check for active orders on this table
         const activeOrders = await pool.query(
             `SELECT id FROM orders 
              WHERE table_id = $1 
@@ -301,6 +328,14 @@ router.put("/:id/status", authorizeBranch, allowManager, async (req, res) => {
         });
     }
     
+    // Validate id is a number
+    if (isNaN(parseInt(id))) {
+        return res.status(400).json({ 
+            success: false, 
+            error: "Invalid table ID" 
+        });
+    }
+    
     try {
         const result = await pool.query(
             `UPDATE tables 
@@ -330,7 +365,16 @@ router.put("/:id/assign-waiter", authorizeBranch, allowManager, async (req, res)
     const branchId = req.user.branch_id;
     const companyId = req.user.company_id;
     
+    // Validate id is a number
+    if (isNaN(parseInt(id))) {
+        return res.status(400).json({ 
+            success: false, 
+            error: "Invalid table ID" 
+        });
+    }
+    
     try {
+        // Verify waiter belongs to this branch
         if (waiter_id) {
             const waiterCheck = await pool.query(
                 "SELECT id FROM users WHERE id = $1 AND branch_id = $2 AND role = 'waiter'",
