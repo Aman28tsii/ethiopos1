@@ -1,4 +1,5 @@
-﻿import jwt from 'jsonwebtoken';
+﻿// server/src/middleware/auth.js
+import jwt from 'jsonwebtoken';
 import { query } from '../config/database.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your_super_secret_key';
@@ -14,7 +15,7 @@ const roleHierarchy = {
 };
 
 // Allowed roles for validation
-export const ALLOWED_ROLES = ['kitchen', 'waiter', 'cashier', 'manager', 'owner', 'admin', 'bar', 'both'];
+export const ALLOWED_ROLES = ['kitchen', 'waiter', 'cashier', 'manager', 'owner', 'admin'];
 
 // Verify token and attach user to request
 export const protect = async (req, res, next) => {
@@ -51,12 +52,21 @@ export const protect = async (req, res, next) => {
       email: user.email,
       role: user.role,
       status: user.status,
-      company_id: user.company_id,
-      branch_id: user.branch_id
+      company_id: user.company_id || 1,  // Ensure fallback for existing data
+      branch_id: user.branch_id || 1     // Ensure fallback for existing data
     };
+    
+    // Debug log (remove in production)
+    console.log('🔐 Authenticated user:', {
+      id: req.user.id,
+      role: req.user.role,
+      company_id: req.user.company_id,
+      branch_id: req.user.branch_id
+    });
     
     next();
   } catch (error) {
+    console.error('Auth error:', error.message);
     return res.status(401).json({ success: false, error: 'Invalid or expired token.' });
   }
 };
@@ -85,7 +95,6 @@ export const allowManager = hasRole('manager');
 export const allowCashier = hasRole('cashier');
 export const allowWaiter = hasRole('waiter');
 export const allowKitchen = hasRole('kitchen');
-export const allowOrderTaker = hasRole('order_taker');
 
 // Check exact role (not hierarchy)
 export const restrictTo = (...roles) => {
