@@ -30,6 +30,7 @@ router.get("/", authorizeBranch, async (req, res) => {
             `SELECT id, table_number, capacity, status, waiter_id, 
                     assigned_waiter_id, self_assigned, 
                     current_order_id, pending_order_id,
+                    company_id, branch_id,
                     created_at, updated_at
              FROM tables 
              WHERE company_id = $1 AND branch_id = $2 
@@ -53,7 +54,7 @@ router.get("/available", authorizeBranch, async (req, res) => {
         const companyId = req.user.company_id;
         
         const result = await pool.query(
-            `SELECT id, table_number, capacity 
+            `SELECT id, table_number, capacity, company_id, branch_id
              FROM tables 
              WHERE company_id = $1 AND branch_id = $2 AND status = 'available' 
              ORDER BY table_number ASC`,
@@ -94,7 +95,7 @@ router.get("/owner", allowOwner, async (req, res) => {
             result = await pool.query(
                 `SELECT id, table_number, capacity, status, waiter_id, 
                         assigned_waiter_id, self_assigned,
-                        branch_id,
+                        company_id, branch_id,
                         current_order_id, pending_order_id,
                         created_at, updated_at
                  FROM tables 
@@ -107,7 +108,7 @@ router.get("/owner", allowOwner, async (req, res) => {
             result = await pool.query(
                 `SELECT t.id, t.table_number, t.capacity, t.status, t.waiter_id, 
                         t.assigned_waiter_id, t.self_assigned,
-                        t.branch_id, b.name as branch_name,
+                        t.company_id, t.branch_id, b.name as branch_name,
                         t.current_order_id, t.pending_order_id,
                         t.created_at, t.updated_at
                  FROM tables t
@@ -134,7 +135,6 @@ router.get("/:id", authorizeBranch, async (req, res) => {
         const branchId = req.user.branch_id;
         const companyId = req.user.company_id;
         
-        // Validate id is a number
         if (isNaN(parseInt(id))) {
             return res.status(400).json({ 
                 success: false, 
@@ -145,6 +145,7 @@ router.get("/:id", authorizeBranch, async (req, res) => {
         const result = await pool.query(
             `SELECT id, table_number, capacity, status, waiter_id, 
                     assigned_waiter_id, self_assigned,
+                    company_id, branch_id,
                     current_order_id, pending_order_id,
                     created_at, updated_at
              FROM tables 
@@ -179,7 +180,6 @@ router.post("/", authorizeBranch, allowManager, async (req, res) => {
     }
     
     try {
-        // Check for duplicate table number in this branch
         const duplicateCheck = await pool.query(
             "SELECT id FROM tables WHERE table_number = $1 AND branch_id = $2",
             [table_number, branchId]
@@ -195,7 +195,7 @@ router.post("/", authorizeBranch, allowManager, async (req, res) => {
         const result = await pool.query(
             `INSERT INTO tables (company_id, branch_id, table_number, capacity, status) 
              VALUES ($1, $2, $3, $4, $5) 
-             RETURNING *`,
+             RETURNING id, table_number, capacity, status, company_id, branch_id`,
             [companyId, branchId, table_number, capacity, status || "available"]
         );
         
@@ -218,7 +218,6 @@ router.put("/:id", authorizeBranch, allowManager, async (req, res) => {
     const branchId = req.user.branch_id;
     const companyId = req.user.company_id;
     
-    // Validate id is a number
     if (isNaN(parseInt(id))) {
         return res.status(400).json({ 
             success: false, 
@@ -227,7 +226,6 @@ router.put("/:id", authorizeBranch, allowManager, async (req, res) => {
     }
     
     try {
-        // Verify table exists and belongs to this branch
         const tableCheck = await pool.query(
             "SELECT id FROM tables WHERE id = $1 AND company_id = $2 AND branch_id = $3",
             [id, companyId, branchId]
@@ -244,7 +242,7 @@ router.put("/:id", authorizeBranch, allowManager, async (req, res) => {
                  status = COALESCE($3, status),
                  updated_at = NOW()
              WHERE id = $4 AND company_id = $5 AND branch_id = $6
-             RETURNING *`,
+             RETURNING id, table_number, capacity, status, company_id, branch_id`,
             [table_number, capacity, status, id, companyId, branchId]
         );
         
@@ -263,7 +261,6 @@ router.delete("/:id", authorizeBranch, allowManager, async (req, res) => {
     const branchId = req.user.branch_id;
     const companyId = req.user.company_id;
     
-    // Validate id is a number
     if (isNaN(parseInt(id))) {
         return res.status(400).json({ 
             success: false, 
@@ -272,7 +269,6 @@ router.delete("/:id", authorizeBranch, allowManager, async (req, res) => {
     }
     
     try {
-        // Verify table exists
         const tableCheck = await pool.query(
             "SELECT id FROM tables WHERE id = $1 AND company_id = $2 AND branch_id = $3",
             [id, companyId, branchId]
@@ -282,7 +278,6 @@ router.delete("/:id", authorizeBranch, allowManager, async (req, res) => {
             return res.status(404).json({ success: false, error: "Table not found" });
         }
         
-        // Check for active orders on this table
         const activeOrders = await pool.query(
             `SELECT id FROM orders 
              WHERE table_id = $1 
@@ -330,7 +325,6 @@ router.put("/:id/status", authorizeBranch, allowManager, async (req, res) => {
         });
     }
     
-    // Validate id is a number
     if (isNaN(parseInt(id))) {
         return res.status(400).json({ 
             success: false, 
@@ -343,7 +337,7 @@ router.put("/:id/status", authorizeBranch, allowManager, async (req, res) => {
             `UPDATE tables 
              SET status = $1, updated_at = NOW() 
              WHERE id = $2 AND company_id = $3 AND branch_id = $4
-             RETURNING *`,
+             RETURNING id, table_number, status, company_id, branch_id`,
             [status, id, companyId, branchId]
         );
         
@@ -367,7 +361,6 @@ router.put("/:id/assign-waiter", authorizeBranch, allowManager, async (req, res)
     const branchId = req.user.branch_id;
     const companyId = req.user.company_id;
     
-    // Validate id is a number
     if (isNaN(parseInt(id))) {
         return res.status(400).json({ 
             success: false, 
@@ -376,7 +369,6 @@ router.put("/:id/assign-waiter", authorizeBranch, allowManager, async (req, res)
     }
     
     try {
-        // Verify waiter belongs to this branch
         if (waiter_id) {
             const waiterCheck = await pool.query(
                 "SELECT id FROM users WHERE id = $1 AND branch_id = $2 AND role = 'waiter'",
@@ -396,7 +388,7 @@ router.put("/:id/assign-waiter", authorizeBranch, allowManager, async (req, res)
              SET assigned_waiter_id = $1, 
                  updated_at = NOW() 
              WHERE id = $2 AND company_id = $3 AND branch_id = $4
-             RETURNING *`,
+             RETURNING id, table_number, assigned_waiter_id, company_id, branch_id`,
             [waiter_id || null, id, companyId, branchId]
         );
         
