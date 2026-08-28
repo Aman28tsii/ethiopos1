@@ -12,7 +12,6 @@ router.use(authorizeBranch);
 // GET: All tables - ALWAYS use user's branch from JWT
 router.get("/", async (req, res) => {
     try {
-        // IGNORE query parameter - use JWT only
         const branchId = req.user.branch_id;
         
         const result = await pool.query(
