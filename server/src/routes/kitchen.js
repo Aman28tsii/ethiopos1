@@ -17,22 +17,18 @@ router.get("/orders", authorizeBranch, allowKitchen, async (req, res) => {
                 ko.order_id,
                 ko.status,
                 ko.created_at,
-                ko.started_at,
-                ko.completed_at,
                 o.order_number,
                 o.customer_name,
                 o.table_id,
-                o.total_amount,
                 t.table_number,
                 COALESCE(
                     json_agg(
                         json_build_object(
-                            'name', p.name,
-                            'quantity', oi.quantity,
-                            'price', oi.unit_price
+                            "name", p.name,
+                            "quantity", oi.quantity
                         )
                     ) FILTER (WHERE p.id IS NOT NULL), 
-                    '[]'
+                    "[]"
                 ) as items
             FROM kitchen_orders ko
             JOIN orders o ON ko.order_id = o.id
@@ -41,13 +37,8 @@ router.get("/orders", authorizeBranch, allowKitchen, async (req, res) => {
             LEFT JOIN products p ON oi.product_id = p.id
             WHERE ko.status IN ('pending', 'preparing')
               AND o.branch_id = $1
-            GROUP BY ko.id, o.order_number, o.customer_name, o.table_id, ko.status, ko.created_at, t.table_number, o.total_amount
-            ORDER BY 
-                CASE ko.status
-                    WHEN 'pending' THEN 1
-                    WHEN 'preparing' THEN 2
-                END,
-                ko.created_at ASC
+            GROUP BY ko.id, o.order_number, o.customer_name, o.table_id, ko.status, ko.created_at, t.table_number
+            ORDER BY ko.created_at ASC
         `, [branchId]);
         res.json({ success: true, data: result.rows });
     } catch (err) {
@@ -79,8 +70,8 @@ router.put("/orders/:orderId/status", authorizeBranch, allowKitchen, async (req,
              RETURNING *`,
             [status, orderId]
         );
-        if (status === 'ready') {
-            await pool.query("UPDATE orders SET status = $1 WHERE id = $2", ['ready', orderId]);
+        if (status === "ready") {
+            await pool.query("UPDATE orders SET status = $1 WHERE id = $2", ["ready", orderId]);
         }
         res.json({
             success: true,
@@ -110,26 +101,6 @@ router.get("/completed", authorizeBranch, allowKitchen, async (req, res) => {
         res.json({ success: true, data: result.rows });
     } catch (err) {
         console.error("Completed orders error:", err);
-        res.status(500).json({ success: false, error: err.message });
-    }
-});
-
-router.get("/stats", authorizeBranch, allowKitchen, async (req, res) => {
-    try {
-        const branchId = req.user.branch_id;
-        const result = await pool.query(`
-            SELECT 
-                COUNT(CASE WHEN ko.status = 'pending' THEN 1 END) as pending_count,
-                COUNT(CASE WHEN ko.status = 'preparing' THEN 1 END) as preparing_count,
-                COUNT(CASE WHEN ko.status = 'ready' THEN 1 END) as ready_count
-            FROM kitchen_orders ko
-            JOIN orders o ON ko.order_id = o.id
-            WHERE o.branch_id = $1
-              AND ko.created_at >= NOW() - INTERVAL '24 hours'
-        `, [branchId]);
-        res.json({ success: true, data: result.rows[0] });
-    } catch (err) {
-        console.error("Stats error:", err);
         res.status(500).json({ success: false, error: err.message });
     }
 });

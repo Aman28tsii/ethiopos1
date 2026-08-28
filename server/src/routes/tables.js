@@ -1,4 +1,4 @@
-import express from "express";
+﻿import express from "express";
 import { protect, allowManager } from "../middleware/auth.js";
 import { requireCompanyContext } from "../middleware/authorization.js";
 import { pool } from "../config/database.js";
@@ -8,7 +8,7 @@ const router = express.Router();
 router.use(protect);
 router.use(requireCompanyContext);
 
-// GET: All tables — HARDCODED branch from JWT, IGNORES query param
+// GET: All tables - IGNORES query param, uses JWT only
 router.get("/", async (req, res) => {
     try {
         const branchId = req.user.branch_id;
