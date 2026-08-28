@@ -1,29 +1,36 @@
-﻿import React, { useState, useEffect, useCallback } from 'react';
+﻿// client/src/pages/owner/OwnerDashboard.js
+
+import React, { useState, useEffect } from 'react';
 import API from '../../api/axios';
 import { Loader2, DollarSign, TrendingUp, Users, Calendar } from 'lucide-react';
 import { RevenueChart, TopProductsChart, PaymentMethodsChart, HourlySalesChart } from '../../components/Charts';
 import LowStockAlert from '../../components/LowStockAlert';
 import StaffPerformance from '../../components/StaffPerformance';
 import { useLanguage } from '../../context/LanguageContext';
+import { useBranch } from '../../context/BranchContext';
 import { formatCurrency } from '../../utils/formatting';
 
 const OwnerDashboard = () => {
   const { t } = useLanguage();
+  const { selectedBranch } = useBranch();
   const [data, setData] = useState(null);
   const [chartData, setChartData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [period, setPeriod] = useState('week');
 
-  useEffect(() => {
-    fetchData();
-  }, [period]);
-
   const fetchData = async () => {
     setLoading(true);
     try {
+      // Use selected branch for API calls
+      const branchId = selectedBranch?.id;
+      const params = { period };
+      if (branchId) {
+        params.branchId = branchId;
+      }
+      
       const [dashboardRes, chartsRes] = await Promise.all([
-        API.get('/dashboard'),
-        API.get('/dashboard/charts', { params: { period } })
+        API.get('/dashboard', { params }),
+        API.get('/dashboard/charts', { params })
       ]);
       setData(dashboardRes.data.data);
       setChartData(chartsRes.data.data);
@@ -33,6 +40,10 @@ const OwnerDashboard = () => {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    fetchData();
+  }, [period, selectedBranch]);
 
   if (loading) {
     return (
@@ -44,6 +55,14 @@ const OwnerDashboard = () => {
 
   return (
     <div className="space-y-6">
+      {/* Branch indicator */}
+      {selectedBranch && (
+        <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl px-4 py-2 flex items-center gap-2 text-blue-700 dark:text-blue-400 text-sm">
+          <span className="font-semibold">📍 Viewing:</span>
+          <span>{selectedBranch.name}</span>
+        </div>
+      )}
+
       <div className="flex justify-between items-center flex-wrap gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{t('ownerDashboard')}</h1>
