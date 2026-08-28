@@ -28,7 +28,7 @@ router.get("/orders", authorizeBranch, allowKitchen, async (req, res) => {
                             "quantity", oi.quantity
                         )
                     ) FILTER (WHERE p.id IS NOT NULL), 
-                    "[]"
+                    '[]'
                 ) as items
             FROM kitchen_orders ko
             JOIN orders o ON ko.order_id = o.id
