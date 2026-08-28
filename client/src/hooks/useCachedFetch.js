@@ -32,11 +32,21 @@ export function useCachedFetch(baseKey, fetchFn, ttl = 60000, dependencies = [])
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const isMounted = useRef(true);
+    const keyRef = useRef(getCacheKey(baseKey));
 
-    // Generate tenant-isolated key
-    const key = getCacheKey(baseKey);
+    // Regenerate key when context changes
+    const getCurrentKey = useCallback(() => {
+        const newKey = getCacheKey(baseKey);
+        if (keyRef.current !== newKey) {
+            console.log(`[CACHE KEY CHANGED] ${keyRef.current} → ${newKey}`);
+            keyRef.current = newKey;
+        }
+        return keyRef.current;
+    }, [baseKey]);
 
     const fetchData = useCallback(async () => {
+        const key = getCurrentKey();
+        
         // Check cache with tenant-isolated key
         const cached = cache.get(key);
         if (cached && Date.now() - cached.timestamp < ttl) {
@@ -98,7 +108,7 @@ export function useCachedFetch(baseKey, fetchFn, ttl = 60000, dependencies = [])
                 setLoading(false);
             }
         }
-    }, [key, fetchFn, ttl]);
+    }, [baseKey, fetchFn, ttl, getCurrentKey]);
 
     useEffect(() => {
         isMounted.current = true;
@@ -110,15 +120,17 @@ export function useCachedFetch(baseKey, fetchFn, ttl = 60000, dependencies = [])
     }, [fetchData, ...dependencies]);
 
     const refetch = useCallback(() => {
+        const key = getCurrentKey();
         console.log(`[CACHE INVALIDATE] ${key}`);
         cache.delete(key);
         fetchData();
-    }, [key, fetchData]);
+    }, [getCurrentKey, fetchData]);
 
     const invalidateCache = useCallback(() => {
+        const key = getCurrentKey();
         console.log(`[CACHE CLEAR] ${key}`);
         cache.delete(key);
-    }, [key]);
+    }, [getCurrentKey]);
 
     // Clear all cache for current user
     const clearUserCache = useCallback(() => {
