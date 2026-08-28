@@ -70,8 +70,8 @@ router.put("/orders/:orderId/status", authorizeBranch, allowKitchen, async (req,
              RETURNING *`,
             [status, orderId]
         );
-        if (status === "ready") {
-            await pool.query("UPDATE orders SET status = $1 WHERE id = $2", ["ready", orderId]);
+        if (status === 'ready') {
+            await pool.query("UPDATE orders SET status = $1 WHERE id = $2", ['ready', orderId]);
         }
         res.json({
             success: true,
