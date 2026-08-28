@@ -32,27 +32,15 @@ export const authorizeCompany = (req, res, next) => {
 };
 
 // ============================================================
-// BRANCH AUTHORIZATION - COMPLETELY IGNORES QUERY PARAMS
+// BRANCH AUTHORIZATION - IGNORES QUERY PARAMS FOR EVERYONE
 // ============================================================
 
 export const authorizeBranch = (req, res, next) => {
     const userBranchId = req.user?.branch_id;
     const userRole = req.user?.role;
     
-    // 🔑 For OWNER/ADMIN: Allow branch switching via query param
-    if (userRole === 'owner' || userRole === 'admin') {
-        const requestedBranchId = req.query.branchId || req.body.branchId;
-        
-        if (requestedBranchId) {
-            // Validate the branch belongs to this company
-            return validateBranchOwnership(req, res, next, requestedBranchId);
-        }
-        // No branch requested - use their default branch
-        req.branchId = userBranchId;
-        return next();
-    }
-    
-    // 🔑 For STAFF: ALWAYS use their JWT branch - IGNORE ALL query params
+    // 🔑 For ALL users: Use JWT branch, IGNORE query params
+    // This prevents branchId injection on normal endpoints
     if (!userBranchId) {
         return res.status(401).json({
             success: false,
@@ -60,30 +48,40 @@ export const authorizeBranch = (req, res, next) => {
         });
     }
     
-    // ✅ CRITICAL FIX: Ignore ALL query params for staff
-    // Use ONLY the authenticated user's branch
+    // ✅ Use ONLY the authenticated user's branch
+    // Completely ignore req.query.branchId, req.body.branchId, req.params.branchId
     req.branchId = userBranchId;
     next();
 };
 
 // ============================================================
-// VALIDATE BRANCH OWNERSHIP (For owners/admins only)
+// OWNER BRANCH SELECTION - For /owner endpoints only
 // ============================================================
 
-const validateBranchOwnership = async (req, res, next, branchId) => {
+export const validateOwnerBranch = async (req, res, next) => {
+    const userRole = req.user?.role;
     const userCompanyId = req.user?.company_id;
+    const requestedBranchId = req.query.branchId || req.body.branchId;
     
-    if (!userCompanyId) {
-        return res.status(401).json({
+    // Only owners and admins can use this
+    if (userRole !== 'owner' && userRole !== 'admin') {
+        return res.status(403).json({
             success: false,
-            error: 'User company not found. Please login again.'
+            error: 'Access denied. Owner or admin required.'
         });
     }
     
+    // If no branch requested, use their default branch
+    if (!requestedBranchId) {
+        req.branchId = req.user.branch_id;
+        return next();
+    }
+    
+    // Validate the branch belongs to their company
     try {
         const result = await pool.query(
             'SELECT id, name, is_active FROM branches WHERE id = $1 AND company_id = $2',
-            [branchId, userCompanyId]
+            [requestedBranchId, userCompanyId]
         );
         
         if (result.rows.length === 0) {
@@ -100,7 +98,7 @@ const validateBranchOwnership = async (req, res, next, branchId) => {
             });
         }
         
-        req.branchId = parseInt(branchId);
+        req.branchId = parseInt(requestedBranchId);
         next();
     } catch (error) {
         console.error('Branch validation error:', error);
@@ -131,10 +129,6 @@ export const userBelongsToCompany = (req, companyId) => {
 };
 
 export const userBelongsToBranch = (req, branchId) => {
-    const userRole = req.user?.role;
-    if (userRole === 'owner' || userRole === 'admin') {
-        return true;
-    }
     return req.user?.branch_id === parseInt(branchId);
 };
 
@@ -143,17 +137,12 @@ export const userBelongsToBranch = (req, branchId) => {
 // ============================================================
 
 export const requireBranchContext = (req, res, next) => {
-    if (req.user?.role === 'owner' || req.user?.role === 'admin') {
-        return next();
-    }
-    
     if (!req.user?.branch_id) {
         return res.status(403).json({
             success: false,
             error: 'Branch context required for this operation.'
         });
     }
-    
     next();
 };
 
@@ -189,6 +178,10 @@ export const getOwnerBranches = async (req, res, next) => {
     }
 };
 
+// ============================================================
+// VALIDATE BRANCH ACCESS (Generic)
+// ============================================================
+
 export const validateBranchAccess = async (req, res, next) => {
     const requestedBranchId = req.params.branchId || 
                               req.body.branchId || 
@@ -201,6 +194,7 @@ export const validateBranchAccess = async (req, res, next) => {
     const userRole = req.user?.role;
     const userCompanyId = req.user?.company_id;
     
+    // Normal staff cannot access other branches
     if (userRole !== 'owner' && userRole !== 'admin') {
         if (parseInt(requestedBranchId) !== req.user?.branch_id) {
             return res.status(403).json({
@@ -212,6 +206,7 @@ export const validateBranchAccess = async (req, res, next) => {
         return next();
     }
     
+    // Owners/admins can access any branch in their company
     try {
         const result = await pool.query(
             'SELECT id FROM branches WHERE id = $1 AND company_id = $2 AND is_active = true',
