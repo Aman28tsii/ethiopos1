@@ -6,12 +6,9 @@ import Login from './pages/Login';
 import Signup from './pages/Signup';
 import { LanguageProvider } from './context/LanguageContext';
 import { ThemeProvider } from './context/ThemeContext';
-import { BranchProvider } from './context/BranchContext';
+import { BranchProvider } from './context/BranchContext'; // NEW
 import ErrorBoundary from './components/ErrorBoundary';
 import Categories from './pages/owner/Categories';
-
-// REMOVED: CartProvider import
-// REMOVED: syncEngine import
 
 // Lazy load layouts
 const OwnerLayout = lazy(() => import('./layouts/OwnerLayout'));
@@ -95,8 +92,6 @@ function App() {
     setLoading(false);
   }, []);
 
-  // REMOVED: sync engine useEffect
-
   const handleLogin = useCallback((userData, token) => {
     localStorage.setItem('token', token);
     localStorage.setItem('user', JSON.stringify(userData));
@@ -107,7 +102,7 @@ function App() {
   const handleLogout = useCallback(() => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
-    localStorage.removeItem('ethiopos_selected_branch');
+    localStorage.removeItem('ethiopos_selected_branch'); // NEW
     setIsAuthenticated(false);
     setUser(null);
   }, []);
@@ -146,7 +141,7 @@ function App() {
     <ErrorBoundary>
       <ThemeProvider>
         <LanguageProvider>
-          <BranchProvider>
+          <BranchProvider> {/* NEW */}
             <Router>
               <Suspense fallback={<LoadingSpinner />}>
                 <Routes>
