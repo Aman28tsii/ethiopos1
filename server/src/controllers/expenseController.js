@@ -3,9 +3,9 @@
 import { query } from '../config/database.js';
 import { AppError, catchAsync } from '../middleware/errorHandler.js';
 
-// ============================================
+// ============================================================
 // GET ALL EXPENSES (Branch-isolated)
-// ============================================
+// ============================================================
 export const getAllExpenses = catchAsync(async (req, res) => {
     const { startDate, endDate, category, limit = 100, offset = 0 } = req.query;
     
@@ -59,9 +59,9 @@ export const getAllExpenses = catchAsync(async (req, res) => {
     });
 });
 
-// ============================================
+// ============================================================
 // GET EXPENSE BY ID (Tenant-validated)
-// ============================================
+// ============================================================
 export const getExpenseById = catchAsync(async (req, res) => {
     const { id } = req.params;
     
@@ -87,9 +87,9 @@ export const getExpenseById = catchAsync(async (req, res) => {
     res.json({ success: true, data: result.rows[0] });
 });
 
-// ============================================
+// ============================================================
 // CREATE EXPENSE (Branch-isolated)
-// ============================================
+// ============================================================
 export const createExpense = catchAsync(async (req, res) => {
     const { category, amount, description, expense_date } = req.body;
     
@@ -119,9 +119,9 @@ export const createExpense = catchAsync(async (req, res) => {
     });
 });
 
-// ============================================
+// ============================================================
 // UPDATE EXPENSE (Tenant-validated)
-// ============================================
+// ============================================================
 export const updateExpense = catchAsync(async (req, res) => {
     const { id } = req.params;
     const { category, amount, description, expense_date } = req.body;
@@ -156,9 +156,9 @@ export const updateExpense = catchAsync(async (req, res) => {
     });
 });
 
-// ============================================
+// ============================================================
 // DELETE EXPENSE (Tenant-validated)
-// ============================================
+// ============================================================
 export const deleteExpense = catchAsync(async (req, res) => {
     const { id } = req.params;
     
@@ -184,9 +184,9 @@ export const deleteExpense = catchAsync(async (req, res) => {
     });
 });
 
-// ============================================
+// ============================================================
 // GET EXPENSE SUMMARY (Branch-isolated)
-// ============================================
+// ============================================================
 export const getExpenseSummary = catchAsync(async (req, res) => {
     const { startDate, endDate } = req.query;
     
@@ -234,4 +234,26 @@ export const getExpenseSummary = catchAsync(async (req, res) => {
             by_category: categoryResult.rows
         }
     });
+});
+
+// ============================================================
+// GET EXPENSE CATEGORIES (Branch-isolated)  ← ADD THIS!
+// ============================================================
+export const getExpenseCategories = catchAsync(async (req, res) => {
+    if (!req.user?.company_id || !req.user?.branch_id) {
+        throw new AppError('Authentication required', 401);
+    }
+    
+    const companyId = req.user.company_id;
+    const branchId = req.user.branch_id;
+    
+    const result = await query(
+        `SELECT DISTINCT category 
+         FROM expenses 
+         WHERE company_id = $1 AND branch_id = $2 
+         ORDER BY category`,
+        [companyId, branchId]
+    );
+    
+    res.json({ success: true, data: result.rows.map(r => r.category) });
 });
