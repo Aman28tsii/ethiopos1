@@ -6,7 +6,6 @@ import reportWebVitals from './reportWebVitals';
 import { LanguageProvider } from './context/LanguageContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { BranchProvider } from './context/BranchContext';
-import { CartProvider } from './context/CartContext';
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 
@@ -15,9 +14,7 @@ root.render(
     <ThemeProvider>
       <LanguageProvider>
         <BranchProvider>
-          <CartProvider>
-            <App />
-          </CartProvider>
+          <App />
         </BranchProvider>
       </LanguageProvider>
     </ThemeProvider>

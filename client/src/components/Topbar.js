@@ -6,7 +6,8 @@ import { useLanguage } from '../context/LanguageContext';
 import RealTimeNotifications from './RealTimeNotifications';
 import ThemeToggle from './ThemeToggle';
 import BranchSelector from './BranchSelector';
-import SyncStatus from './SyncStatus';
+
+// REMOVED: SyncStatus import
 
 const Topbar = ({ user }) => {
   const { language, setLanguage, t } = useLanguage();
@@ -32,8 +33,7 @@ const Topbar = ({ user }) => {
         
         {/* Right Section */}
         <div className="flex items-center gap-2 sm:gap-4">
-          {/* Sync Status */}
-          <SyncStatus />
+          {/* REMOVED: SyncStatus */}
 
           {/* Branch Selector - Only for owners/admins */}
           <BranchSelector />
