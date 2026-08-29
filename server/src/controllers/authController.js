@@ -361,54 +361,52 @@ export const deleteUser = catchAsync(async (req, res) => {
 // GET STAFF PERFORMANCE
 // ============================================================
 export const getStaffPerformance = catchAsync(async (req, res) => {
-  const { period = 'month' } = req.query;
-  
-  if (!req.user?.company_id) {
-    throw new AppError('Authentication required', 401);
-  }
-  
-  const companyId = req.user.company_id;
-  const branchId = req.user.branch_id;
-  
-  let days;
-  switch(period) {
-    case 'week': days = 7; break;
-    case 'month': days = 30; break;
-    case 'year': days = 365; break;
-    default: days = 30;
-  }
-  
-  const salesByStaff = await query(`
-    SELECT 
-      u.id,
-      u.name,
-      u.role,
-      COUNT(s.id) as total_sales,
-      COALESCE(SUM(s.total_amount), 0) as total_revenue,
-      COALESCE(SUM(s.profit), 0) as total_profit,
-      COALESCE(AVG(s.total_amount), 0) as avg_order_value,
-      COUNT(DISTINCT DATE(s.created_at)) as active_days
-    FROM users u
-    LEFT JOIN sales s ON u.id = s.user_id 
-      AND s.created_at >= NOW() - INTERVAL '${days} days'
-      AND s.status = 'completed'
-      AND s.company_id = $1
-      AND s.branch_id = $2
-    WHERE u.role IN ('cashier', 'waiter', 'manager', 'owner', 'admin')
-      AND u.company_id = $1
-    GROUP BY u.id, u.name, u.role
-    ORDER BY total_revenue DESC
-  `, [companyId, branchId]);
-  
-  res.json({
-    success: true,
-    data: {
-      sales_by_staff: salesByStaff.rows,
-      period: period
+    const { period = 'month' } = req.query;
+    
+    if (!req.user?.company_id) {
+        throw new AppError('Authentication required', 401);
     }
-  });
+    
+    const companyId = req.user.company_id;
+    const branchId = req.user.branch_id;
+    
+    let days;
+    switch(period) {
+        case 'week': days = 7; break;
+        case 'month': days = 30; break;
+        case 'year': days = 365; break;
+        default: days = 30;
+    }
+    
+    // Get sales by staff from orders (not sales table)
+    const salesByStaff = await query(`
+        SELECT 
+            u.id,
+            u.name,
+            u.role,
+            COUNT(o.id) as total_sales,
+            COALESCE(SUM(o.total_amount), 0) as total_revenue,
+            COALESCE(AVG(o.total_amount), 0) as avg_order_value
+        FROM users u
+        LEFT JOIN orders o ON u.id = o.created_by 
+          AND o.created_at >= NOW() - INTERVAL '${days} days'
+          AND o.status = 'completed'
+          AND o.company_id = $1
+          AND o.branch_id = $2
+        WHERE u.role IN ('cashier', 'waiter', 'manager', 'owner', 'admin')
+          AND u.company_id = $1
+        GROUP BY u.id, u.name, u.role
+        ORDER BY total_revenue DESC
+    `, [companyId, branchId]);
+    
+    res.json({
+        success: true,
+        data: {
+            sales_by_staff: salesByStaff.rows,
+            period: period
+        }
+    });
 });
-
 // ============================================================
 // SWITCH BRANCH (Owner/Admin only)
 // ============================================================
