@@ -4,16 +4,13 @@ import { query } from '../config/database.js';
 import { AppError, catchAsync } from '../middleware/errorHandler.js';
 
 // ============================================
-// GET ALL PRODUCTS (Authenticated - Company-filtered)
+// GET ALL PRODUCTS (Public + Authenticated)
 // ============================================
 export const getAllProducts = catchAsync(async (req, res) => {
     const { limit = 100, offset = 0 } = req.pagination || {};
     
-    if (!req.user?.company_id) {
-        throw new AppError('Authentication required', 401);
-    }
-    
-    const companyId = req.user.company_id;
+    // Use authenticated company_id if available, otherwise use default company 1
+    const companyId = req.user?.company_id || 1;
     
     const result = await query(
         `SELECT id, name, price, category, description, is_available, company_id 
@@ -27,7 +24,7 @@ export const getAllProducts = catchAsync(async (req, res) => {
 });
 
 // ============================================
-// GET ALL PRODUCTS (Admin/Manager view)
+// GET ALL PRODUCTS (Admin/Manager view - Authenticated only)
 // ============================================
 export const getAllProductsAdmin = catchAsync(async (req, res) => {
     if (!req.user?.company_id) {
@@ -47,21 +44,18 @@ export const getAllProductsAdmin = catchAsync(async (req, res) => {
 });
 
 // ============================================
-// GET PRODUCT BY ID (Authenticated - Company-validated)
+// GET PRODUCT BY ID (Public + Authenticated)
 // ============================================
 export const getProductById = catchAsync(async (req, res) => {
     const { id } = req.params;
     
-    if (!req.user?.company_id) {
-        throw new AppError('Authentication required', 401);
-    }
-    
-    const companyId = req.user.company_id;
+    // Use authenticated company_id if available, otherwise use default company 1
+    const companyId = req.user?.company_id || 1;
     
     const result = await query(
         `SELECT id, name, price, category, description, is_available, company_id 
          FROM products 
-         WHERE id = $1 AND company_id = $2`,
+         WHERE id = $1 AND company_id = $2 AND is_available = true`,
         [id, companyId]
     );
     if (result.rows.length === 0) {
@@ -71,7 +65,24 @@ export const getProductById = catchAsync(async (req, res) => {
 });
 
 // ============================================
-// CREATE PRODUCT
+// GET CATEGORIES (Public + Authenticated)
+// ============================================
+export const getCategories = catchAsync(async (req, res) => {
+    // Use authenticated company_id if available, otherwise use default company 1
+    const companyId = req.user?.company_id || 1;
+    
+    const result = await query(
+        `SELECT DISTINCT category FROM products 
+         WHERE company_id = $1 AND is_available = true AND category IS NOT NULL 
+         ORDER BY category`,
+        [companyId]
+    );
+    
+    res.json({ success: true, data: result.rows.map(r => r.category) });
+});
+
+// ============================================
+// CREATE PRODUCT (Authenticated only)
 // ============================================
 export const createProduct = catchAsync(async (req, res) => {
     const { name, price, category, description } = req.body;
@@ -101,7 +112,7 @@ export const createProduct = catchAsync(async (req, res) => {
 });
 
 // ============================================
-// UPDATE PRODUCT
+// UPDATE PRODUCT (Authenticated only)
 // ============================================
 export const updateProduct = catchAsync(async (req, res) => {
     const { id } = req.params;
@@ -138,7 +149,7 @@ export const updateProduct = catchAsync(async (req, res) => {
 });
 
 // ============================================
-// DELETE PRODUCT (Soft delete)
+// DELETE PRODUCT (Soft delete - Authenticated only)
 // ============================================
 export const deleteProduct = catchAsync(async (req, res) => {
     const { id } = req.params;
@@ -162,24 +173,4 @@ export const deleteProduct = catchAsync(async (req, res) => {
         success: true, 
         message: 'Product deleted successfully' 
     });
-});
-
-// ============================================
-// GET CATEGORIES (Authenticated - Company-filtered)
-// ============================================
-export const getCategories = catchAsync(async (req, res) => {
-    if (!req.user?.company_id) {
-        throw new AppError('Authentication required', 401);
-    }
-    
-    const companyId = req.user.company_id;
-    
-    const result = await query(
-        `SELECT DISTINCT category FROM products 
-         WHERE company_id = $1 AND is_available = true AND category IS NOT NULL 
-         ORDER BY category`,
-        [companyId]
-    );
-    
-    res.json({ success: true, data: result.rows.map(r => r.category) });
 });
