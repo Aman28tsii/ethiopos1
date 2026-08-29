@@ -8,7 +8,6 @@ import {
     getWastageReport,
     getOrderWastage,
     updateIngredientWastage,
-    getAllIngredientsWithWastage,
     getLowStockIngredients,
     getProductsWithoutRecipes,
     getRecipeCount
@@ -40,13 +39,11 @@ router.get("/count", authorizeCompany, allowManager, getRecipeCount);
 // ============================================================
 router.get("/wastage-report", authorizeBranch, allowManager, getWastageReport);
 router.get("/order/:orderId/wastage", authorizeBranch, allowManager, getOrderWastage);
-// router.post("/order/:orderId/calculate-wastage", authorizeBranch, allowManager, calculateOrderWastage);
 
 // ============================================================
 // INGREDIENT WASTAGE SETTINGS (Branch-level)
 // ============================================================
 router.put("/ingredient/:id/wastage", authorizeBranch, allowOwner, updateIngredientWastage);
-router.get("/ingredients", authorizeBranch, allowManager, getAllIngredientsWithWastage);
 router.get("/ingredients/low-stock", authorizeBranch, allowManager, getLowStockIngredients);
 
 export default router;
