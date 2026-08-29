@@ -127,10 +127,17 @@ export const signup = catchAsync(async (req, res) => {
 // GET PENDING USERS
 // ============================================================
 export const getPendingUsers = catchAsync(async (req, res) => {
+  if (!req.user?.company_id) {
+    throw new AppError('Authentication required', 401);
+  }
+  
+  const companyId = req.user.company_id;
+  
   const result = await query(
     `SELECT id, name, email, phone, status, created_at
-     FROM users WHERE status = 'pending'
-     ORDER BY created_at ASC`
+     FROM users WHERE status = 'pending' AND company_id = $1
+     ORDER BY created_at ASC`,
+    [companyId]
   );
   
   res.json({ success: true, data: result.rows });
@@ -143,6 +150,12 @@ export const approveUser = catchAsync(async (req, res) => {
   const { id } = req.params;
   const { role = 'staff' } = req.body;
   
+  if (!req.user?.company_id) {
+    throw new AppError('Authentication required', 401);
+  }
+  
+  const companyId = req.user.company_id;
+  
   if (!ALLOWED_ROLES.includes(role)) {
     return res.status(400).json({ success: false, error: `Invalid role: ${role}. Allowed roles: ${ALLOWED_ROLES.join(', ')}` });
   }
@@ -150,9 +163,9 @@ export const approveUser = catchAsync(async (req, res) => {
   const result = await query(
     `UPDATE users 
      SET status = 'active', role = $1, is_active = true
-     WHERE id = $2 AND status = 'pending'
+     WHERE id = $2 AND status = 'pending' AND company_id = $3
      RETURNING id, name, email, role, status, company_id, branch_id`,
-    [role, id]
+    [role, id, companyId]
   );
   
   if (result.rows.length === 0) {
@@ -172,9 +185,15 @@ export const approveUser = catchAsync(async (req, res) => {
 export const rejectUser = catchAsync(async (req, res) => {
   const { id } = req.params;
   
+  if (!req.user?.company_id) {
+    throw new AppError('Authentication required', 401);
+  }
+  
+  const companyId = req.user.company_id;
+  
   const result = await query(
-    `DELETE FROM users WHERE id = $1 AND status = 'pending' RETURNING id`,
-    [id]
+    `DELETE FROM users WHERE id = $1 AND status = 'pending' AND company_id = $2 RETURNING id`,
+    [id, companyId]
   );
   
   if (result.rows.length === 0) {
@@ -191,9 +210,17 @@ export const rejectUser = catchAsync(async (req, res) => {
 // GET ALL USERS
 // ============================================================
 export const getAllUsers = catchAsync(async (req, res) => {
+  if (!req.user?.company_id) {
+    throw new AppError('Authentication required', 401);
+  }
+  
+  const companyId = req.user.company_id;
+  
   const result = await query(
     `SELECT id, name, email, role, phone, status, is_active, created_at, last_login, company_id, branch_id
-     FROM users ORDER BY created_at DESC`
+     FROM users WHERE company_id = $1
+     ORDER BY created_at DESC`,
+    [companyId]
   );
   
   res.json({ success: true, data: result.rows });
@@ -252,6 +279,12 @@ export const updateUser = catchAsync(async (req, res) => {
   const { id } = req.params;
   const { name, email, role, phone, station_type } = req.body;
   
+  if (!req.user?.company_id) {
+    throw new AppError('Authentication required', 401);
+  }
+  
+  const companyId = req.user.company_id;
+  
   if (role && !ALLOWED_ROLES.includes(role)) {
     return res.status(400).json({ success: false, error: `Invalid role: ${role}. Allowed roles: ${ALLOWED_ROLES.join(', ')}` });
   }
@@ -281,8 +314,8 @@ export const updateUser = catchAsync(async (req, res) => {
     params.push(station_type);
   }
   
-  queryStr += `updated_at = CURRENT_TIMESTAMP WHERE id = $${paramIndex} RETURNING *`;
-  params.push(id);
+  queryStr += `updated_at = CURRENT_TIMESTAMP WHERE id = $${paramIndex} AND company_id = $${paramIndex + 1} RETURNING *`;
+  params.push(id, companyId);
   
   const result = await query(queryStr, params);
   
@@ -303,7 +336,16 @@ export const updateUser = catchAsync(async (req, res) => {
 export const deleteUser = catchAsync(async (req, res) => {
   const { id } = req.params;
   
-  const result = await query('DELETE FROM users WHERE id = $1 RETURNING id', [id]);
+  if (!req.user?.company_id) {
+    throw new AppError('Authentication required', 401);
+  }
+  
+  const companyId = req.user.company_id;
+  
+  const result = await query(
+    'DELETE FROM users WHERE id = $1 AND company_id = $2 RETURNING id',
+    [id, companyId]
+  );
   
   if (result.rows.length === 0) {
     throw new AppError('User not found', 404);
@@ -320,6 +362,13 @@ export const deleteUser = catchAsync(async (req, res) => {
 // ============================================================
 export const getStaffPerformance = catchAsync(async (req, res) => {
   const { period = 'month' } = req.query;
+  
+  if (!req.user?.company_id) {
+    throw new AppError('Authentication required', 401);
+  }
+  
+  const companyId = req.user.company_id;
+  const branchId = req.user.branch_id;
   
   let days;
   switch(period) {
@@ -343,41 +392,25 @@ export const getStaffPerformance = catchAsync(async (req, res) => {
     LEFT JOIN sales s ON u.id = s.user_id 
       AND s.created_at >= NOW() - INTERVAL '${days} days'
       AND s.status = 'completed'
+      AND s.company_id = $1
+      AND s.branch_id = $2
     WHERE u.role IN ('cashier', 'waiter', 'manager', 'owner', 'admin')
-    AND u.company_id = $1
+      AND u.company_id = $1
     GROUP BY u.id, u.name, u.role
     ORDER BY total_revenue DESC
-  `, [req.user.company_id]);
-  
-  const ordersByWaiter = await query(`
-    SELECT 
-      u.id,
-      u.name,
-      COUNT(o.id) as total_orders,
-      COALESCE(SUM(o.total_amount), 0) as total_value,
-      COALESCE(AVG(o.total_amount), 0) as avg_order
-    FROM users u
-    LEFT JOIN orders o ON u.id = o.created_by
-      AND o.created_at >= NOW() - INTERVAL '${days} days'
-      AND o.status != 'cancelled'
-    WHERE u.role = 'waiter'
-    AND u.company_id = $1
-    GROUP BY u.id, u.name
-    ORDER BY total_orders DESC
-  `, [req.user.company_id]);
+  `, [companyId, branchId]);
   
   res.json({
     success: true,
     data: {
       sales_by_staff: salesByStaff.rows,
-      orders_by_waiter: ordersByWaiter.rows,
       period: period
     }
   });
 });
 
 // ============================================================
-// SWITCH BRANCH (NEW — ADDED FOR STEP 3)
+// SWITCH BRANCH (Owner/Admin only)
 // ============================================================
 export const switchBranch = catchAsync(async (req, res) => {
     const { branchId } = req.body;

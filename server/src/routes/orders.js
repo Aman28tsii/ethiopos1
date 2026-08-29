@@ -1,3 +1,5 @@
+// server/src/routes/orders.js
+
 import express from "express";
 import { protect, allowWaiter, allowCashier, allowKitchen, allowManager, allowOwner } from "../middleware/auth.js";
 import { authorizeCompany, authorizeBranch, requireCompanyContext } from "../middleware/authorization.js";
@@ -21,6 +23,13 @@ const generateSaleNumber = () => {
     return `SALE-${timestamp}${random}`;
 };
 
+const generateOrderNumber = () => {
+    const date = new Date();
+    const timestamp = date.getTime().toString().slice(-8);
+    const random = Math.floor(Math.random() * 1000).toString().padStart(3, "0");
+    return `ORD-${timestamp}${random}`;
+};
+
 // ============================================================
 // PUBLIC ROUTES
 // ============================================================
@@ -33,6 +42,7 @@ router.get("/track/:orderNumber", trackLimiter, async (req, res) => {
             SELECT o.id, o.order_number, o.total_amount, o.status, o.payment_status, 
                    o.customer_name, o.customer_phone, o.table_id, o.order_type, o.notes,
                    o.created_at, o.updated_at, o.waiter_id, o.confirmed_at,
+                   o.company_id, o.branch_id,
                    t.table_number
             FROM orders o
             LEFT JOIN tables t ON o.table_id = t.id
@@ -92,9 +102,12 @@ router.post("/qr-order", async (req, res) => {
             let totalAmount = 0;
             for (const item of items) {
                 const productResult = await client.query(
-                    "SELECT price FROM products WHERE id = $1",
+                    "SELECT price, company_id FROM products WHERE id = $1",
                     [item.product_id]
                 );
+                if (productResult.rows[0].company_id !== companyId) {
+                    throw new Error(`Product ${item.product_id} does not belong to this company`);
+                }
                 totalAmount += parseFloat(productResult.rows[0].price) * item.quantity;
             }
             
@@ -152,6 +165,39 @@ router.use(requireCompanyContext);
 // WAITER ROUTES (Branch-level)
 // ============================================================
 
+// Get all orders for waiter (branch-isolated)
+router.get("/", authorizeBranch, allowWaiter, async (req, res) => {
+    try {
+        const companyId = req.user.company_id;
+        const branchId = req.user.branch_id;
+        const { status, limit = 50, offset = 0 } = req.query;
+        
+        let queryStr = `
+            SELECT o.*, t.table_number, u.name as created_by_name
+            FROM orders o
+            LEFT JOIN tables t ON o.table_id = t.id
+            LEFT JOIN users u ON o.created_by = u.id
+            WHERE o.company_id = $1 AND o.branch_id = $2
+        `;
+        const params = [companyId, branchId];
+        let paramIndex = 3;
+        
+        if (status) {
+            queryStr += ` AND o.status = $${paramIndex++}`;
+            params.push(status);
+        }
+        
+        queryStr += ` ORDER BY o.created_at DESC LIMIT $${paramIndex++} OFFSET $${paramIndex++}`;
+        params.push(parseInt(limit), parseInt(offset));
+        
+        const result = await pool.query(queryStr, params);
+        res.json({ success: true, data: result.rows });
+    } catch (err) {
+        console.error("Get orders error:", err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
 // Create order
 router.post("/", authorizeBranch, allowWaiter, async (req, res) => {
     try {
@@ -167,16 +213,31 @@ router.post("/", authorizeBranch, allowWaiter, async (req, res) => {
         const client = await pool.connect();
         try {
             await client.query("BEGIN");
+            
+            // Verify table belongs to branch
+            if (table_id) {
+                const tableCheck = await client.query(
+                    "SELECT id FROM tables WHERE id = $1 AND branch_id = $2 AND company_id = $3",
+                    [table_id, branchId, companyId]
+                );
+                if (tableCheck.rows.length === 0) {
+                    return res.status(404).json({ success: false, error: "Table not found in this branch" });
+                }
+            }
+            
             let totalAmount = 0;
             for (const item of items) {
                 const productResult = await client.query(
-                    "SELECT price FROM products WHERE id = $1",
+                    "SELECT price, company_id FROM products WHERE id = $1",
                     [item.product_id]
                 );
+                if (productResult.rows[0].company_id !== companyId) {
+                    throw new Error(`Product ${item.product_id} does not belong to this company`);
+                }
                 totalAmount += parseFloat(productResult.rows[0].price) * item.quantity;
             }
             
-            const orderNumber = `ORD-${Date.now().toString().slice(-8)}${Math.floor(Math.random() * 1000)}`;
+            const orderNumber = generateOrderNumber();
             
             const orderResult = await client.query(`
                 INSERT INTO orders (
@@ -224,7 +285,13 @@ router.post("/", authorizeBranch, allowWaiter, async (req, res) => {
             res.status(201).json({
                 success: true,
                 message: "Order created and sent to kitchen",
-                data: { order_id: orderId, order_number: orderNumber, total_amount: totalAmount, stock_deductions: stockResult.deductions, total_wastage_cost: stockResult.totalWastageCost }
+                data: { 
+                    order_id: orderId, 
+                    order_number: orderNumber, 
+                    total_amount: totalAmount, 
+                    stock_deductions: stockResult.deductions, 
+                    total_wastage_cost: stockResult.totalWastageCost 
+                }
             });
         } catch (err) {
             await client.query("ROLLBACK");
@@ -238,11 +305,48 @@ router.post("/", authorizeBranch, allowWaiter, async (req, res) => {
     }
 });
 
+// Get order by ID (tenant-validated)
+router.get("/:orderId", authorizeBranch, allowWaiter, async (req, res) => {
+    const { orderId } = req.params;
+    const branchId = req.user.branch_id;
+    const companyId = req.user.company_id;
+    
+    try {
+        const result = await pool.query(`
+            SELECT o.*, t.table_number, u.name as created_by_name
+            FROM orders o
+            LEFT JOIN tables t ON o.table_id = t.id
+            LEFT JOIN users u ON o.created_by = u.id
+            WHERE o.id = $1 AND o.company_id = $2 AND o.branch_id = $3
+        `, [orderId, companyId, branchId]);
+        
+        if (result.rows.length === 0) {
+            return res.status(404).json({ success: false, error: "Order not found" });
+        }
+        
+        const items = await pool.query(`
+            SELECT oi.*, p.name as product_name
+            FROM order_items oi
+            JOIN products p ON oi.product_id = p.id
+            WHERE oi.order_id = $1
+        `, [orderId]);
+        
+        res.json({ 
+            success: true, 
+            data: { ...result.rows[0], items: items.rows } 
+        });
+    } catch (err) {
+        console.error("Get order error:", err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
 // Add items to existing order
 router.post("/:orderId/add-items", authorizeBranch, allowWaiter, async (req, res) => {
     const { orderId } = req.params;
     const { items } = req.body;
     const branchId = req.user.branch_id;
+    const companyId = req.user.company_id;
     
     if (!items || items.length === 0) {
         return res.status(400).json({ success: false, error: "No items to add" });
@@ -253,8 +357,8 @@ router.post("/:orderId/add-items", authorizeBranch, allowWaiter, async (req, res
         await client.query("BEGIN");
         
         const orderCheck = await client.query(
-            "SELECT status, payment_status, total_amount FROM orders WHERE id = $1 AND branch_id = $2",
-            [orderId, branchId]
+            "SELECT status, payment_status, total_amount FROM orders WHERE id = $1 AND branch_id = $2 AND company_id = $3",
+            [orderId, branchId, companyId]
         );
         
         if (orderCheck.rows.length === 0) {
@@ -273,9 +377,12 @@ router.post("/:orderId/add-items", authorizeBranch, allowWaiter, async (req, res
         
         for (const item of items) {
             const productResult = await client.query(
-                "SELECT price, name FROM products WHERE id = $1",
+                "SELECT price, company_id, name FROM products WHERE id = $1",
                 [item.product_id]
             );
+            if (productResult.rows[0].company_id !== companyId) {
+                throw new Error(`Product ${item.product_id} does not belong to this company`);
+            }
             const unitPrice = parseFloat(productResult.rows[0].price);
             const itemTotal = unitPrice * item.quantity;
             additionalAmount += itemTotal;
@@ -322,13 +429,14 @@ router.put("/:orderId/cancel", authorizeBranch, allowWaiter, async (req, res) =>
     const { reason } = req.body;
     const userId = req.user.id;
     const branchId = req.user.branch_id;
+    const companyId = req.user.company_id;
     
     const client = await pool.connect();
     try {
         await client.query("BEGIN");
         const orderCheck = await client.query(
-            "SELECT status, payment_status, table_id FROM orders WHERE id = $1 AND waiter_id = $2 AND branch_id = $3",
-            [orderId, userId, branchId]
+            "SELECT status, payment_status, table_id FROM orders WHERE id = $1 AND waiter_id = $2 AND branch_id = $3 AND company_id = $4",
+            [orderId, userId, branchId, companyId]
         );
         if (orderCheck.rows.length === 0) {
             throw new Error("Order not found or does not belong to you");
@@ -348,7 +456,7 @@ router.put("/:orderId/cancel", authorizeBranch, allowWaiter, async (req, res) =>
         `, [orderId]);
         if (order.table_id) {
             await client.query(`
-                UPDATE tables SET status = "available", current_order_id = NULL, pending_order_id = NULL, updated_at = NOW()
+                UPDATE tables SET status = 'available', current_order_id = NULL, pending_order_id = NULL, updated_at = NOW()
                 WHERE id = $1
             `, [order.table_id]);
         }
@@ -368,6 +476,7 @@ router.put("/confirm/:orderId", authorizeBranch, allowWaiter, async (req, res) =
     const { orderId } = req.params;
     const userId = req.user.id;
     const branchId = req.user.branch_id;
+    const companyId = req.user.company_id;
     
     const client = await pool.connect();
     try {
@@ -375,8 +484,8 @@ router.put("/confirm/:orderId", authorizeBranch, allowWaiter, async (req, res) =
         const orderCheck = await client.query(
             `SELECT o.id, o.status, o.table_id, o.customer_name, o.order_number, o.waiter_id
              FROM orders o
-             WHERE o.id = $1 AND o.status = 'pending_confirmation' AND o.branch_id = $2`,
-            [orderId, branchId]
+             WHERE o.id = $1 AND o.status = 'pending_confirmation' AND o.branch_id = $2 AND o.company_id = $3`,
+            [orderId, branchId, companyId]
         );
         if (orderCheck.rows.length === 0) {
             return res.status(404).json({ success: false, error: "Order not found or already confirmed" });
@@ -420,6 +529,7 @@ router.put("/confirm/:orderId", authorizeBranch, allowWaiter, async (req, res) =
 router.get("/pending-confirmation", authorizeBranch, allowWaiter, async (req, res) => {
     const waiterId = req.user.id;
     const branchId = req.user.branch_id;
+    const companyId = req.user.company_id;
     try {
         const result = await pool.query(`
             SELECT o.id, o.order_number, o.total_amount, o.customer_name, o.customer_phone, 
@@ -433,7 +543,7 @@ router.get("/pending-confirmation", authorizeBranch, allowWaiter, async (req, re
                                "price", oi.unit_price
                            )
                        ) FILTER (WHERE p.id IS NOT NULL), 
-                       "[]"
+                       '[]'
                    ) as items
             FROM orders o
             JOIN tables t ON o.table_id = t.id
@@ -441,11 +551,12 @@ router.get("/pending-confirmation", authorizeBranch, allowWaiter, async (req, re
             LEFT JOIN products p ON oi.product_id = p.id
             WHERE o.status = 'pending_confirmation' 
               AND o.branch_id = $1
-              AND (o.waiter_id = $2 OR o.waiter_id IS NULL)
+              AND o.company_id = $2
+              AND (o.waiter_id = $3 OR o.waiter_id IS NULL)
               AND o.source = 'qr_menu'
             GROUP BY o.id, t.table_number
             ORDER BY o.created_at ASC
-        `, [branchId, waiterId]);
+        `, [branchId, companyId, waiterId]);
         res.json({ success: true, data: result.rows });
     } catch (err) {
         console.error("Get pending confirmations error:", err);
@@ -457,6 +568,7 @@ router.get("/pending-confirmation", authorizeBranch, allowWaiter, async (req, re
 router.get("/my-orders", authorizeBranch, allowWaiter, async (req, res) => {
     const userId = req.user.id;
     const branchId = req.user.branch_id;
+    const companyId = req.user.company_id;
     try {
         const result = await pool.query(`
             SELECT o.id, o.order_number, o.total_amount, o.status, o.payment_status,
@@ -470,7 +582,7 @@ router.get("/my-orders", authorizeBranch, allowWaiter, async (req, res) => {
                                "price", oi.unit_price
                            )
                        ) FILTER (WHERE p.id IS NOT NULL), 
-                       "[]"
+                       '[]'
                    ) as items
             FROM orders o
             JOIN tables t ON o.table_id = t.id
@@ -478,10 +590,11 @@ router.get("/my-orders", authorizeBranch, allowWaiter, async (req, res) => {
             LEFT JOIN products p ON oi.product_id = p.id
             WHERE o.waiter_id = $1
               AND o.branch_id = $2
+              AND o.company_id = $3
               AND o.status NOT IN ('completed', 'cancelled', 'pending_confirmation')
             GROUP BY o.id, t.table_number
             ORDER BY o.created_at DESC
-        `, [userId, branchId]);
+        `, [userId, branchId, companyId]);
         res.json({ success: true, data: result.rows });
     } catch (err) {
         console.error("Get waiter orders error:", err);
@@ -497,6 +610,7 @@ router.get("/my-orders", authorizeBranch, allowWaiter, async (req, res) => {
 router.get("/ready", authorizeBranch, allowCashier, async (req, res) => {
     try {
         const branchId = req.user.branch_id;
+        const companyId = req.user.company_id;
         const result = await pool.query(`
             SELECT o.id, o.order_number, o.total_amount, o.customer_name, o.table_id,
                    t.table_number, o.created_at,
@@ -508,8 +622,9 @@ router.get("/ready", authorizeBranch, allowCashier, async (req, res) => {
                 AND o.payment_status = 'pending'
                 AND o.status != 'completed'
                 AND o.branch_id = $1
+                AND o.company_id = $2
             ORDER BY o.created_at ASC
-        `, [branchId]);
+        `, [branchId, companyId]);
         res.json({ success: true, data: result.rows });
     } catch (err) {
         console.error("Ready orders error:", err);
@@ -522,6 +637,7 @@ router.post("/:orderId/pay", authorizeBranch, allowCashier, async (req, res) => 
     const { orderId } = req.params;
     const { payment_method } = req.body;
     const branchId = req.user.branch_id;
+    const companyId = req.user.company_id;
     
     const client = await pool.connect();
     try {
@@ -530,8 +646,8 @@ router.post("/:orderId/pay", authorizeBranch, allowCashier, async (req, res) => 
             SELECT o.*, ko.status as kitchen_status 
             FROM orders o
             JOIN kitchen_orders ko ON o.id = ko.order_id
-            WHERE o.id = $1 AND o.branch_id = $2
-        `, [orderId, branchId]);
+            WHERE o.id = $1 AND o.branch_id = $2 AND o.company_id = $3
+        `, [orderId, branchId, companyId]);
         if (orderResult.rows.length === 0) {
             throw new Error("Order not found");
         }
@@ -550,15 +666,15 @@ router.post("/:orderId/pay", authorizeBranch, allowCashier, async (req, res) => 
         if (order.table_id) {
             await client.query(`
                 UPDATE tables 
-                SET status = "available", current_order_id = NULL, updated_at = NOW()
+                SET status = 'available', current_order_id = NULL, updated_at = NOW()
                 WHERE id = $1
             `, [order.table_id]);
         }
         const saleNumber = generateSaleNumber();
         await client.query(`
-            INSERT INTO sales (sale_number, order_id, total_amount, payment_method, status, branch_id, created_at)
-            VALUES ($1, $2, $3, $4, 'completed', $5, NOW())
-        `, [saleNumber, orderId, order.total_amount, payment_method, branchId]);
+            INSERT INTO sales (sale_number, order_id, total_amount, payment_method, status, branch_id, company_id, created_at)
+            VALUES ($1, $2, $3, $4, 'completed', $5, $6, NOW())
+        `, [saleNumber, orderId, order.total_amount, payment_method, branchId, companyId]);
         await client.query("COMMIT");
         res.json({ success: true, message: "Payment processed successfully", data: { sale_number: saleNumber, order_id: orderId, total_amount: order.total_amount } });
     } catch (err) {
@@ -578,16 +694,17 @@ router.post("/:orderId/pay", authorizeBranch, allowCashier, async (req, res) => 
 router.get("/table/:tableId/active-order", authorizeBranch, allowWaiter, async (req, res) => {
     const { tableId } = req.params;
     const branchId = req.user.branch_id;
+    const companyId = req.user.company_id;
     try {
         const result = await pool.query(`
             SELECT id, order_number, total_amount, status, payment_status, created_at
             FROM orders 
-            WHERE table_id = $1 AND branch_id = $2
+            WHERE table_id = $1 AND branch_id = $2 AND company_id = $3
               AND status NOT IN ('completed', 'cancelled')
               AND payment_status != 'paid'
             ORDER BY created_at DESC 
             LIMIT 1
-        `, [tableId, branchId]);
+        `, [tableId, branchId, companyId]);
         res.json({ success: true, data: result.rows[0] || null });
     } catch (err) {
         console.error("Get active order error:", err);
@@ -605,20 +722,27 @@ router.post("/:orderId/customer-add-items", async (req, res) => {
     const client = await pool.connect();
     try {
         await client.query("BEGIN");
+        
+        // Get order details to verify company
         const orderCheck = await client.query(
-            "SELECT id, status, total_amount FROM orders WHERE id = $1 AND status = $2",
+            "SELECT id, status, total_amount, company_id FROM orders WHERE id = $1 AND status = $2",
             [orderId, 'pending_confirmation']
         );
         if (orderCheck.rows.length === 0) {
             return res.status(404).json({ success: false, error: "Order not found or already confirmed" });
         }
         const order = orderCheck.rows[0];
+        const companyId = order.company_id;
+        
         let additionalAmount = 0;
         for (const item of items) {
             const productResult = await client.query(
-                "SELECT price, name FROM products WHERE id = $1",
+                "SELECT price, company_id, name FROM products WHERE id = $1",
                 [item.product_id]
             );
+            if (productResult.rows[0].company_id !== companyId) {
+                throw new Error(`Product ${item.product_id} does not belong to this company`);
+            }
             const unitPrice = parseFloat(productResult.rows[0].price);
             const itemTotal = unitPrice * item.quantity;
             additionalAmount += itemTotal;

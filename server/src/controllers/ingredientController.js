@@ -1,12 +1,20 @@
-﻿import { query } from '../config/database.js';
+﻿// server/src/controllers/ingredientController.js
+
+import { query } from '../config/database.js';
 import { AppError, catchAsync } from '../middleware/errorHandler.js';
 
-// ============================================
-// GET ALL INGREDIENTS (Branch-filtered)
-// ============================================
+// ============================================================
+// GET ALL INGREDIENTS (Branch-isolated)
+// ============================================================
 export const getAllIngredients = catchAsync(async (req, res) => {
     const { category, lowStock, search } = req.query;
-    const branchId = req.user.branch_id || req.query.branchId;
+    
+    if (!req.user?.company_id || !req.user?.branch_id) {
+        throw new AppError('Authentication required', 401);
+    }
+    
+    const companyId = req.user.company_id;
+    const branchId = req.user.branch_id;
     
     let sql = `
         SELECT id, name, unit, quantity, min_stock, unit_cost, 
@@ -14,10 +22,10 @@ export const getAllIngredients = catchAsync(async (req, res) => {
                default_cooking_loss_percentage, safety_stock,
                last_used, created_at, updated_at
         FROM ingredients
-        WHERE branch_id = $1
+        WHERE company_id = $1 AND branch_id = $2
     `;
-    const params = [branchId];
-    let paramIndex = 2;
+    const params = [companyId, branchId];
+    let paramIndex = 3;
     
     if (category) {
         sql += ` AND category = $${paramIndex++}`;
@@ -40,28 +48,38 @@ export const getAllIngredients = catchAsync(async (req, res) => {
     res.json({ success: true, data: result.rows });
 });
 
-// ============================================
-// GET LOW STOCK (Branch-filtered)
-// ============================================
+// ============================================================
+// GET LOW STOCK (Branch-isolated)
+// ============================================================
 export const getLowStock = catchAsync(async (req, res) => {
-    const branchId = req.user.branch_id || req.query.branchId;
+    if (!req.user?.company_id || !req.user?.branch_id) {
+        throw new AppError('Authentication required', 401);
+    }
+    
+    const companyId = req.user.company_id;
+    const branchId = req.user.branch_id;
     
     const result = await query(`
         SELECT id, name, unit, quantity, min_stock, category,
                safety_stock, (quantity + safety_stock) as effective_stock
         FROM ingredients
-        WHERE branch_id = $1 AND quantity <= min_stock
+        WHERE company_id = $1 AND branch_id = $2 AND quantity <= min_stock
         ORDER BY (quantity / NULLIF(min_stock, 0)) ASC
-    `, [branchId]);
+    `, [companyId, branchId]);
     
     res.json({ success: true, data: result.rows });
 });
 
-// ============================================
-// GET LOW STOCK ALERT (Branch-filtered)
-// ============================================
+// ============================================================
+// GET LOW STOCK ALERT (Branch-isolated)
+// ============================================================
 export const getLowStockAlert = catchAsync(async (req, res) => {
-    const branchId = req.user.branch_id || req.query.branchId;
+    if (!req.user?.company_id || !req.user?.branch_id) {
+        throw new AppError('Authentication required', 401);
+    }
+    
+    const companyId = req.user.company_id;
+    const branchId = req.user.branch_id;
     
     const result = await query(`
         SELECT 
@@ -82,9 +100,9 @@ export const getLowStockAlert = catchAsync(async (req, res) => {
                 ELSE 'ok'
             END as stock_status
         FROM ingredients
-        WHERE branch_id = $1 AND quantity <= min_stock
+        WHERE company_id = $1 AND branch_id = $2 AND quantity <= min_stock
         ORDER BY (quantity / NULLIF(min_stock, 0)) ASC
-    `, [branchId]);
+    `, [companyId, branchId]);
     
     res.json({ 
         success: true, 
@@ -93,16 +111,22 @@ export const getLowStockAlert = catchAsync(async (req, res) => {
     });
 });
 
-// ============================================
+// ============================================================
 // GET INGREDIENT BY ID (Branch-validated)
-// ============================================
+// ============================================================
 export const getIngredientById = catchAsync(async (req, res) => {
     const { id } = req.params;
-    const branchId = req.user.branch_id || req.query.branchId;
+    
+    if (!req.user?.company_id || !req.user?.branch_id) {
+        throw new AppError('Authentication required', 401);
+    }
+    
+    const companyId = req.user.company_id;
+    const branchId = req.user.branch_id;
     
     const result = await query(
-        `SELECT * FROM ingredients WHERE id = $1 AND branch_id = $2`,
-        [id, branchId]
+        `SELECT * FROM ingredients WHERE id = $1 AND company_id = $2 AND branch_id = $3`,
+        [id, companyId, branchId]
     );
     
     if (result.rows.length === 0) {
@@ -112,11 +136,15 @@ export const getIngredientById = catchAsync(async (req, res) => {
     res.json({ success: true, data: result.rows[0] });
 });
 
-// ============================================
+// ============================================================
 // GET INGREDIENT CATEGORIES (Company-level)
-// ============================================
+// ============================================================
 export const getIngredientCategories = catchAsync(async (req, res) => {
-    const companyId = req.user.company_id || req.query.companyId;
+    if (!req.user?.company_id) {
+        throw new AppError('Authentication required', 401);
+    }
+    
+    const companyId = req.user.company_id;
     
     const result = await query(
         `SELECT DISTINCT category FROM ingredients 
@@ -128,9 +156,9 @@ export const getIngredientCategories = catchAsync(async (req, res) => {
     res.json({ success: true, data: result.rows.map(r => r.category) });
 });
 
-// ============================================
-// CREATE INGREDIENT
-// ============================================
+// ============================================================
+// CREATE INGREDIENT (Branch-validated)
+// ============================================================
 export const createIngredient = catchAsync(async (req, res) => {
     const { 
         name, unit, quantity, min_stock, unit_cost, 
@@ -138,9 +166,12 @@ export const createIngredient = catchAsync(async (req, res) => {
         default_cooking_loss_percentage, safety_stock 
     } = req.body;
     
-    // Always use authenticated user's company and branch
+    if (!req.user?.company_id || !req.user?.branch_id) {
+        throw new AppError('Authentication required', 401);
+    }
+    
     const companyId = req.user.company_id;
-    const branchId = req.user.branch_id || req.body.branchId;
+    const branchId = req.user.branch_id;
     
     if (!name || !unit) {
         throw new AppError('Name and unit are required', 400);
@@ -170,17 +201,23 @@ export const createIngredient = catchAsync(async (req, res) => {
     });
 });
 
-// ============================================
+// ============================================================
 // UPDATE INGREDIENT (Branch-validated)
-// ============================================
+// ============================================================
 export const updateIngredient = catchAsync(async (req, res) => {
     const { id } = req.params;
-    const branchId = req.user.branch_id || req.body.branchId;
     const { 
         name, unit, quantity, min_stock, unit_cost, 
         category, supplier, default_wastage_percentage, 
         default_cooking_loss_percentage, safety_stock 
     } = req.body;
+    
+    if (!req.user?.company_id || !req.user?.branch_id) {
+        throw new AppError('Authentication required', 401);
+    }
+    
+    const companyId = req.user.company_id;
+    const branchId = req.user.branch_id;
 
     const result = await query(`
         UPDATE ingredients 
@@ -195,7 +232,7 @@ export const updateIngredient = catchAsync(async (req, res) => {
             default_cooking_loss_percentage = COALESCE($9, default_cooking_loss_percentage),
             safety_stock = COALESCE($10, safety_stock),
             updated_at = CURRENT_TIMESTAMP
-        WHERE id = $11 AND branch_id = $12
+        WHERE id = $11 AND company_id = $12 AND branch_id = $13
         RETURNING *
     `, [
         name, unit, quantity, min_stock, unit_cost, 
@@ -203,7 +240,7 @@ export const updateIngredient = catchAsync(async (req, res) => {
         default_wastage_percentage || 0, 
         default_cooking_loss_percentage || 0, 
         safety_stock || 0,
-        id, branchId
+        id, companyId, branchId
     ]);
 
     if (result.rows.length === 0) {
@@ -217,12 +254,18 @@ export const updateIngredient = catchAsync(async (req, res) => {
     });
 });
 
-// ============================================
+// ============================================================
 // DELETE INGREDIENT (Branch-validated)
-// ============================================
+// ============================================================
 export const deleteIngredient = catchAsync(async (req, res) => {
     const { id } = req.params;
-    const branchId = req.user.branch_id || req.body.branchId;
+    
+    if (!req.user?.company_id || !req.user?.branch_id) {
+        throw new AppError('Authentication required', 401);
+    }
+    
+    const companyId = req.user.company_id;
+    const branchId = req.user.branch_id;
     
     // Check if ingredient is used in recipes
     const recipeCheck = await query(
@@ -235,8 +278,8 @@ export const deleteIngredient = catchAsync(async (req, res) => {
     }
     
     const result = await query(
-        'DELETE FROM ingredients WHERE id = $1 AND branch_id = $2 RETURNING id',
-        [id, branchId]
+        'DELETE FROM ingredients WHERE id = $1 AND company_id = $2 AND branch_id = $3 RETURNING id',
+        [id, companyId, branchId]
     );
     
     if (result.rows.length === 0) {
@@ -249,18 +292,24 @@ export const deleteIngredient = catchAsync(async (req, res) => {
     });
 });
 
-// ============================================
+// ============================================================
 // ADJUST STOCK (Branch-validated)
-// ============================================
+// ============================================================
 export const adjustStock = catchAsync(async (req, res) => {
     const { id } = req.params;
     const { amount, reason } = req.body;
-    const branchId = req.user.branch_id || req.body.branchId;
+    
+    if (!req.user?.company_id || !req.user?.branch_id) {
+        throw new AppError('Authentication required', 401);
+    }
+    
+    const companyId = req.user.company_id;
+    const branchId = req.user.branch_id;
     
     // Verify ingredient exists in this branch
     const currentIngredient = await query(
-        'SELECT name, quantity, unit FROM ingredients WHERE id = $1 AND branch_id = $2',
-        [id, branchId]
+        'SELECT name, quantity, unit FROM ingredients WHERE id = $1 AND company_id = $2 AND branch_id = $3',
+        [id, companyId, branchId]
     );
     
     if (currentIngredient.rows.length === 0) {
@@ -278,9 +327,9 @@ export const adjustStock = catchAsync(async (req, res) => {
         UPDATE ingredients 
         SET quantity = $1,
             updated_at = CURRENT_TIMESTAMP
-        WHERE id = $2 AND branch_id = $3
+        WHERE id = $2 AND company_id = $3 AND branch_id = $4
         RETURNING *
-    `, [newQuantity, id, branchId]);
+    `, [newQuantity, id, companyId, branchId]);
     
     // Record stock transaction
     const transactionType = amount > 0 ? 'adjustment_add' : 'adjustment_remove';
