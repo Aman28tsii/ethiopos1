@@ -1,6 +1,6 @@
 // client/src/context/CartContext.js
 
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { saveCart, getCart, clearCart } from '../services/offlineDB';
 import { useBranch } from './BranchContext';
 
@@ -19,20 +19,31 @@ export const CartProvider = ({ children }) => {
     const [items, setItems] = useState([]);
     const [loading, setLoading] = useState(true);
     const [isOffline, setIsOffline] = useState(false);
+    const initialLoadDone = useRef(false);
+    const saveTimeout = useRef(null);
 
-    // Load cart from IndexedDB on mount
+    // Load cart from IndexedDB on mount (only once)
     useEffect(() => {
-        loadCart();
+        if (!initialLoadDone.current) {
+            loadCart();
+            initialLoadDone.current = true;
+        }
     }, []);
 
-    // Save cart whenever it changes
+    // Save cart whenever it changes (debounced)
     useEffect(() => {
-        if (!loading && selectedBranch) {
-            persistCart();
+        if (!loading && selectedBranch && items.length > 0) {
+            if (saveTimeout.current) {
+                clearTimeout(saveTimeout.current);
+            }
+            saveTimeout.current = setTimeout(() => {
+                persistCart();
+            }, 500);
         }
     }, [items, selectedBranch, loading]);
 
     const loadCart = async () => {
+        if (loading) return;
         setLoading(true);
         try {
             const saved = await getCart();

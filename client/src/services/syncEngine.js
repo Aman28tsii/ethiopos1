@@ -11,28 +11,44 @@ import {
 
 let isSyncing = false;
 let syncInterval = null;
+let isInitialized = false;
 
 export const startSyncEngine = async () => {
-    if (syncInterval) {
-        clearInterval(syncInterval);
+    // Prevent multiple starts
+    if (isInitialized) {
+        console.log('🔄 Sync engine already running');
+        return;
     }
 
-    // Initial sync
-    await sync();
+    if (syncInterval) {
+        clearInterval(syncInterval);
+        syncInterval = null;
+    }
 
-    // Sync every 30 seconds when online
+    console.log('🔄 Starting sync engine...');
+    isInitialized = true;
+
+    // Initial sync (delay to let app load)
+    setTimeout(async () => {
+        await sync();
+    }, 3000);
+
+    // Sync every 60 seconds when online
     syncInterval = setInterval(async () => {
-        if (navigator.onLine) {
+        if (navigator.onLine && !isSyncing) {
             await sync();
         }
-    }, 30000);
+    }, 60000);
 
     // Also sync on network reconnect
-    window.addEventListener('online', () => {
+    const handleOnline = () => {
+        console.log('📡 Network reconnected, syncing...');
         setTimeout(sync, 2000);
-    });
+    };
+    window.addEventListener('online', handleOnline);
+    window._syncOnlineHandler = handleOnline;
 
-    console.log('🔄 Sync engine started');
+    console.log('✅ Sync engine started');
 };
 
 export const stopSyncEngine = () => {
@@ -40,6 +56,11 @@ export const stopSyncEngine = () => {
         clearInterval(syncInterval);
         syncInterval = null;
     }
+    if (window._syncOnlineHandler) {
+        window.removeEventListener('online', window._syncOnlineHandler);
+        delete window._syncOnlineHandler;
+    }
+    isInitialized = false;
     console.log('⏹️ Sync engine stopped');
 };
 
@@ -73,10 +94,8 @@ export const sync = async () => {
 
         for (const order of pendingOrders) {
             try {
-                // Mark as syncing
                 await updateOfflineOrderStatus(order.id, 'syncing');
 
-                // Send to server
                 const response = await API.post('/orders', order.payload, {
                     headers: {
                         'Idempotency-Key': order.idempotency_key
@@ -84,12 +103,10 @@ export const sync = async () => {
                 });
 
                 if (response.data.success) {
-                    // Order synced successfully
                     await deleteOfflineOrder(order.id);
                     synced++;
                     console.log(`✅ Order ${order.id} synced successfully`);
                 } else {
-                    // Server returned error
                     await updateOfflineOrderStatus(order.id, 'failed', response.data.error);
                     failed++;
                     console.error(`❌ Order ${order.id} failed:`, response.data.error);
@@ -100,22 +117,14 @@ export const sync = async () => {
                 const errorMessage = error.response?.data?.error || error.message;
 
                 if (status === 401 || status === 403) {
-                    // Authentication/authorization failure - don't retry
                     await updateOfflineOrderStatus(order.id, 'failed', `Auth error: ${errorMessage}`);
                     failed++;
                     console.error(`🔒 Order ${order.id} auth failed:`, errorMessage);
-                } else if (status === 400) {
-                    // Validation error - don't retry
-                    await updateOfflineOrderStatus(order.id, 'failed', `Validation error: ${errorMessage}`);
-                    failed++;
-                    console.error(`❌ Order ${order.id} validation failed:`, errorMessage);
                 } else if (status === 409) {
-                    // Duplicate - already processed
                     await deleteOfflineOrder(order.id);
                     synced++;
                     console.log(`⚠️ Order ${order.id} already exists (duplicate)`);
                 } else {
-                    // Network or server error - keep for retry
                     const attempts = (order.attempts || 0) + 1;
                     if (attempts >= 5) {
                         await updateOfflineOrderStatus(order.id, 'failed', `Max retries exceeded: ${errorMessage}`);
@@ -142,10 +151,10 @@ export const getSyncStatus = async () => {
         const total = await getCount('offline_orders');
         const pending = await getPendingOfflineOrders();
         return {
-            total,
-            pending: pending.length,
+            total: total || 0,
+            pending: pending?.length || 0,
             isSyncing,
-            hasPending: total > 0
+            hasPending: (total || 0) > 0
         };
     } catch (error) {
         return { total: 0, pending: 0, isSyncing: false, hasPending: false };
@@ -154,7 +163,6 @@ export const getSyncStatus = async () => {
 
 export const retryFailedOrder = async (orderId) => {
     await updateOfflineOrderStatus(orderId, 'pending', null);
-    // Trigger sync immediately
     await sync();
 };
 
