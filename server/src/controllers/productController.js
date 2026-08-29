@@ -182,4 +182,4 @@ export const getCategories = catchAsync(async (req, res) => {
     );
     
     res.json({ success: true, data: result.rows.map(r => r.category) });
-});s
+});
