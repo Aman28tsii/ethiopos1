@@ -7,10 +7,7 @@ import {
     deleteRecipeIngredient,
     getWastageReport,
     getOrderWastage,
-    updateIngredientWastage,
-    getLowStockIngredients,
-    getProductsWithoutRecipes,
-    getRecipeCount
+    updateIngredientWastage
 } from "../controllers/recipeController.js";
 import { protect, allowManager, allowOwner } from "../middleware/auth.js";
 import { authorizeCompany, authorizeBranch, requireCompanyContext } from "../middleware/authorization.js";
@@ -30,10 +27,6 @@ router.post("/product/:productId", authorizeCompany, allowManager, createOrUpdat
 router.delete("/:id", authorizeCompany, allowOwner, deleteRecipe);
 router.delete("/ingredient/:id", authorizeCompany, allowOwner, deleteRecipeIngredient);
 
-// Products without recipes (Company-level)
-router.get("/products-without", authorizeCompany, allowManager, getProductsWithoutRecipes);
-router.get("/count", authorizeCompany, allowManager, getRecipeCount);
-
 // ============================================================
 // WASTAGE REPORTS (Branch-level)
 // ============================================================
@@ -44,6 +37,5 @@ router.get("/order/:orderId/wastage", authorizeBranch, allowManager, getOrderWas
 // INGREDIENT WASTAGE SETTINGS (Branch-level)
 // ============================================================
 router.put("/ingredient/:id/wastage", authorizeBranch, allowOwner, updateIngredientWastage);
-router.get("/ingredients/low-stock", authorizeBranch, allowManager, getLowStockIngredients);
 
 export default router;
