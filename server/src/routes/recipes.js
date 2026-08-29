@@ -7,7 +7,6 @@ import {
     deleteRecipeIngredient,
     getWastageReport,
     getOrderWastage,
-    calculateOrderWastage,
     updateIngredientWastage,
     getAllIngredientsWithWastage,
     getLowStockIngredients,
@@ -41,7 +40,7 @@ router.get("/count", authorizeCompany, allowManager, getRecipeCount);
 // ============================================================
 router.get("/wastage-report", authorizeBranch, allowManager, getWastageReport);
 router.get("/order/:orderId/wastage", authorizeBranch, allowManager, getOrderWastage);
-router.post("/order/:orderId/calculate-wastage", authorizeBranch, allowManager, calculateOrderWastage);
+// router.post("/order/:orderId/calculate-wastage", authorizeBranch, allowManager, calculateOrderWastage);
 
 // ============================================================
 // INGREDIENT WASTAGE SETTINGS (Branch-level)
