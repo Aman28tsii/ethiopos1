@@ -3,9 +3,9 @@
 import { query, getClient } from '../config/database.js';
 import { AppError, catchAsync } from '../middleware/errorHandler.js';
 
-// ============================================
+// ============================================================
 // GET ALL RECIPES (Company-level)
-// ============================================
+// ============================================================
 export const getAllRecipes = catchAsync(async (req, res) => {
     if (!req.user?.company_id) {
         throw new AppError('Authentication required', 401);
@@ -50,9 +50,9 @@ export const getAllRecipes = catchAsync(async (req, res) => {
     res.json({ success: true, data: result.rows });
 });
 
-// ============================================
+// ============================================================
 // GET RECIPE BY PRODUCT (Company-validated)
-// ============================================
+// ============================================================
 export const getRecipeByProduct = catchAsync(async (req, res) => {
     const { productId } = req.params;
     
@@ -136,9 +136,9 @@ export const getRecipeByProduct = catchAsync(async (req, res) => {
     });
 });
 
-// ============================================
+// ============================================================
 // CREATE OR UPDATE RECIPE (Company-validated)
-// ============================================
+// ============================================================
 export const createOrUpdateRecipe = catchAsync(async (req, res) => {
     const { productId } = req.params;
     const { yield_quantity = 1, ingredients } = req.body;
@@ -236,9 +236,9 @@ export const createOrUpdateRecipe = catchAsync(async (req, res) => {
     }
 });
 
-// ============================================
+// ============================================================
 // DELETE RECIPE (Company-validated)
-// ============================================
+// ============================================================
 export const deleteRecipe = catchAsync(async (req, res) => {
     const { id } = req.params;
     
@@ -263,9 +263,9 @@ export const deleteRecipe = catchAsync(async (req, res) => {
     });
 });
 
-// ============================================
+// ============================================================
 // DELETE RECIPE INGREDIENT (Company-validated)
-// ============================================
+// ============================================================
 export const deleteRecipeIngredient = catchAsync(async (req, res) => {
     const { id } = req.params;
     
@@ -293,9 +293,9 @@ export const deleteRecipeIngredient = catchAsync(async (req, res) => {
     });
 });
 
-// ============================================
+// ============================================================
 // GET PRODUCT COST (Company-validated)
-// ============================================
+// ============================================================
 export const getProductCost = catchAsync(async (req, res) => {
     const { productId } = req.params;
     
@@ -342,4 +342,207 @@ export const getProductCost = catchAsync(async (req, res) => {
             profit_margin: sellingPrice > 0 ? parseFloat(((sellingPrice - costWithWastage) / sellingPrice * 100).toFixed(2)) : 0
         }
     });
+});
+
+// ============================================================
+// PROCESS ORDER STOCK DEDUCTION (ADD THIS!)
+// ============================================================
+export const calculateStockDeductionWithWastage = (recipeIngredients, orderQuantity) => {
+    const deductions = [];
+
+    for (const ingredient of recipeIngredients) {
+        const wastagePercent = parseFloat(ingredient.wastage_percentage) || 0;
+        const cookingLossPercent = parseFloat(ingredient.cooking_loss_percentage) || 0;
+
+        let expectedQuantity = parseFloat(ingredient.quantity_required) * orderQuantity;
+        let afterWastage = expectedQuantity * (1 + (wastagePercent / 100));
+        let finalQuantity = afterWastage * (1 + (cookingLossPercent / 100));
+
+        if (ingredient.unit === 'pcs' || ingredient.unit === 'pieces') {
+            finalQuantity = Math.ceil(finalQuantity);
+        } else {
+            finalQuantity = Math.ceil(finalQuantity * 100) / 100;
+        }
+
+        const wastageAmount = finalQuantity - expectedQuantity;
+        const wastagePercentage = expectedQuantity > 0 
+            ? (wastageAmount / expectedQuantity * 100).toFixed(1) 
+            : 0;
+
+        deductions.push({
+            ingredient_id: ingredient.ingredient_id,
+            ingredient_name: ingredient.name,
+            expected_quantity: parseFloat(expectedQuantity.toFixed(3)),
+            actual_quantity: parseFloat(finalQuantity.toFixed(3)),
+            wastage_amount: parseFloat(wastageAmount.toFixed(3)),
+            wastage_percentage: wastagePercentage,
+            unit: ingredient.unit,
+            unit_cost: parseFloat(ingredient.unit_cost) || 0,
+            wastage_cost: parseFloat((wastageAmount * (parseFloat(ingredient.unit_cost) || 0)).toFixed(2)),
+            current_stock: parseFloat(ingredient.current_stock) || 0
+        });
+    }
+
+    return deductions;
+};
+
+export const processOrderStockDeduction = async (orderId, items, client) => {
+    const allDeductions = [];
+    let totalWastageCost = 0;
+
+    for (const item of items) {
+        const recipeQuery = `
+            SELECT 
+                ri.ingredient_id,
+                ri.quantity_required,
+                ri.wastage_percentage,
+                ri.cooking_loss_percentage,
+                i.name,
+                i.unit,
+                i.unit_cost,
+                i.quantity as current_stock
+            FROM recipe_ingredients ri
+            JOIN ingredients i ON ri.ingredient_id = i.id
+            JOIN recipes r ON ri.recipe_id = r.id
+            WHERE r.product_id = $1
+        `;
+
+        const recipeResult = await client.query(recipeQuery, [item.product_id]);
+
+        if (recipeResult.rows.length === 0) {
+            console.warn(`No recipe found for product ${item.product_id}`);
+            continue;
+        }
+
+        const deductions = calculateStockDeductionWithWastage(recipeResult.rows, item.quantity);
+
+        for (const deduction of deductions) {
+            // Check stock with safety stock
+            if (parseFloat(deduction.current_stock) < deduction.actual_quantity) {
+                const safetyStockResult = await client.query(
+                    'SELECT safety_stock FROM ingredients WHERE id = $1',
+                    [deduction.ingredient_id]
+                );
+                const safetyStock = parseFloat(safetyStockResult.rows[0]?.safety_stock || 0);
+                const availableWithSafety = parseFloat(deduction.current_stock) + safetyStock;
+
+                if (availableWithSafety < deduction.actual_quantity) {
+                    throw new Error(
+                        `Insufficient stock for ${deduction.ingredient_name}. ` +
+                        `Available: ${deduction.current_stock} ${deduction.unit}, ` +
+                        `Required: ${deduction.actual_quantity}`
+                    );
+                }
+            }
+
+            await client.query(`
+                UPDATE ingredients 
+                SET quantity = quantity - $1,
+                    last_used = NOW(),
+                    updated_at = NOW()
+                WHERE id = $2
+            `, [deduction.actual_quantity, deduction.ingredient_id]);
+
+            await client.query(`
+                INSERT INTO stock_transactions (
+                    ingredient_id, order_id, product_id,
+                    expected_quantity, actual_quantity,
+                    wastage_amount, wastage_percentage,
+                    transaction_type, notes
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'order_deduction', $8)
+            `, [
+                deduction.ingredient_id,
+                orderId,
+                item.product_id,
+                deduction.expected_quantity,
+                deduction.actual_quantity,
+                deduction.wastage_amount,
+                deduction.wastage_percentage,
+                `Order ${orderId} - ${deduction.ingredient_name}`
+            ]);
+
+            allDeductions.push(deduction);
+            totalWastageCost += deduction.wastage_cost;
+        }
+    }
+
+    return { deductions: allDeductions, totalWastageCost };
+};
+
+// ============================================================
+// WASTAGE REPORT
+// ============================================================
+export const getWastageReport = catchAsync(async (req, res) => {
+    const { startDate, endDate } = req.query;
+
+    if (!req.user?.company_id || !req.user?.branch_id) {
+        throw new AppError('Authentication required', 401);
+    }
+
+    const companyId = req.user.company_id;
+    const branchId = req.user.branch_id;
+
+    if (!startDate || !endDate) {
+        throw new AppError('startDate and endDate are required', 400);
+    }
+
+    const result = await query(`
+        SELECT 
+            i.id as ingredient_id,
+            i.name as ingredient_name,
+            i.unit,
+            COUNT(st.id) as transaction_count,
+            SUM(st.expected_quantity) as total_expected,
+            SUM(st.actual_quantity) as total_actual,
+            SUM(st.wastage_amount) as total_wastage,
+            AVG(st.wastage_percentage) as avg_wastage_percentage,
+            SUM(st.wastage_amount * i.unit_cost) as total_wastage_cost
+        FROM stock_transactions st
+        JOIN ingredients i ON st.ingredient_id = i.id
+        WHERE DATE(st.created_at) BETWEEN $1 AND $2
+          AND st.transaction_type = 'order_deduction'
+          AND i.company_id = $3
+          AND i.branch_id = $4
+        GROUP BY i.id, i.name, i.unit
+        ORDER BY total_wastage_cost DESC
+    `, [startDate, endDate, companyId, branchId]);
+
+    res.json({ success: true, data: result.rows });
+});
+
+// ============================================================
+// GET ORDER WASTAGE
+// ============================================================
+export const getOrderWastage = catchAsync(async (req, res) => {
+    const { orderId } = req.params;
+
+    if (!req.user?.company_id || !req.user?.branch_id) {
+        throw new AppError('Authentication required', 401);
+    }
+
+    const companyId = req.user.company_id;
+    const branchId = req.user.branch_id;
+
+    const result = await query(`
+        SELECT 
+            st.ingredient_id,
+            i.name as ingredient_name,
+            i.unit,
+            st.expected_quantity,
+            st.actual_quantity,
+            st.wastage_amount,
+            st.wastage_percentage,
+            st.created_at,
+            ROUND((st.wastage_amount * i.unit_cost)::numeric, 2) as wastage_cost,
+            p.name as product_name
+        FROM stock_transactions st
+        JOIN ingredients i ON st.ingredient_id = i.id
+        LEFT JOIN products p ON st.product_id = p.id
+        WHERE st.order_id = $1
+          AND i.company_id = $2
+          AND i.branch_id = $3
+        ORDER BY st.wastage_amount DESC
+    `, [orderId, companyId, branchId]);
+
+    res.json({ success: true, data: result.rows });
 });
