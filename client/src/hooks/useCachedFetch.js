@@ -2,6 +2,18 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import API from '../api/axios';
+import {
+    saveProducts,
+    getProducts as getOfflineProducts,
+    saveCategories,
+    getCategories as getOfflineCategories,
+    saveTables,
+    getTables as getOfflineTables,
+    getLastSyncTime,
+    setLastSyncTime,
+    getSyncMetadata,
+    setSyncMetadata
+} from '../services/offlineDB';
 
 // Simple in-memory cache
 const cache = new Map();
@@ -31,6 +43,7 @@ export function useCachedFetch(baseKey, fetchFn, ttl = 60000, dependencies = [])
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
+    const [isOffline, setIsOffline] = useState(false);
     const isMounted = useRef(true);
     const keyRef = useRef(getCacheKey(baseKey));
 
@@ -47,13 +60,14 @@ export function useCachedFetch(baseKey, fetchFn, ttl = 60000, dependencies = [])
     const fetchData = useCallback(async () => {
         const key = getCurrentKey();
         
-        // Check cache with tenant-isolated key
+        // Check in-memory cache
         const cached = cache.get(key);
         if (cached && Date.now() - cached.timestamp < ttl) {
             console.log(`[CACHE HIT] ${key}`);
             if (isMounted.current) {
                 setData(cached.data);
                 setLoading(false);
+                setIsOffline(false);
             }
             return;
         }
@@ -66,6 +80,7 @@ export function useCachedFetch(baseKey, fetchFn, ttl = 60000, dependencies = [])
                 if (isMounted.current) {
                     setData(result);
                     setLoading(false);
+                    setIsOffline(false);
                 }
             } catch (err) {
                 if (isMounted.current) {
@@ -81,8 +96,13 @@ export function useCachedFetch(baseKey, fetchFn, ttl = 60000, dependencies = [])
         setLoading(true);
         const promise = fetchFn()
             .then(result => {
+                // Store in memory cache
                 cache.set(key, { data: result, timestamp: Date.now() });
                 pendingRequests.delete(key);
+                
+                // Also store in IndexedDB for offline use
+                storeOfflineData(baseKey, result);
+                
                 return result;
             })
             .catch(err => {
@@ -97,10 +117,21 @@ export function useCachedFetch(baseKey, fetchFn, ttl = 60000, dependencies = [])
             if (isMounted.current) {
                 setData(result);
                 setError(null);
+                setIsOffline(false);
             }
         } catch (err) {
             if (isMounted.current) {
-                setError(err);
+                // Try to get from IndexedDB if offline
+                const offlineData = await getOfflineData(baseKey);
+                if (offlineData) {
+                    console.log(`[OFFLINE DATA LOADED] ${baseKey}`);
+                    setData(offlineData);
+                    setIsOffline(true);
+                    setError(null);
+                } else {
+                    setError(err);
+                }
+                setLoading(false);
             }
             console.error(`Cache fetch error for ${key}:`, err);
         } finally {
@@ -109,6 +140,71 @@ export function useCachedFetch(baseKey, fetchFn, ttl = 60000, dependencies = [])
             }
         }
     }, [baseKey, fetchFn, ttl, getCurrentKey]);
+
+    // Store data in IndexedDB based on resource type
+    const storeOfflineData = useCallback(async (key, data) => {
+        try {
+            const context = getUserContext();
+            
+            if (key === 'products' && data?.data) {
+                await saveProducts(data.data, context.branch_id, context.company_id);
+                await setLastSyncTime(new Date().toISOString());
+            } else if (key === 'categories' && data?.data) {
+                await saveCategories(data.data, context.company_id);
+            } else if (key === 'tables' && data?.data) {
+                await saveTables(data.data, context.branch_id);
+            }
+        } catch (err) {
+            console.warn('Failed to store offline data:', err);
+        }
+    }, []);
+
+    // Get data from IndexedDB
+    const getOfflineData = useCallback(async (key) => {
+        try {
+            const context = getUserContext();
+            
+            if (key === 'products') {
+                const products = await getOfflineProducts(context.branch_id);
+                if (products && products.length > 0) {
+                    return { success: true, data: products, source: 'offline' };
+                }
+            } else if (key === 'categories') {
+                const categories = await getOfflineCategories(context.company_id);
+                if (categories && categories.length > 0) {
+                    return { success: true, data: categories, source: 'offline' };
+                }
+            } else if (key === 'tables') {
+                const tables = await getOfflineTables(context.branch_id);
+                if (tables && tables.length > 0) {
+                    return { success: true, data: tables, source: 'offline' };
+                }
+            }
+            return null;
+        } catch (err) {
+            console.warn('Failed to get offline data:', err);
+            return null;
+        }
+    }, []);
+
+    // Clear offline data on logout
+    const clearOfflineData = useCallback(async () => {
+        try {
+            // Clear only this user's data
+            const context = getUserContext();
+            const prefix = `_company_${context.company_id}_branch_${context.branch_id}`;
+            let count = 0;
+            for (const [cacheKey] of cache) {
+                if (cacheKey.includes(prefix)) {
+                    cache.delete(cacheKey);
+                    count++;
+                }
+            }
+            console.log(`[CACHE CLEAR] Removed ${count} entries for current user`);
+        } catch (err) {
+            console.warn('Failed to clear offline data:', err);
+        }
+    }, []);
 
     useEffect(() => {
         isMounted.current = true;
@@ -132,7 +228,6 @@ export function useCachedFetch(baseKey, fetchFn, ttl = 60000, dependencies = [])
         cache.delete(key);
     }, [getCurrentKey]);
 
-    // Clear all cache for current user
     const clearUserCache = useCallback(() => {
         const context = getUserContext();
         const prefix = `_company_${context.company_id}_branch_${context.branch_id}`;
@@ -146,7 +241,16 @@ export function useCachedFetch(baseKey, fetchFn, ttl = 60000, dependencies = [])
         console.log(`[CACHE CLEAR] Removed ${count} entries for current user`);
     }, []);
 
-    return { data, loading, error, refetch, invalidateCache, clearUserCache };
+    return { 
+        data, 
+        loading, 
+        error, 
+        isOffline,
+        refetch, 
+        invalidateCache, 
+        clearUserCache,
+        clearOfflineData
+    };
 }
 
 // Pre-defined hooks with tenant-isolated keys
