@@ -1,7 +1,7 @@
 ﻿{
   "name": "restaurant-pos-backend",
   "version": "1.0.0",
-  "description": "Restaurant POS System Backend",
+"description": "Restaurant POS System Backend",
   "type": "module",
   "main": "src/server.js",
   "scripts": {

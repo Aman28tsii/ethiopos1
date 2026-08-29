@@ -1,16 +1,21 @@
 // server/src/controllers/productController.js
 
-import { query } from '../config/database.js';  // ← This is the correct import
+import { query } from '../config/database.js';
 import { AppError, catchAsync } from '../middleware/errorHandler.js';
 
 // ============================================
-// GET ALL PRODUCTS (Public - Company-filtered)
+// GET ALL PRODUCTS (Authenticated - Company-filtered)
 // ============================================
 export const getAllProducts = catchAsync(async (req, res) => {
     const { limit = 100, offset = 0 } = req.pagination || {};
-    const companyId = req.query.companyId || req.user?.company_id || 1;
     
-    const result = await query(  // ← Use 'query' not 'pool.query'
+    if (!req.user?.company_id) {
+        throw new AppError('Authentication required', 401);
+    }
+    
+    const companyId = req.user.company_id;
+    
+    const result = await query(
         `SELECT id, name, price, category, description, is_available, company_id 
          FROM products 
          WHERE company_id = $1 AND is_available = true 
@@ -25,7 +30,11 @@ export const getAllProducts = catchAsync(async (req, res) => {
 // GET ALL PRODUCTS (Admin/Manager view)
 // ============================================
 export const getAllProductsAdmin = catchAsync(async (req, res) => {
-    const companyId = req.user.company_id || req.params.companyId;
+    if (!req.user?.company_id) {
+        throw new AppError('Authentication required', 401);
+    }
+    
+    const companyId = req.user.company_id;
     
     const result = await query(
         `SELECT id, name, price, category, description, is_available, company_id, created_at 
@@ -38,11 +47,16 @@ export const getAllProductsAdmin = catchAsync(async (req, res) => {
 });
 
 // ============================================
-// GET PRODUCT BY ID (Public - Company-validated)
+// GET PRODUCT BY ID (Authenticated - Company-validated)
 // ============================================
 export const getProductById = catchAsync(async (req, res) => {
     const { id } = req.params;
-    const companyId = req.query.companyId || req.user?.company_id || 1;
+    
+    if (!req.user?.company_id) {
+        throw new AppError('Authentication required', 401);
+    }
+    
+    const companyId = req.user.company_id;
     
     const result = await query(
         `SELECT id, name, price, category, description, is_available, company_id 
@@ -61,6 +75,11 @@ export const getProductById = catchAsync(async (req, res) => {
 // ============================================
 export const createProduct = catchAsync(async (req, res) => {
     const { name, price, category, description } = req.body;
+    
+    if (!req.user?.company_id) {
+        throw new AppError('Authentication required', 401);
+    }
+    
     const companyId = req.user.company_id;
     
     if (!name || !price) {
@@ -87,6 +106,11 @@ export const createProduct = catchAsync(async (req, res) => {
 export const updateProduct = catchAsync(async (req, res) => {
     const { id } = req.params;
     const { name, price, category, is_available, description } = req.body;
+    
+    if (!req.user?.company_id) {
+        throw new AppError('Authentication required', 401);
+    }
+    
     const companyId = req.user.company_id;
     
     const result = await query(
@@ -118,6 +142,11 @@ export const updateProduct = catchAsync(async (req, res) => {
 // ============================================
 export const deleteProduct = catchAsync(async (req, res) => {
     const { id } = req.params;
+    
+    if (!req.user?.company_id) {
+        throw new AppError('Authentication required', 401);
+    }
+    
     const companyId = req.user.company_id;
     
     const result = await query(
@@ -136,10 +165,14 @@ export const deleteProduct = catchAsync(async (req, res) => {
 });
 
 // ============================================
-// GET CATEGORIES (Public - Company-filtered)
+// GET CATEGORIES (Authenticated - Company-filtered)
 // ============================================
 export const getCategories = catchAsync(async (req, res) => {
-    const companyId = req.query.companyId || req.user?.company_id || 1;
+    if (!req.user?.company_id) {
+        throw new AppError('Authentication required', 401);
+    }
+    
+    const companyId = req.user.company_id;
     
     const result = await query(
         `SELECT DISTINCT category FROM products 
@@ -149,4 +182,4 @@ export const getCategories = catchAsync(async (req, res) => {
     );
     
     res.json({ success: true, data: result.rows.map(r => r.category) });
-});
+});s
