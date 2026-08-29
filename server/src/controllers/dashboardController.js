@@ -17,7 +17,7 @@ export const getDashboardData = catchAsync(async (req, res) => {
     const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
     const monthAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
-    // Today's stats - fixed: use orders table not sales
+    // Today's stats from orders
     const todayStats = await query(`
         SELECT 
             COUNT(*) as total_orders,
@@ -54,12 +54,12 @@ export const getDashboardData = catchAsync(async (req, res) => {
           AND branch_id = $3
     `, [monthAgo, companyId, branchId]);
 
-    // Month expenses
+    // Month expenses - using business_id instead of company_id
     const monthExpenses = await query(`
         SELECT COALESCE(SUM(amount), 0) as total_expenses
         FROM expenses
         WHERE expense_date >= $1
-          AND company_id = $2
+          AND business_id = $2
           AND branch_id = $3
     `, [monthAgo, companyId, branchId]);
 
@@ -77,7 +77,7 @@ export const getDashboardData = catchAsync(async (req, res) => {
         WHERE company_id = $1 AND branch_id = $2 AND quantity <= min_stock
     `, [companyId, branchId]);
 
-    // Top 5 products from order_items
+    // Top 5 products
     const topProducts = await query(`
         SELECT 
             p.id,
@@ -162,7 +162,6 @@ export const getChartData = catchAsync(async (req, res) => {
         default: days = 7;
     }
 
-    // Sales data from orders
     const salesData = await query(`
         SELECT 
             DATE(created_at) as date,
@@ -177,7 +176,6 @@ export const getChartData = catchAsync(async (req, res) => {
         ORDER BY date ASC
     `, [companyId, branchId]);
 
-    // Top products
     const topProducts = await query(`
         SELECT 
             p.name,
@@ -196,7 +194,6 @@ export const getChartData = catchAsync(async (req, res) => {
         LIMIT 5
     `, [companyId, branchId]);
 
-    // Payment methods from orders
     const paymentMethods = await query(`
         SELECT 
             COALESCE(payment_method, 'cash') as payment_method,
@@ -210,7 +207,6 @@ export const getChartData = catchAsync(async (req, res) => {
         GROUP BY payment_method
     `, [companyId, branchId]);
 
-    // Hourly data from orders
     const hourlyData = await query(`
         SELECT 
             EXTRACT(HOUR FROM created_at) as hour,

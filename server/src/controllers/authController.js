@@ -378,7 +378,6 @@ export const getStaffPerformance = catchAsync(async (req, res) => {
         default: days = 30;
     }
     
-    // Get sales by staff from orders (not sales table)
     const salesByStaff = await query(`
         SELECT 
             u.id,
