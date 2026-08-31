@@ -2,7 +2,7 @@
 import API from '../../api/axios';
 import { 
     Loader2, Users, Utensils, RefreshCw, XCircle, PlusCircle, 
-    Coffee, Clock, CheckCircle, Bell, Search, Eye, QrCode 
+    Coffee, Clock, CheckCircle, Bell, Search, Eye, QrCode ,WifiOff
 } from 'lucide-react';
 import socket from '../../socket';
 import { useLanguage } from '../../context/LanguageContext';
