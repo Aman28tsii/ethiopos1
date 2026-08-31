@@ -283,25 +283,28 @@ export const getTables = async (branchId) => {
 };
 
 // ============================================
-// CART OPERATIONS (for future use)
+// CART OPERATIONS (with branch isolation)
 // ============================================
 
 export const saveCart = async (cart, branchId) => {
+    if (!branchId) return;
     const cartData = {
-        id: 'active_cart',
-        items: cart,
+        id: `cart_${branchId}`,
+        items: cart || [],
         branch_id: branchId,
         updated_at: new Date().toISOString()
     };
     await saveToStore('cart', cartData);
 };
 
-export const getCart = async () => {
-    return await getFromStore('cart', 'active_cart');
+export const getCart = async (branchId) => {
+    if (!branchId) return null;
+    return await getFromStore('cart', `cart_${branchId}`);
 };
 
-export const clearCart = async () => {
-    await deleteFromStore('cart', 'active_cart');
+export const clearCart = async (branchId) => {
+    if (!branchId) return;
+    await deleteFromStore('cart', `cart_${branchId}`);
 };
 
 // ============================================

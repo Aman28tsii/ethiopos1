@@ -18,21 +18,20 @@ export const CartProvider = ({ children }) => {
     const { selectedBranch } = useBranch();
     const [items, setItems] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [isOffline, setIsOffline] = useState(false);
-    const initialLoadDone = useRef(false);
+    const [initialized, setInitialized] = useState(false);
     const saveTimeout = useRef(null);
 
     // Load cart from IndexedDB on mount (only once)
     useEffect(() => {
-        if (!initialLoadDone.current) {
+        if (!initialized && selectedBranch) {
             loadCart();
-            initialLoadDone.current = true;
+            setInitialized(true);
         }
-    }, []);
+    }, [selectedBranch, initialized]);
 
-    // Save cart whenever it changes (debounced)
+    // Save cart to IndexedDB when items change (debounced)
     useEffect(() => {
-        if (!loading && selectedBranch && items.length > 0) {
+        if (!loading && initialized && selectedBranch) {
             if (saveTimeout.current) {
                 clearTimeout(saveTimeout.current);
             }
@@ -40,20 +39,25 @@ export const CartProvider = ({ children }) => {
                 persistCart();
             }, 500);
         }
-    }, [items, selectedBranch, loading]);
+        return () => {
+            if (saveTimeout.current) {
+                clearTimeout(saveTimeout.current);
+            }
+        };
+    }, [items, selectedBranch, loading, initialized]);
 
     const loadCart = async () => {
-        if (loading) return;
         setLoading(true);
         try {
-            const saved = await getCart();
-            if (saved && saved.items && saved.branch_id === selectedBranch?.id) {
+            const saved = await getCart(selectedBranch?.id);
+            if (saved && saved.items && Array.isArray(saved.items)) {
                 setItems(saved.items);
+                console.log(`[CART] Loaded ${saved.items.length} items from IndexedDB`);
             } else {
                 setItems([]);
             }
         } catch (err) {
-            console.warn('Failed to load cart:', err);
+            console.warn('[CART] Failed to load from IndexedDB:', err);
             setItems([]);
         } finally {
             setLoading(false);
@@ -62,11 +66,15 @@ export const CartProvider = ({ children }) => {
 
     const persistCart = async () => {
         try {
-            if (selectedBranch) {
+            if (selectedBranch && items.length > 0) {
                 await saveCart(items, selectedBranch.id);
+                console.log(`[CART] Saved ${items.length} items to IndexedDB`);
+            } else if (selectedBranch && items.length === 0) {
+                await clearCart(selectedBranch.id);
+                console.log('[CART] Cleared cart from IndexedDB');
             }
         } catch (err) {
-            console.warn('Failed to save cart:', err);
+            console.warn('[CART] Failed to save to IndexedDB:', err);
         }
     };
 
@@ -114,11 +122,13 @@ export const CartProvider = ({ children }) => {
     const clearAll = useCallback(async () => {
         setItems([]);
         try {
-            await clearCart();
+            if (selectedBranch) {
+                await clearCart(selectedBranch.id);
+            }
         } catch (err) {
-            console.warn('Failed to clear cart:', err);
+            console.warn('[CART] Failed to clear from IndexedDB:', err);
         }
-    }, []);
+    }, [selectedBranch]);
 
     const getTotals = useCallback(() => {
         const subtotal = items.reduce((sum, item) => sum + item.total, 0);
@@ -131,7 +141,7 @@ export const CartProvider = ({ children }) => {
     const value = {
         items,
         loading,
-        isOffline,
+        initialized,
         addItem,
         removeItem,
         updateQuantity,

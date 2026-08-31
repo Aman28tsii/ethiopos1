@@ -7,6 +7,7 @@ import { LanguageProvider } from './context/LanguageContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { BranchProvider } from './context/BranchContext';
 import { OfflineProvider } from './context/OfflineContext';
+import { CartProvider } from './context/CartContext';
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 
@@ -16,7 +17,9 @@ root.render(
       <LanguageProvider>
         <BranchProvider>
           <OfflineProvider>
-            <App />
+            <CartProvider>
+              <App />
+            </CartProvider>
           </OfflineProvider>
         </BranchProvider>
       </LanguageProvider>
