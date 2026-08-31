@@ -7,6 +7,8 @@ import {
 import socket from '../../socket';
 import { useLanguage } from '../../context/LanguageContext';
 import { QRCodeCanvas } from 'qrcode.react';
+import { createOrder } from '../../services/offlineService';
+import { useOffline } from '../../context/OfflineContext';
 
 // Helper function for product emojis
 const getProductEmoji = (category) => {
@@ -30,6 +32,7 @@ const getProductEmoji = (category) => {
 
 const TableGrid = () => {
     const { t } = useLanguage();
+    const { isOffline, isConnected } = useOffline();
     
     // ========== MAIN STATE ==========
     const [tables, setTables] = useState([]);
@@ -57,6 +60,7 @@ const TableGrid = () => {
     const [showQRModal, setShowQRModal] = useState(false);
     const [qrTable, setQrTable] = useState(null);
     const [myShift, setMyShift] = useState(null);
+    const [syncStatus, setSyncStatus] = useState('synced');
     
     // ========== SELF ASSIGNMENT STATE ==========
     const [mySelfTables, setMySelfTables] = useState([]);
@@ -456,6 +460,11 @@ const TableGrid = () => {
         });
     }, []);
 
+    const removeFromCart = useCallback((productId) => {
+        setCart(prev => prev.filter(item => item.id !== productId));
+    }, []);
+
+    // ========== SUBMIT ORDER (OFFLINE-AWARE) ==========
     const submitOrder = useCallback(async () => {
         if (cart.length === 0) {
             alert(t('pleaseAddItems'));
@@ -471,17 +480,28 @@ const TableGrid = () => {
                 })),
                 table_id: selectedTable.id,
                 order_type: 'dine_in',
-                notes: orderNotes
+                notes: orderNotes,
+                source: 'waiter'
             };
 
-            const response = await API.post('/orders', orderData);
+            // Use offline-aware service
+            const result = await createOrder(orderData);
             
-            if (response.data.success) {
-                alert(`${t('orderSent')} #${response.data.data.order_number}!`);
+            if (result.success) {
+                const message = result.offline 
+                    ? `✅ Order saved offline! It will sync when online. #${result.data.order_number}`
+                    : `✅ Order sent to kitchen! #${result.data.order_number}`;
+                alert(message);
+                
                 setShowOrderModal(false);
                 setCart([]);
                 setOrderNotes('');
                 setSelectedTable(null);
+                
+                if (result.offline) {
+                    setSyncStatus('pending');
+                }
+                
                 await Promise.all([fetchMyTables(), fetchMyActiveOrders()]);
             }
         } catch (err) {
@@ -552,8 +572,18 @@ const TableGrid = () => {
         <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900">
             <div className="p-3 md:p-6 lg:p-8 space-y-4 md:space-y-6 pb-24 md:pb-8">
                 
+                {/* Offline Status Banner */}
+                {isOffline && (
+                    <div className="bg-yellow-500/20 border border-yellow-500/30 rounded-xl p-3 text-center">
+                        <p className="text-yellow-400 text-sm flex items-center justify-center gap-2">
+                            <WifiOff size={18} />
+                            <span>You are offline. Orders will be saved locally and synced when online.</span>
+                        </p>
+                    </div>
+                )}
+                
                 {/* ============================================ */}
-                {/* HEADER WITH STATS - FIXED RESPONSIVE */}
+                {/* HEADER WITH STATS */}
                 {/* ============================================ */}
                 <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
                     <div>
@@ -562,10 +592,11 @@ const TableGrid = () => {
                         </h1>
                         <p className="text-gray-400 text-sm mt-1">
                             {myShift ? `Today's Shift: ${myShift.shift_start} - ${myShift.shift_end}` : t('manageTables')}
+                            {isOffline && ' ⚠️ Offline Mode'}
                         </p>
                     </div>
                     
-                    {/* Stats Cards - Responsive Grid */}
+                    {/* Stats Cards */}
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 md:gap-3 w-full lg:w-auto">
                         <div className="bg-emerald-500/10 backdrop-blur-sm rounded-xl px-3 md:px-4 py-2 md:py-3 border border-emerald-500/20 text-center">
                             <p className="text-emerald-400 text-xs font-semibold uppercase tracking-wide">{t('available')}</p>
@@ -587,7 +618,7 @@ const TableGrid = () => {
                 </div>
 
                 {/* ============================================ */}
-                {/* SELF ASSIGNMENT PANEL - FIXED RESPONSIVE */}
+                {/* SELF ASSIGNMENT PANEL */}
                 {/* ============================================ */}
                 <div className="bg-white/5 backdrop-blur-sm rounded-xl border border-gray-700/50 overflow-hidden">
                     <div className="px-4 md:px-6 py-3 md:py-4 bg-white/5 border-b border-gray-700/50">
@@ -862,7 +893,7 @@ const TableGrid = () => {
                 )}
 
                 {/* ============================================ */}
-                {/* FLOOR PLAN - FIXED RESPONSIVE GRID */}
+                {/* FLOOR PLAN */}
                 {/* ============================================ */}
                 {tables.length > 0 && (
                     <div className="bg-white/5 backdrop-blur-sm rounded-xl p-4 md:p-6 border border-gray-700/50">
@@ -871,9 +902,6 @@ const TableGrid = () => {
                             {t('floorPlan')} - Your Assigned Tables
                         </h2>
                         
-                        {/* ============================================ */}
-                        {/* TABLES GRID - RESPONSIVE */}
-                        {/* ============================================ */}
                         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 md:gap-4">
                             {tables.map(table => (
                                 <div key={table.id} className="relative">
@@ -965,7 +993,7 @@ const TableGrid = () => {
                 )}
 
                 {/* ============================================ */}
-                {/* NEW ORDER MODAL - FIXED RESPONSIVE */}
+                {/* NEW ORDER MODAL */}
                 {/* ============================================ */}
                 {showOrderModal && selectedTable && (
                     <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-2 sm:p-4">
@@ -975,6 +1003,9 @@ const TableGrid = () => {
                                 <div>
                                     <h2 className="text-base md:text-xl font-bold text-white">New Order for Table {selectedTable.table_number}</h2>
                                     <p className="text-gray-400 text-xs md:text-sm mt-0.5 md:mt-1">Capacity: {selectedTable.capacity} seats</p>
+                                    {isOffline && (
+                                        <p className="text-yellow-400 text-xs mt-1">⚠️ Offline Mode - Order will be saved locally</p>
+                                    )}
                                 </div>
                                 <button
                                     onClick={() => {
@@ -1024,7 +1055,7 @@ const TableGrid = () => {
                                             </div>
                                         </div>
 
-                                        {/* Products Grid - Responsive */}
+                                        {/* Products Grid */}
                                         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 md:gap-3">
                                             {filteredProducts.map(product => (
                                                 <button
@@ -1126,6 +1157,12 @@ const TableGrid = () => {
                                                 )}
                                                 {isSubmitting ? t('sending') : t('sendToKitchen')}
                                             </button>
+                                            
+                                            {isOffline && (
+                                                <p className="text-xs text-yellow-400 text-center mt-2">
+                                                    ⚠️ Offline - Order will sync when online
+                                                </p>
+                                            )}
                                         </div>
                                     </div>
                                 </div>

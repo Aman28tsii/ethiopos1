@@ -6,7 +6,7 @@ import { v4 as uuidv4 } from 'uuid';
 
 // Generate unique local order ID
 export const generateLocalOrderId = () => {
-    return `offline_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+    return `offline_${Date.now()}_${uuidv4().slice(0, 8)}`;
 };
 
 // Generate idempotency key
@@ -60,8 +60,8 @@ export const saveOfflineOrderData = async (orderData) => {
             id: localOrderId,
             local_order_id: localOrderId,
             idempotency_key: idempotencyKey,
-            company_id: user.company_id,
-            branch_id: user.branch_id,
+            company_id: user.company_id || 1,
+            branch_id: user.branch_id || 1,
             user_id: user.id,
             payload: orderData,
             status: 'pending',
@@ -79,7 +79,8 @@ export const saveOfflineOrderData = async (orderData) => {
             data: {
                 local_order_id: localOrderId,
                 status: 'pending',
-                source: 'offline'
+                source: 'offline',
+                order_number: `OFFLINE-${localOrderId.slice(0, 8)}`
             },
             source: 'offline'
         };

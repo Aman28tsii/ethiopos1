@@ -3,6 +3,7 @@
 import express from "express";
 import { protect, allowWaiter, allowCashier, allowKitchen, allowManager, allowOwner } from "../middleware/auth.js";
 import { authorizeCompany, authorizeBranch, requireCompanyContext } from "../middleware/authorization.js";
+import { idempotent, requireIdempotency } from "../middleware/idempotency.js";
 import { pool } from "../config/database.js";
 import rateLimit from "express-rate-limit";
 import { processOrderStockDeduction } from "../controllers/recipeController.js";
@@ -70,7 +71,7 @@ router.get("/track/:orderNumber", trackLimiter, async (req, res) => {
 });
 
 // QR order - public (assigns branch from table)
-router.post("/qr-order", async (req, res) => {
+router.post("/qr-order", requireIdempotency, idempotent, async (req, res) => {
     try {
         const { items, table_id, customer_name, customer_phone, notes } = req.body;
         if (!items || items.length === 0) {
@@ -195,7 +196,7 @@ router.get("/", authorizeBranch, allowWaiter, async (req, res) => {
     }
 });
 
-router.post("/", authorizeBranch, allowWaiter, async (req, res) => {
+router.post("/", authorizeBranch, allowWaiter, requireIdempotency, idempotent, async (req, res) => {
     try {
         const { items, customer_name, customer_phone, table_id, order_type = 'dine_in', notes, source = 'waiter' } = req.body;
         const userId = req.user.id;
@@ -276,6 +277,24 @@ router.post("/", authorizeBranch, allowWaiter, async (req, res) => {
             }
             
             await client.query("COMMIT");
+            
+            const io = req.app.get('io');
+            if (io) {
+                const orderData = {
+                    order_id: orderId,
+                    order_number: orderNumber,
+                    total_amount: totalAmount,
+                    status: 'pending',
+                    branch_id: branchId,
+                    company_id: companyId,
+                    created_by: userId
+                };
+                
+                // Emit to kitchen
+                io.to(`kitchen_${branchId}`).emit('new_order', orderData);
+                // Emit to branch room
+                io.to(`branch_${companyId}_${branchId}`).emit('new_order_branch', orderData);
+            }
             
             res.status(201).json({
                 success: true,
@@ -595,7 +614,6 @@ router.get("/my-orders", authorizeBranch, allowWaiter, async (req, res) => {
 // CASHIER ROUTES (Branch-level)
 // ============================================================
 
-// ✅ FIXED: Get orders ready for payment
 router.get("/ready", authorizeBranch, allowCashier, async (req, res) => {
     try {
         const branchId = req.user.branch_id;
@@ -610,7 +628,8 @@ router.get("/ready", authorizeBranch, allowCashier, async (req, res) => {
             WHERE o.payment_status = 'pending'
                 AND o.status != 'completed'
                 AND o.status != 'cancelled'
-                AND o.branch_id = $1                AND o.company_id = $2
+                AND o.branch_id = $1
+                AND o.company_id = $2
                 AND (ko.status = 'ready' OR ko.status IS NULL)
             ORDER BY o.created_at ASC
         `, [branchId, companyId]);
@@ -621,7 +640,7 @@ router.get("/ready", authorizeBranch, allowCashier, async (req, res) => {
     }
 });
 
-router.post("/:orderId/pay", authorizeBranch, allowCashier, async (req, res) => {
+router.post("/:orderId/pay", authorizeBranch, allowCashier, requireIdempotency, idempotent, async (req, res) => {
     const { orderId } = req.params;
     const { payment_method } = req.body;
     const branchId = req.user.branch_id;

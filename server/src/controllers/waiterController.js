@@ -11,7 +11,7 @@ const generateOrderNumber = () => {
 };
 
 // ============================================================
-// CREATE ORDER (Waiter - Branch-isolated)
+// CREATE ORDER (Waiter - Branch-isolated) WITH SOCKET EMISSION
 // ============================================================
 export const createOrder = catchAsync(async (req, res) => {
     const { 
@@ -84,15 +84,15 @@ export const createOrder = catchAsync(async (req, res) => {
             INSERT INTO orders (
                 order_number, total_amount, created_by, status, 
                 payment_status, customer_name, customer_phone, table_id, 
-                order_type, notes, company_id, branch_id
+                order_type, notes, company_id, branch_id, source
             )
-            VALUES ($1, $2, $3, 'pending', 'pending', $4, $5, $6, $7, $8, $9, $10)
+            VALUES ($1, $2, $3, 'pending', 'pending', $4, $5, $6, $7, $8, $9, $10, $11)
             RETURNING id, order_number, total_amount, status
         `, [
             orderNumber, totalAmount, userId, 
             customer_name || null, customer_phone || null, 
             table_id || null, order_type, notes || null,
-            companyId, branchId
+            companyId, branchId, 'waiter'
         ]);
         
         const orderId = orderResult.rows[0].id;
@@ -116,6 +116,31 @@ export const createOrder = catchAsync(async (req, res) => {
         }
         
         await client.query('COMMIT');
+        
+        // ✅ SOCKET EMISSION - Real-time update
+        const io = req.app.get('io');
+        if (io) {
+            const orderData = {
+                order_id: orderId,
+                order_number: orderNumber,
+                total_amount: totalAmount,
+                status: 'pending',
+                branch_id: branchId,
+                company_id: companyId,
+                created_by: userId,
+                table_id: table_id
+            };
+            
+            // Emit to kitchen room (branch-specific)
+            io.to(`kitchen_${branchId}`).emit('new_order', orderData);
+            
+            // Emit to branch room
+            io.to(`branch_${companyId}_${branchId}`).emit('new_order_branch', orderData);
+            
+            console.log(`[SOCKET] Emitted new_order to kitchen_${branchId} for order ${orderNumber}`);
+        } else {
+            console.log('[SOCKET] IO not available - no real-time update sent');
+        }
         
         res.status(201).json({
             success: true,

@@ -13,6 +13,20 @@ let syncInterval = null;
 let isInitialized = false;
 let onlineHandler = null;
 
+// Get current user context
+const getUserContext = () => {
+    try {
+        const user = JSON.parse(localStorage.getItem('user') || '{}');
+        return {
+            company_id: user.company_id || 1,
+            branch_id: user.branch_id || 1,
+            user_id: user.id
+        };
+    } catch (e) {
+        return { company_id: 1, branch_id: 1, user_id: null };
+    }
+};
+
 // ============================================
 // START SYNC ENGINE
 // ============================================
@@ -90,15 +104,22 @@ export const sync = async () => {
     console.log('[SYNC] Starting sync...');
 
     try {
-        const pendingOrders = await getPendingOfflineOrders();
+        const context = getUserContext();
+        const allPending = await getPendingOfflineOrders();
+        
+        // Filter by current user's company and branch
+        const pendingOrders = allPending.filter(order => 
+            order.company_id === context.company_id && 
+            order.branch_id === context.branch_id
+        );
 
         if (pendingOrders.length === 0) {
-            console.log('[SYNC] No pending orders');
+            console.log('[SYNC] No pending orders for this branch');
             isSyncing = false;
             return;
         }
 
-        console.log(`[SYNC] Found ${pendingOrders.length} pending orders`);
+        console.log(`[SYNC] Found ${pendingOrders.length} pending orders for branch ${context.branch_id}`);
 
         let synced = 0;
         let failed = 0;
@@ -132,7 +153,7 @@ const syncSingleOrder = async (order) => {
 
         console.log(`[SYNC] Processing order ${order.id}`);
 
-        // Send to server
+        // Send to server with idempotency key
         const response = await API.post('/orders', order.payload, {
             headers: {
                 'Idempotency-Key': order.idempotency_key
@@ -171,7 +192,7 @@ const syncSingleOrder = async (order) => {
             return 'synced';
         }
 
-        // Retry logic
+        // Retry logic with exponential backoff
         const attempts = (order.attempts || 0) + 1;
         if (attempts >= 5) {
             await updateOfflineOrderStatus(order.id, 'failed', `Max retries exceeded: ${errorMsg}`);
@@ -192,13 +213,19 @@ const syncSingleOrder = async (order) => {
 
 export const getSyncStatus = async () => {
     try {
+        const context = getUserContext();
+        const allPending = await getPendingOfflineOrders();
+        const branchPending = allPending.filter(order => 
+            order.company_id === context.company_id && 
+            order.branch_id === context.branch_id
+        );
         const total = await getCount('offline_orders');
-        const pending = await getPendingOfflineOrders();
+        
         return {
             total: total || 0,
-            pending: pending?.length || 0,
+            pending: branchPending?.length || 0,
             isSyncing,
-            hasPending: (total || 0) > 0
+            hasPending: branchPending?.length > 0
         };
     } catch (error) {
         console.error('[SYNC] Status error:', error);
