@@ -81,7 +81,6 @@ router.post("/qr-order", async (req, res) => {
         try {
             await client.query("BEGIN");
             
-            // Get branch from table
             const tableResult = await client.query(
                 "SELECT branch_id, waiter_id FROM tables WHERE id = $1",
                 [table_id]
@@ -92,7 +91,6 @@ router.post("/qr-order", async (req, res) => {
             const branchId = tableResult.rows[0].branch_id;
             const waiterId = tableResult.rows[0].waiter_id;
             
-            // Get company from branch
             const branchResult = await client.query(
                 "SELECT company_id FROM branches WHERE id = $1",
                 [branchId]
@@ -165,7 +163,6 @@ router.use(requireCompanyContext);
 // WAITER ROUTES (Branch-level)
 // ============================================================
 
-// Get all orders for waiter (branch-isolated)
 router.get("/", authorizeBranch, allowWaiter, async (req, res) => {
     try {
         const companyId = req.user.company_id;
@@ -198,7 +195,6 @@ router.get("/", authorizeBranch, allowWaiter, async (req, res) => {
     }
 });
 
-// Create order
 router.post("/", authorizeBranch, allowWaiter, async (req, res) => {
     try {
         const { items, customer_name, customer_phone, table_id, order_type = 'dine_in', notes, source = 'waiter' } = req.body;
@@ -214,7 +210,6 @@ router.post("/", authorizeBranch, allowWaiter, async (req, res) => {
         try {
             await client.query("BEGIN");
             
-            // Verify table belongs to branch
             if (table_id) {
                 const tableCheck = await client.query(
                     "SELECT id FROM tables WHERE id = $1 AND branch_id = $2 AND company_id = $3",
@@ -305,7 +300,6 @@ router.post("/", authorizeBranch, allowWaiter, async (req, res) => {
     }
 });
 
-// Get order by ID (tenant-validated)
 router.get("/:orderId", authorizeBranch, allowWaiter, async (req, res) => {
     const { orderId } = req.params;
     const branchId = req.user.branch_id;
@@ -341,7 +335,6 @@ router.get("/:orderId", authorizeBranch, allowWaiter, async (req, res) => {
     }
 });
 
-// Add items to existing order
 router.post("/:orderId/add-items", authorizeBranch, allowWaiter, async (req, res) => {
     const { orderId } = req.params;
     const { items } = req.body;
@@ -423,7 +416,6 @@ router.post("/:orderId/add-items", authorizeBranch, allowWaiter, async (req, res
     }
 });
 
-// Cancel order
 router.put("/:orderId/cancel", authorizeBranch, allowWaiter, async (req, res) => {
     const { orderId } = req.params;
     const { reason } = req.body;
@@ -471,7 +463,6 @@ router.put("/:orderId/cancel", authorizeBranch, allowWaiter, async (req, res) =>
     }
 });
 
-// Confirm order
 router.put("/confirm/:orderId", authorizeBranch, allowWaiter, async (req, res) => {
     const { orderId } = req.params;
     const userId = req.user.id;
@@ -525,7 +516,6 @@ router.put("/confirm/:orderId", authorizeBranch, allowWaiter, async (req, res) =
     }
 });
 
-// Get pending confirmations
 router.get("/pending-confirmation", authorizeBranch, allowWaiter, async (req, res) => {
     const waiterId = req.user.id;
     const branchId = req.user.branch_id;
@@ -564,7 +554,6 @@ router.get("/pending-confirmation", authorizeBranch, allowWaiter, async (req, re
     }
 });
 
-// Get waiter's orders
 router.get("/my-orders", authorizeBranch, allowWaiter, async (req, res) => {
     const userId = req.user.id;
     const branchId = req.user.branch_id;
@@ -606,7 +595,7 @@ router.get("/my-orders", authorizeBranch, allowWaiter, async (req, res) => {
 // CASHIER ROUTES (Branch-level)
 // ============================================================
 
-// Get orders ready for payment
+// ✅ FIXED: Get orders ready for payment
 router.get("/ready", authorizeBranch, allowCashier, async (req, res) => {
     try {
         const branchId = req.user.branch_id;
@@ -617,12 +606,12 @@ router.get("/ready", authorizeBranch, allowCashier, async (req, res) => {
                    ko.status as kitchen_status
             FROM orders o
             LEFT JOIN tables t ON o.table_id = t.id
-            JOIN kitchen_orders ko ON o.id = ko.order_id
-            WHERE ko.status = 'ready' 
-                AND o.payment_status = 'pending'
+            LEFT JOIN kitchen_orders ko ON o.id = ko.order_id
+            WHERE o.payment_status = 'pending'
                 AND o.status != 'completed'
-                AND o.branch_id = $1
-                AND o.company_id = $2
+                AND o.status != 'cancelled'
+                AND o.branch_id = $1                AND o.company_id = $2
+                AND (ko.status = 'ready' OR ko.status IS NULL)
             ORDER BY o.created_at ASC
         `, [branchId, companyId]);
         res.json({ success: true, data: result.rows });
@@ -632,7 +621,6 @@ router.get("/ready", authorizeBranch, allowCashier, async (req, res) => {
     }
 });
 
-// Process payment
 router.post("/:orderId/pay", authorizeBranch, allowCashier, async (req, res) => {
     const { orderId } = req.params;
     const { payment_method } = req.body;
@@ -690,7 +678,6 @@ router.post("/:orderId/pay", authorizeBranch, allowCashier, async (req, res) => 
 // UTILITY ROUTES
 // ============================================================
 
-// Get active order for table
 router.get("/table/:tableId/active-order", authorizeBranch, allowWaiter, async (req, res) => {
     const { tableId } = req.params;
     const branchId = req.user.branch_id;
@@ -712,7 +699,6 @@ router.get("/table/:tableId/active-order", authorizeBranch, allowWaiter, async (
     }
 });
 
-// Customer adds items to existing order
 router.post("/:orderId/customer-add-items", async (req, res) => {
     const { orderId } = req.params;
     const { items } = req.body;
@@ -723,7 +709,6 @@ router.post("/:orderId/customer-add-items", async (req, res) => {
     try {
         await client.query("BEGIN");
         
-        // Get order details to verify company
         const orderCheck = await client.query(
             "SELECT id, status, total_amount, company_id FROM orders WHERE id = $1 AND status = $2",
             [orderId, 'pending_confirmation']

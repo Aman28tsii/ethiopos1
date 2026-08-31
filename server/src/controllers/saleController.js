@@ -56,7 +56,7 @@ const deductIngredients = async (productId, quantity, client) => {
 };
 
 // ============================================
-// GET ALL SALES (Branch-isolated)
+// GET ALL SALES (Branch-isolated) — ✅ FIXED
 // ============================================
 export const getSales = catchAsync(async (req, res) => {
     const { startDate, endDate, page = 1, limit = 20 } = req.query;
