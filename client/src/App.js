@@ -6,9 +6,12 @@ import Login from './pages/Login';
 import Signup from './pages/Signup';
 import { LanguageProvider } from './context/LanguageContext';
 import { ThemeProvider } from './context/ThemeContext';
-import { BranchProvider } from './context/BranchContext'; // NEW
+import { BranchProvider } from './context/BranchContext';
+import { OfflineProvider } from './context/OfflineContext';
+import { CartProvider } from './context/CartContext';
 import ErrorBoundary from './components/ErrorBoundary';
 import Categories from './pages/owner/Categories';
+import { startSyncEngine, stopSyncEngine } from './services/syncEngine';
 
 // Lazy load layouts
 const OwnerLayout = lazy(() => import('./layouts/OwnerLayout'));
@@ -92,6 +95,15 @@ function App() {
     setLoading(false);
   }, []);
 
+  // Start sync engine when authenticated
+  useEffect(() => {
+    if (isAuthenticated) {
+      startSyncEngine();
+    } else {
+      stopSyncEngine();
+    }
+  }, [isAuthenticated]);
+
   const handleLogin = useCallback((userData, token) => {
     localStorage.setItem('token', token);
     localStorage.setItem('user', JSON.stringify(userData));
@@ -102,9 +114,10 @@ function App() {
   const handleLogout = useCallback(() => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
-    localStorage.removeItem('ethiopos_selected_branch'); // NEW
+    localStorage.removeItem('ethiopos_selected_branch');
     setIsAuthenticated(false);
     setUser(null);
+    stopSyncEngine();
   }, []);
 
   if (loading) {
@@ -141,111 +154,115 @@ function App() {
     <ErrorBoundary>
       <ThemeProvider>
         <LanguageProvider>
-          <BranchProvider> {/* NEW */}
-            <Router>
-              <Suspense fallback={<LoadingSpinner />}>
-                <Routes>
-                  {/* Public routes also accessible to logged-in users */}
-                  <Route path="/qr-menu" element={<QRMenu />} />
-                  <Route path="/track-order" element={<TrackOrder />} />
+          <BranchProvider>
+            <OfflineProvider>
+              <CartProvider>
+                <Router>
+                  <Suspense fallback={<LoadingSpinner />}>
+                    <Routes>
+                      {/* Public routes also accessible to logged-in users */}
+                      <Route path="/qr-menu" element={<QRMenu />} />
+                      <Route path="/track-order" element={<TrackOrder />} />
 
-                  {/* Owner Routes */}
-                  <Route path="/owner/*" element={
-                    <RoleRoute allowedRoles={['owner', 'admin']} userRole={userRole}>
-                      <OwnerLayout user={user} onLogout={handleLogout}>
-                        <Suspense fallback={<LoadingSpinner />}>
-                          <Routes>
-                            <Route path="dashboard" element={<OwnerDashboard />} />
-                            <Route path="reports" element={<ProfitReports />} />
-                            <Route path="expenses" element={<Expenses />} />
-                            <Route path="staff" element={<Staff />} />
-                            <Route path="pending-approvals" element={<PendingApprovals />} />
-                            <Route path="inventory" element={<Inventory />} />
-                            <Route path="categories" element={<Categories />} />
-                            <Route path="settings" element={<Settings />} />
-                            <Route path="customers" element={<Customers />} />
-                            <Route path="print-qr" element={<PrintQRCodes />} />
-                            <Route path="manage-tables" element={<ManageTables />} />
-                            <Route path="*" element={<Navigate to="/owner/dashboard" />} />
-                          </Routes>
-                        </Suspense>
-                      </OwnerLayout>
-                    </RoleRoute>
-                  } />
+                      {/* Owner Routes */}
+                      <Route path="/owner/*" element={
+                        <RoleRoute allowedRoles={['owner', 'admin']} userRole={userRole}>
+                          <OwnerLayout user={user} onLogout={handleLogout}>
+                            <Suspense fallback={<LoadingSpinner />}>
+                              <Routes>
+                                <Route path="dashboard" element={<OwnerDashboard />} />
+                                <Route path="reports" element={<ProfitReports />} />
+                                <Route path="expenses" element={<Expenses />} />
+                                <Route path="staff" element={<Staff />} />
+                                <Route path="pending-approvals" element={<PendingApprovals />} />
+                                <Route path="inventory" element={<Inventory />} />
+                                <Route path="categories" element={<Categories />} />
+                                <Route path="settings" element={<Settings />} />
+                                <Route path="customers" element={<Customers />} />
+                                <Route path="print-qr" element={<PrintQRCodes />} />
+                                <Route path="manage-tables" element={<ManageTables />} />
+                                <Route path="*" element={<Navigate to="/owner/dashboard" />} />
+                              </Routes>
+                            </Suspense>
+                          </OwnerLayout>
+                        </RoleRoute>
+                      } />
 
-                  {/* Manager Routes */}
-                  <Route path="/manager/*" element={
-                    <RoleRoute allowedRoles={['manager', 'owner', 'admin']} userRole={userRole}>
-                      <ManagerLayout user={user} onLogout={handleLogout}>
-                        <Suspense fallback={<LoadingSpinner />}>
-                          <Routes>
-                            <Route path="dashboard" element={<ManagerDashboard />} />
-                            <Route path="inventory" element={<Inventory />} />
-                            <Route path="categories" element={<Categories />} />
-                            <Route path="reports" element={<Reports />} />
-                            <Route path="profit" element={<ProfitReports />} />
-                            <Route path="tables" element={<ManageTables />} />
-                            <Route path="*" element={<Navigate to="/manager/dashboard" />} />
-                          </Routes>
-                        </Suspense>
-                      </ManagerLayout>
-                    </RoleRoute>
-                  } />
+                      {/* Manager Routes */}
+                      <Route path="/manager/*" element={
+                        <RoleRoute allowedRoles={['manager', 'owner', 'admin']} userRole={userRole}>
+                          <ManagerLayout user={user} onLogout={handleLogout}>
+                            <Suspense fallback={<LoadingSpinner />}>
+                              <Routes>
+                                <Route path="dashboard" element={<ManagerDashboard />} />
+                                <Route path="inventory" element={<Inventory />} />
+                                <Route path="categories" element={<Categories />} />
+                                <Route path="reports" element={<Reports />} />
+                                <Route path="profit" element={<ProfitReports />} />
+                                <Route path="tables" element={<ManageTables />} />
+                                <Route path="*" element={<Navigate to="/manager/dashboard" />} />
+                              </Routes>
+                            </Suspense>
+                          </ManagerLayout>
+                        </RoleRoute>
+                      } />
 
-                  {/* Cashier Routes */}
-                  <Route path="/cashier/*" element={
-                    <RoleRoute allowedRoles={['cashier', 'manager', 'owner', 'admin']} userRole={userRole}>
-                      <CashierLayout user={user} onLogout={handleLogout}>
-                        <Suspense fallback={<LoadingSpinner />}>
-                          <Routes>
-                            <Route path="pos" element={<CashierPOS userRole={userRole} />} />
-                            <Route path="history" element={<div className="text-gray-900 dark:text-white p-6">Sales History</div>} />
-                            <Route path="manual-order" element={<ManualOrder />} />
-                            <Route path="*" element={<Navigate to="/cashier/pos" />} />
-                          </Routes>
-                        </Suspense>
-                      </CashierLayout>
-                    </RoleRoute>
-                  } />
+                      {/* Cashier Routes */}
+                      <Route path="/cashier/*" element={
+                        <RoleRoute allowedRoles={['cashier', 'manager', 'owner', 'admin']} userRole={userRole}>
+                          <CashierLayout user={user} onLogout={handleLogout}>
+                            <Suspense fallback={<LoadingSpinner />}>
+                              <Routes>
+                                <Route path="pos" element={<CashierPOS />} />
+                                <Route path="history" element={<div className="text-gray-900 dark:text-white p-6">Sales History</div>} />
+                                <Route path="manual-order" element={<ManualOrder />} />
+                                <Route path="*" element={<Navigate to="/cashier/pos" />} />
+                              </Routes>
+                            </Suspense>
+                          </CashierLayout>
+                        </RoleRoute>
+                      } />
 
-                  {/* Waiter Routes */}
-                  <Route path="/waiter/*" element={
-                    <RoleRoute allowedRoles={['waiter', 'cashier', 'manager', 'owner', 'admin']} userRole={userRole}>
-                      <WaiterLayout user={user} onLogout={handleLogout}>
-                        <Suspense fallback={<LoadingSpinner />}>
-                          <Routes>
-                            <Route path="tables" element={<TableGrid />} />
-                            <Route path="orders" element={<div className="text-gray-900 dark:text-white p-6">My Orders</div>} />
-                            <Route path="my-orders" element={<MyOrders />} />
-                            <Route path="table-status" element={<TableStatus />} />
-                            <Route path="pending-confirmations" element={<PendingConfirmations />} />
-                            <Route path="*" element={<Navigate to="/waiter/tables" />} />
-                          </Routes>
-                        </Suspense>
-                      </WaiterLayout>
-                    </RoleRoute>
-                  } />
+                      {/* Waiter Routes */}
+                      <Route path="/waiter/*" element={
+                        <RoleRoute allowedRoles={['waiter', 'cashier', 'manager', 'owner', 'admin']} userRole={userRole}>
+                          <WaiterLayout user={user} onLogout={handleLogout}>
+                            <Suspense fallback={<LoadingSpinner />}>
+                              <Routes>
+                                <Route path="tables" element={<TableGrid />} />
+                                <Route path="orders" element={<div className="text-gray-900 dark:text-white p-6">My Orders</div>} />
+                                <Route path="my-orders" element={<MyOrders />} />
+                                <Route path="table-status" element={<TableStatus />} />
+                                <Route path="pending-confirmations" element={<PendingConfirmations />} />
+                                <Route path="*" element={<Navigate to="/waiter/tables" />} />
+                              </Routes>
+                            </Suspense>
+                          </WaiterLayout>
+                        </RoleRoute>
+                      } />
 
-                  {/* Kitchen Routes */}
-                  <Route path="/kitchen/*" element={
-                    <RoleRoute allowedRoles={['kitchen', 'manager', 'owner', 'admin']} userRole={userRole}>
-                      <KitchenLayout user={user} onLogout={handleLogout}>
-                        <Suspense fallback={<LoadingSpinner />}>
-                          <Routes>
-                            <Route path="orders" element={<KitchenDashboard />} />
-                            <Route path="*" element={<Navigate to="/kitchen/orders" />} />
-                          </Routes>
-                        </Suspense>
-                      </KitchenLayout>
-                    </RoleRoute>
-                  } />
+                      {/* Kitchen Routes */}
+                      <Route path="/kitchen/*" element={
+                        <RoleRoute allowedRoles={['kitchen', 'manager', 'owner', 'admin']} userRole={userRole}>
+                          <KitchenLayout user={user} onLogout={handleLogout}>
+                            <Suspense fallback={<LoadingSpinner />}>
+                              <Routes>
+                                <Route path="orders" element={<KitchenDashboard />} />
+                                <Route path="*" element={<Navigate to="/kitchen/orders" />} />
+                              </Routes>
+                            </Suspense>
+                          </KitchenLayout>
+                        </RoleRoute>
+                      } />
 
-                  {/* Root redirect based on role */}
-                  <Route path="/" element={<Navigate to={getDefaultRoute(userRole)} replace />} />
-                  <Route path="*" element={<Navigate to={getDefaultRoute(userRole)} replace />} />
-                </Routes>
-              </Suspense>
-            </Router>
+                      {/* Root redirect based on role */}
+                      <Route path="/" element={<Navigate to={getDefaultRoute(userRole)} replace />} />
+                      <Route path="*" element={<Navigate to={getDefaultRoute(userRole)} replace />} />
+                    </Routes>
+                  </Suspense>
+                </Router>
+              </CartProvider>
+            </OfflineProvider>
           </BranchProvider>
         </LanguageProvider>
       </ThemeProvider>

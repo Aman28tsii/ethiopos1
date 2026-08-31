@@ -5,7 +5,8 @@ import { Bell, User, Search, Globe } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 import RealTimeNotifications from './RealTimeNotifications';
 import ThemeToggle from './ThemeToggle';
-import BranchSelector from './BranchSelector'; // NEW
+import BranchSelector from './BranchSelector';
+import SyncStatus from './SyncStatus';
 
 const Topbar = ({ user }) => {
   const { language, setLanguage, t } = useLanguage();
@@ -31,6 +32,9 @@ const Topbar = ({ user }) => {
         
         {/* Right Section */}
         <div className="flex items-center gap-2 sm:gap-4">
+          {/* Sync Status */}
+          <SyncStatus />
+
           {/* Branch Selector - Only for owners/admins */}
           <BranchSelector />
 
@@ -55,7 +59,7 @@ const Topbar = ({ user }) => {
             >
               <Globe size={20} className="text-gray-600 dark:text-gray-400" />
               <span className="text-gray-700 dark:text-gray-300 text-sm hidden sm:inline">
-                {language === 'en' ? 'EN' : 'አማ'}
+                {language === 'en' ? 'EN' : 'አማር'}
               </span>
             </button>
             
