@@ -185,7 +185,7 @@ export const deleteExpense = catchAsync(async (req, res) => {
 });
 
 // ============================================================
-// GET EXPENSE SUMMARY (Branch-isolated)
+// GET EXPENSE SUMMARY (Branch-isolated) - ✅ FIXED
 // ============================================================
 export const getExpenseSummary = catchAsync(async (req, res) => {
     const { startDate, endDate } = req.query;
@@ -237,7 +237,7 @@ export const getExpenseSummary = catchAsync(async (req, res) => {
 });
 
 // ============================================================
-// GET EXPENSE CATEGORIES (Branch-isolated)  ← ADD THIS!
+// GET EXPENSE CATEGORIES (Branch-isolated)
 // ============================================================
 export const getExpenseCategories = catchAsync(async (req, res) => {
     if (!req.user?.company_id || !req.user?.branch_id) {
