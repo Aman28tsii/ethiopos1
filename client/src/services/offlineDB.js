@@ -283,7 +283,7 @@ export const getTables = async (branchId) => {
 };
 
 // ============================================
-// CART OPERATIONS
+// CART OPERATIONS (for future use)
 // ============================================
 
 export const saveCart = async (cart, branchId) => {
@@ -305,7 +305,7 @@ export const clearCart = async () => {
 };
 
 // ============================================
-// OFFLINE ORDER OPERATIONS
+// OFFLINE ORDER OPERATIONS (for future use)
 // ============================================
 
 export const saveOfflineOrder = async (order) => {
@@ -350,7 +350,7 @@ export const deleteAllOfflineOrders = async () => {
 };
 
 // ============================================
-// SYNC METADATA
+// SYNC METADATA (for future use)
 // ============================================
 
 export const getSyncMetadata = async (key) => {

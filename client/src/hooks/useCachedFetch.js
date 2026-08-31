@@ -2,9 +2,11 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import API from '../api/axios';
-import { saveProducts, getProducts as getOfflineProducts } from '../services/offlineDB';
-import { saveCategories, getCategories as getOfflineCategories } from '../services/offlineDB';
-import { saveTables, getTables as getOfflineTables } from '../services/offlineDB';
+import { 
+    saveProducts, getProducts as getOfflineProducts,
+    saveCategories, getCategories as getOfflineCategories,
+    saveTables, getTables as getOfflineTables
+} from '../services/offlineDB';
 
 // In-memory cache
 const cache = new Map();
@@ -106,9 +108,9 @@ export function useCachedFetch(baseKey, fetchFn, ttl = 60000, dependencies = [])
 
     const fetchData = useCallback(async () => {
         const key = getCurrentKey();
-        const isOfflineMode = isOffline();
+        const offlineMode = isOffline();
         
-        // Check in-memory cache
+        // Check in-memory cache first
         const cached = cache.get(key);
         if (cached && Date.now() - cached.timestamp < ttl) {
             console.log(`[CACHE HIT] ${key}`);
@@ -120,8 +122,8 @@ export function useCachedFetch(baseKey, fetchFn, ttl = 60000, dependencies = [])
             return;
         }
 
-        // Check if offline - try IndexedDB
-        if (isOfflineMode) {
+        // If offline, try IndexedDB
+        if (offlineMode) {
             console.log(`[OFFLINE] Loading ${key} from IndexedDB`);
             const offlineData = await loadFromIndexedDB(baseKey);
             if (offlineData && isMounted.current) {
