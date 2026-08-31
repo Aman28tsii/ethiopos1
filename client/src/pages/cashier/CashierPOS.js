@@ -293,4 +293,4 @@ const CashierPOS = () => {
     );
 };
 
-export default CashierPOS;s
+export default CashierPOS;
