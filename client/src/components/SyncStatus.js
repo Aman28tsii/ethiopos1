@@ -2,11 +2,11 @@
 
 import React, { useState, useEffect } from 'react';
 import { Wifi, WifiOff, RefreshCw, AlertTriangle, CheckCircle, Upload } from 'lucide-react';
-import { useNetworkStatus } from '../hooks/useNetworkStatus';
-import { getSyncStatus, sync } from '../services/syncEngine';
+import { useOffline } from '../context/OfflineContext';
+import { getSyncStatus, triggerSync } from '../services/syncEngine';
 
 const SyncStatus = () => {
-    const { isOnline, isServerReachable, isConnected } = useNetworkStatus();
+    const { isOnline, isServerReachable } = useOffline();
     const [syncStatus, setSyncStatus] = useState({ total: 0, pending: 0, isSyncing: false, hasPending: false });
     const [showDetails, setShowDetails] = useState(false);
 
@@ -23,7 +23,7 @@ const SyncStatus = () => {
 
     const handleSync = async () => {
         if (syncStatus.isSyncing) return;
-        await sync();
+        await triggerSync();
         const status = await getSyncStatus();
         setSyncStatus(status);
     };
@@ -87,7 +87,7 @@ const SyncStatus = () => {
                         <h4 className="font-semibold text-gray-900 dark:text-white">Sync Status</h4>
                         <button
                             onClick={handleSync}
-                            disabled={!isConnected || syncStatus.isSyncing}
+                            disabled={!isOnline || syncStatus.isSyncing}
                             className="text-xs bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white px-3 py-1 rounded-lg transition"
                         >
                             {syncStatus.isSyncing ? 'Syncing...' : 'Sync Now'}
@@ -97,8 +97,8 @@ const SyncStatus = () => {
                     <div className="space-y-2 text-sm">
                         <div className="flex justify-between text-gray-600 dark:text-gray-400">
                             <span>Status</span>
-                            <span className={isConnected ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}>
-                                {isConnected ? '🟢 Online' : '🔴 Offline'}
+                            <span className={isOnline ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}>
+                                {isOnline ? '🟢 Online' : '🔴 Offline'}
                             </span>
                         </div>
                         <div className="flex justify-between text-gray-600 dark:text-gray-400">
@@ -116,15 +116,6 @@ const SyncStatus = () => {
                             </div>
                         )}
                     </div>
-
-                    {syncStatus.pending > 0 && (
-                        <button
-                            onClick={handleSync}
-                            className="w-full mt-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-semibold transition"
-                        >
-                            Sync Now
-                        </button>
-                    )}
                 </div>
             )}
         </div>
