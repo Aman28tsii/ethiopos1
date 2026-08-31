@@ -5,13 +5,20 @@ import App from './App';
 import reportWebVitals from './reportWebVitals';
 import { LanguageProvider } from './context/LanguageContext';
 import { ThemeProvider } from './context/ThemeContext';
+import { BranchProvider } from './context/BranchContext';
+import { OfflineProvider } from './context/OfflineContext';
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
+
 root.render(
   <React.StrictMode>
     <ThemeProvider>
       <LanguageProvider>
-        <App />
+        <BranchProvider>
+          <OfflineProvider>
+            <App />
+          </OfflineProvider>
+        </BranchProvider>
       </LanguageProvider>
     </ThemeProvider>
   </React.StrictMode>
