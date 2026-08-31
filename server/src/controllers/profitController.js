@@ -4,7 +4,7 @@ import { query } from '../config/database.js';
 import { catchAsync, AppError } from '../middleware/errorHandler.js';
 
 // ============================================================
-// GET PROFIT REPORT (Branch-isolated)
+// GET PROFIT REPORT (Branch-isolated) - ✅ FIXED
 // ============================================================
 export const getProfitReport = catchAsync(async (req, res) => {
     const { startDate, endDate } = req.query;
@@ -125,7 +125,7 @@ export const getProfitReport = catchAsync(async (req, res) => {
 });
 
 // ============================================================
-// GET TODAY'S PROFIT (Branch-isolated)
+// GET TODAY'S PROFIT (Branch-isolated) - ✅ FIXED
 // ============================================================
 export const getTodayProfit = catchAsync(async (req, res) => {
     if (!req.user?.company_id || !req.user?.branch_id) {
@@ -188,7 +188,7 @@ export const getTodayProfit = catchAsync(async (req, res) => {
 });
 
 // ============================================================
-// GET MONTHLY TREND (Branch-isolated)
+// GET MONTHLY TREND (Branch-isolated) - ✅ FIXED
 // ============================================================
 export const getMonthlyTrend = catchAsync(async (req, res) => {
     if (!req.user?.company_id || !req.user?.branch_id) {

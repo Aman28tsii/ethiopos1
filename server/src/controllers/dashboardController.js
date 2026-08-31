@@ -54,12 +54,12 @@ export const getDashboardData = catchAsync(async (req, res) => {
           AND branch_id = $3
     `, [monthAgo, companyId, branchId]);
 
-    // Month expenses - using business_id instead of company_id
+    // Month expenses - ✅ FIXED: use company_id instead of business_id
     const monthExpenses = await query(`
         SELECT COALESCE(SUM(amount), 0) as total_expenses
         FROM expenses
         WHERE expense_date >= $1
-          AND business_id = $2
+          AND company_id = $2
           AND branch_id = $3
     `, [monthAgo, companyId, branchId]);
 
