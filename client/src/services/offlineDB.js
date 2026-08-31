@@ -78,115 +78,155 @@ export const openDB = () => {
 // ============================================
 
 export const saveToStore = async (storeName, data) => {
-    const database = await openDB();
-    return new Promise((resolve, reject) => {
-        const transaction = database.transaction(storeName, 'readwrite');
-        const store = transaction.objectStore(storeName);
-        const request = store.put(data);
-        request.onsuccess = () => resolve(data);
-        request.onerror = () => reject(request.error);
-    });
+    try {
+        const database = await openDB();
+        return new Promise((resolve, reject) => {
+            const transaction = database.transaction(storeName, 'readwrite');
+            const store = transaction.objectStore(storeName);
+            const request = store.put(data);
+            request.onsuccess = () => resolve(data);
+            request.onerror = () => reject(request.error);
+        });
+    } catch (err) {
+        console.warn('IndexedDB save failed:', err);
+        return null;
+    }
 };
 
 export const saveManyToStore = async (storeName, dataArray) => {
-    const database = await openDB();
-    return new Promise((resolve, reject) => {
-        const transaction = database.transaction(storeName, 'readwrite');
-        const store = transaction.objectStore(storeName);
-        let completed = 0;
-        let errors = [];
+    if (!dataArray || dataArray.length === 0) return [];
+    try {
+        const database = await openDB();
+        return new Promise((resolve, reject) => {
+            const transaction = database.transaction(storeName, 'readwrite');
+            const store = transaction.objectStore(storeName);
+            let completed = 0;
+            let errors = [];
 
-        dataArray.forEach((item) => {
-            const request = store.put(item);
-            request.onsuccess = () => {
-                completed++;
-                if (completed === dataArray.length) {
-                    resolve(dataArray);
-                }
-            };
-            request.onerror = () => {
-                errors.push(request.error);
-                completed++;
-                if (completed === dataArray.length) {
-                    reject(errors);
-                }
-            };
+            dataArray.forEach((item) => {
+                const request = store.put(item);
+                request.onsuccess = () => {
+                    completed++;
+                    if (completed === dataArray.length) {
+                        resolve(dataArray);
+                    }
+                };
+                request.onerror = () => {
+                    errors.push(request.error);
+                    completed++;
+                    if (completed === dataArray.length) {
+                        reject(errors);
+                    }
+                };
+            });
         });
-    });
+    } catch (err) {
+        console.warn('IndexedDB save many failed:', err);
+        return [];
+    }
 };
 
 export const getFromStore = async (storeName, key) => {
-    const database = await openDB();
-    return new Promise((resolve, reject) => {
-        const transaction = database.transaction(storeName, 'readonly');
-        const store = transaction.objectStore(storeName);
-        const request = store.get(key);
-        request.onsuccess = () => resolve(request.result);
-        request.onerror = () => reject(request.error);
-    });
+    try {
+        const database = await openDB();
+        return new Promise((resolve, reject) => {
+            const transaction = database.transaction(storeName, 'readonly');
+            const store = transaction.objectStore(storeName);
+            const request = store.get(key);
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+        });
+    } catch (err) {
+        console.warn('IndexedDB get failed:', err);
+        return null;
+    }
 };
 
 export const getAllFromStore = async (storeName) => {
-    const database = await openDB();
-    return new Promise((resolve, reject) => {
-        const transaction = database.transaction(storeName, 'readonly');
-        const store = transaction.objectStore(storeName);
-        const request = store.getAll();
-        request.onsuccess = () => resolve(request.result);
-        request.onerror = () => reject(request.error);
-    });
+    try {
+        const database = await openDB();
+        return new Promise((resolve, reject) => {
+            const transaction = database.transaction(storeName, 'readonly');
+            const store = transaction.objectStore(storeName);
+            const request = store.getAll();
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+        });
+    } catch (err) {
+        console.warn('IndexedDB get all failed:', err);
+        return [];
+    }
 };
 
 export const getByIndex = async (storeName, indexName, value) => {
-    const database = await openDB();
-    return new Promise((resolve, reject) => {
-        const transaction = database.transaction(storeName, 'readonly');
-        const store = transaction.objectStore(storeName);
-        const index = store.index(indexName);
-        const request = index.getAll(value);
-        request.onsuccess = () => resolve(request.result);
-        request.onerror = () => reject(request.error);
-    });
+    try {
+        const database = await openDB();
+        return new Promise((resolve, reject) => {
+            const transaction = database.transaction(storeName, 'readonly');
+            const store = transaction.objectStore(storeName);
+            const index = store.index(indexName);
+            const request = index.getAll(value);
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+        });
+    } catch (err) {
+        console.warn('IndexedDB get by index failed:', err);
+        return [];
+    }
 };
 
 export const deleteFromStore = async (storeName, key) => {
-    const database = await openDB();
-    return new Promise((resolve, reject) => {
-        const transaction = database.transaction(storeName, 'readwrite');
-        const store = transaction.objectStore(storeName);
-        const request = store.delete(key);
-        request.onsuccess = () => resolve();
-        request.onerror = () => reject(request.error);
-    });
+    try {
+        const database = await openDB();
+        return new Promise((resolve, reject) => {
+            const transaction = database.transaction(storeName, 'readwrite');
+            const store = transaction.objectStore(storeName);
+            const request = store.delete(key);
+            request.onsuccess = () => resolve();
+            request.onerror = () => reject(request.error);
+        });
+    } catch (err) {
+        console.warn('IndexedDB delete failed:', err);
+    }
 };
 
 export const deleteAllFromStore = async (storeName) => {
-    const database = await openDB();
-    return new Promise((resolve, reject) => {
-        const transaction = database.transaction(storeName, 'readwrite');
-        const store = transaction.objectStore(storeName);
-        const request = store.clear();
-        request.onsuccess = () => resolve();
-        request.onerror = () => reject(request.error);
-    });
+    try {
+        const database = await openDB();
+        return new Promise((resolve, reject) => {
+            const transaction = database.transaction(storeName, 'readwrite');
+            const store = transaction.objectStore(storeName);
+            const request = store.clear();
+            request.onsuccess = () => resolve();
+            request.onerror = () => reject(request.error);
+        });
+    } catch (err) {
+        console.warn('IndexedDB clear failed:', err);
+    }
 };
 
 export const getCount = async (storeName) => {
-    const database = await openDB();
-    return new Promise((resolve, reject) => {
-        const transaction = database.transaction(storeName, 'readonly');
-        const store = transaction.objectStore(storeName);
-        const request = store.count();
-        request.onsuccess = () => resolve(request.result);
-        request.onerror = () => reject(request.error);
-    });
+    try {
+        const database = await openDB();
+        return new Promise((resolve, reject) => {
+            const transaction = database.transaction(storeName, 'readonly');
+            const store = transaction.objectStore(storeName);
+            const request = store.count();
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+        });
+    } catch (err) {
+        console.warn('IndexedDB count failed:', err);
+        return 0;
+    }
 };
 
 // ============================================
-// SPECIFIC OPERATIONS
+// PRODUCT OPERATIONS
 // ============================================
 
 export const saveProducts = async (products, branchId, companyId) => {
+    if (!products || products.length === 0) return;
     const data = products.map(p => ({
         ...p,
         branch_id: branchId,
@@ -197,10 +237,17 @@ export const saveProducts = async (products, branchId, companyId) => {
 };
 
 export const getProducts = async (branchId) => {
-    return await getByIndex('products', 'branch_id', branchId);
+    if (!branchId) return [];
+    const result = await getByIndex('products', 'branch_id', branchId);
+    return result || [];
 };
 
+// ============================================
+// CATEGORY OPERATIONS
+// ============================================
+
 export const saveCategories = async (categories, companyId) => {
+    if (!categories || categories.length === 0) return;
     const data = categories.map(c => ({
         ...c,
         company_id: companyId,
@@ -210,10 +257,17 @@ export const saveCategories = async (categories, companyId) => {
 };
 
 export const getCategories = async (companyId) => {
-    return await getByIndex('categories', 'company_id', companyId);
+    if (!companyId) return [];
+    const result = await getByIndex('categories', 'company_id', companyId);
+    return result || [];
 };
 
+// ============================================
+// TABLE OPERATIONS
+// ============================================
+
 export const saveTables = async (tables, branchId) => {
+    if (!tables || tables.length === 0) return;
     const data = tables.map(t => ({
         ...t,
         branch_id: branchId,
@@ -223,7 +277,9 @@ export const saveTables = async (tables, branchId) => {
 };
 
 export const getTables = async (branchId) => {
-    return await getByIndex('tables', 'branch_id', branchId);
+    if (!branchId) return [];
+    const result = await getByIndex('tables', 'branch_id', branchId);
+    return result || [];
 };
 
 // ============================================
