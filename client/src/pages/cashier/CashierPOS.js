@@ -2,9 +2,12 @@
 import API from '../../api/axios';
 import { Loader2, DollarSign, CreditCard, Smartphone, Printer } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
+import { useOffline } from '../../context/OfflineContext';
+import { getPendingOfflineOrdersList } from '../../services/orderService';
 
 const CashierPOS = () => {
     const { t } = useLanguage();
+    const { isOnline } = useOffline();
     const [readyOrders, setReadyOrders] = useState([]);
     const [selectedOrder, setSelectedOrder] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -13,16 +16,21 @@ const CashierPOS = () => {
     const [salesHistory, setSalesHistory] = useState([]);
     const [todaySales, setTodaySales] = useState(null);
     const [showHistory, setShowHistory] = useState(false);
+    const [pendingOfflineOrders, setPendingOfflineOrders] = useState([]);
 
     useEffect(() => {
         fetchReadyOrders();
         fetchSalesHistory();
         fetchTodaySales();
+        fetchPendingOfflineOrders();
+        
         const interval = setInterval(() => {
             fetchReadyOrders();
             fetchSalesHistory();
             fetchTodaySales();
+            fetchPendingOfflineOrders();
         }, 30000);
+        
         return () => clearInterval(interval);
     }, []);
 
@@ -52,6 +60,15 @@ const CashierPOS = () => {
             setTodaySales(response.data.data);
         } catch (err) {
             console.error('Fetch today sales error:', err);
+        }
+    };
+
+    const fetchPendingOfflineOrders = async () => {
+        try {
+            const orders = await getPendingOfflineOrdersList();
+            setPendingOfflineOrders(orders);
+        } catch (err) {
+            console.error('Fetch pending offline orders error:', err);
         }
     };
 
@@ -107,6 +124,21 @@ const CashierPOS = () => {
                             <p className="text-xl font-bold">{formatCurrency(todaySales.average_order)}</p>
                         </div>
                     </div>
+                </div>
+            )}
+
+            {/* Offline Status */}
+            {!isOnline && (
+                <div className="bg-yellow-500/20 border border-yellow-500/30 rounded-xl p-3 text-yellow-600 dark:text-yellow-400 text-sm flex items-center gap-2">
+                    <span>📡</span>
+                    <span>Offline Mode — {pendingOfflineOrders.length} orders pending sync</span>
+                </div>
+            )}
+
+            {isOnline && pendingOfflineOrders.length > 0 && (
+                <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-3 text-blue-600 dark:text-blue-400 text-sm flex items-center gap-2">
+                    <span>🔄</span>
+                    <span>{pendingOfflineOrders.length} offline orders waiting to sync</span>
                 </div>
             )}
 
