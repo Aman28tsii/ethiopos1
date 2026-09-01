@@ -617,7 +617,7 @@ router.get("/ready", authorizeBranch, allowCashier, async (req, res) => {
         const branchId = req.user.branch_id;
         const companyId = req.user.company_id;
         
-        // FIXED: Use COALESCE to handle NULL kitchen_status
+        // SIMPLE QUERY - no kitchen_orders join to avoid errors
         const result = await pool.query(`
             SELECT 
                 o.id, 
@@ -627,16 +627,13 @@ router.get("/ready", authorizeBranch, allowCashier, async (req, res) => {
                 o.table_id,
                 t.table_number, 
                 o.created_at,
-                COALESCE(ko.status, 'pending') as kitchen_status
+                o.status as order_status
             FROM orders o
             LEFT JOIN tables t ON o.table_id = t.id
-            LEFT JOIN kitchen_orders ko ON o.id = ko.order_id
             WHERE o.payment_status = 'pending'
-                AND o.status != 'completed'
-                AND o.status != 'cancelled'
+                AND o.status = 'pending'
                 AND o.branch_id = $1
                 AND o.company_id = $2
-                AND COALESCE(ko.status, 'pending') = 'ready'
             ORDER BY o.created_at ASC
         `, [branchId, companyId]);
         
