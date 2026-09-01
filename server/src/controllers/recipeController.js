@@ -684,12 +684,15 @@ export const calculateStockDeductionWithWastage = (recipeIngredients, orderQuant
 };
 
 // ============================================================
-// PROCESS ORDER STOCK DEDUCTION
+// PROCESS ORDER STOCK DEDUCTION — WITH TRANSACTION SAFETY
 // ============================================================
 export const processOrderStockDeduction = async (orderId, items, client) => {
     const allDeductions = [];
     let totalWastageCost = 0;
+    const ingredientIds = [];
+    const ingredientMap = new Map();
 
+    // Step 1: Collect all ingredients needed across all items
     for (const item of items) {
         const recipeQuery = `
             SELECT 
@@ -700,7 +703,9 @@ export const processOrderStockDeduction = async (orderId, items, client) => {
                 i.name,
                 i.unit,
                 i.unit_cost,
-                i.quantity as current_stock
+                i.quantity as current_stock,
+                i.company_id,
+                i.branch_id
             FROM recipe_ingredients ri
             JOIN ingredients i ON ri.ingredient_id = i.id
             JOIN recipes r ON ri.recipe_id = r.id
@@ -710,60 +715,144 @@ export const processOrderStockDeduction = async (orderId, items, client) => {
         const recipeResult = await client.query(recipeQuery, [item.product_id]);
 
         if (recipeResult.rows.length === 0) {
-            console.warn(`No recipe found for product ${item.product_id}`);
+            console.warn(`[STOCK] No recipe found for product ${item.product_id}`);
             continue;
         }
 
         const deductions = calculateStockDeductionWithWastage(recipeResult.rows, item.quantity);
-
+        
         for (const deduction of deductions) {
-            if (parseFloat(deduction.current_stock) < deduction.actual_quantity) {
-                const safetyStockResult = await client.query(
-                    'SELECT safety_stock FROM ingredients WHERE id = $1',
-                    [deduction.ingredient_id]
-                );
-                const safetyStock = parseFloat(safetyStockResult.rows[0]?.safety_stock || 0);
-                const availableWithSafety = parseFloat(deduction.current_stock) + safetyStock;
-
-                if (availableWithSafety < deduction.actual_quantity) {
-                    throw new Error(
-                        `Insufficient stock for ${deduction.ingredient_name}. ` +
-                        `Available: ${deduction.current_stock} ${deduction.unit}, ` +
-                        `Required: ${deduction.actual_quantity}`
-                    );
-                }
+            if (!ingredientMap.has(deduction.ingredient_id)) {
+                ingredientMap.set(deduction.ingredient_id, {
+                    ...deduction,
+                    total_required: deduction.actual_quantity
+                });
+                ingredientIds.push(deduction.ingredient_id);
+            } else {
+                const existing = ingredientMap.get(deduction.ingredient_id);
+                existing.total_required += deduction.actual_quantity;
+                existing.expected_quantity += deduction.expected_quantity;
+                existing.wastage_amount += deduction.wastage_amount;
             }
-
-            await client.query(`
-                UPDATE ingredients 
-                SET quantity = quantity - $1,
-                    last_used = NOW(),
-                    updated_at = NOW()
-                WHERE id = $2
-            `, [deduction.actual_quantity, deduction.ingredient_id]);
-
-            await client.query(`
-                INSERT INTO stock_transactions (
-                    ingredient_id, order_id, product_id,
-                    expected_quantity, actual_quantity,
-                    wastage_amount, wastage_percentage,
-                    transaction_type, notes
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'order_deduction', $8)
-            `, [
-                deduction.ingredient_id,
-                orderId,
-                item.product_id,
-                deduction.expected_quantity,
-                deduction.actual_quantity,
-                deduction.wastage_amount,
-                deduction.wastage_percentage,
-                `Order ${orderId} - ${deduction.ingredient_name}`
-            ]);
-
-            allDeductions.push(deduction);
-            totalWastageCost += deduction.wastage_cost;
         }
     }
 
-    return { deductions: allDeductions, totalWastageCost };
+    // If no ingredients need to be deducted, return early
+    if (ingredientIds.length === 0) {
+        return { deductions: [], totalWastageCost: 0 };
+    }
+
+    // Step 2: Sort ingredient IDs to prevent deadlocks
+    ingredientIds.sort((a, b) => a - b);
+
+    // Get company and branch from first ingredient
+    const firstIngredient = ingredientMap.get(ingredientIds[0]);
+    const companyId = firstIngredient?.company_id || 1;
+    const branchId = firstIngredient?.branch_id || 1;
+
+    // Step 3: Lock all ingredient rows in deterministic order
+    const lockQuery = `
+        SELECT id, quantity, name, unit, company_id, branch_id
+        FROM ingredients
+        WHERE id = ANY($1)
+          AND company_id = $2
+          AND branch_id = $3
+        FOR UPDATE
+    `;
+
+    const lockedResult = await client.query(lockQuery, [ingredientIds, companyId, branchId]);
+
+    // Verify all ingredients were locked
+    if (lockedResult.rows.length !== ingredientIds.length) {
+        const foundIds = lockedResult.rows.map(r => r.id);
+        const missingIds = ingredientIds.filter(id => !foundIds.includes(id));
+        throw new Error(`Some ingredients not found: ${missingIds.join(', ')}`);
+    }
+
+    // Step 4: Verify sufficient stock for ALL ingredients
+    for (const row of lockedResult.rows) {
+        const required = ingredientMap.get(row.id).total_required;
+        const available = parseFloat(row.quantity);
+
+        if (available < required) {
+            throw new Error(
+                `INSUFFICIENT_STOCK: ${row.name} (${row.unit}). ` +
+                `Available: ${available}, Required: ${required}`
+            );
+        }
+    }
+
+    // Step 5: Atomic stock update with guarded update
+    for (const row of lockedResult.rows) {
+        const required = ingredientMap.get(row.id).total_required;
+        
+        // ✅ Guarded update with stock check
+        const updateResult = await client.query(`
+            UPDATE ingredients 
+            SET quantity = quantity - $1,
+                last_used = NOW(),
+                updated_at = NOW()
+            WHERE id = $2
+              AND company_id = $3
+              AND branch_id = $4
+              AND quantity >= $1
+            RETURNING id, name, quantity, unit
+        `, [required, row.id, companyId, branchId]);
+
+        if (updateResult.rows.length === 0) {
+            throw new Error(
+                `STOCK_CONFLICT: ${row.name}. Stock was insufficient during update.`
+            );
+        }
+    }
+
+    // Step 6: Create stock transaction records
+    for (const row of lockedResult.rows) {
+        const required = ingredientMap.get(row.id).total_required;
+        const expected = ingredientMap.get(row.id).expected_quantity || required;
+        const wastage = ingredientMap.get(row.id).wastage_amount || 0;
+        const wastagePct = expected > 0 ? (wastage / expected * 100).toFixed(1) : 0;
+
+        await client.query(`
+            INSERT INTO stock_transactions (
+                ingredient_id, order_id, product_id,
+                expected_quantity, actual_quantity,
+                wastage_amount, wastage_percentage,
+                transaction_type, notes,
+                company_id, branch_id
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'order_deduction', $8, $9, $10)
+        `, [
+            row.id,
+            orderId,
+            null,
+            parseFloat(expected.toFixed(3)),
+            parseFloat(required.toFixed(3)),
+            parseFloat(wastage.toFixed(3)),
+            parseFloat(wastagePct),
+            `Order ${orderId} - ${row.name}`,
+            companyId,
+            branchId
+        ]);
+
+        totalWastageCost += parseFloat((wastage * (ingredientMap.get(row.id).unit_cost || 0)).toFixed(2));
+    }
+
+    // Step 7: Build deduction results
+    for (const row of lockedResult.rows) {
+        const required = ingredientMap.get(row.id).total_required;
+        allDeductions.push({
+            ingredient_id: row.id,
+            ingredient_name: row.name,
+            expected_quantity: parseFloat((ingredientMap.get(row.id).expected_quantity || required).toFixed(3)),
+            actual_quantity: parseFloat(required.toFixed(3)),
+            wastage_amount: parseFloat((ingredientMap.get(row.id).wastage_amount || 0).toFixed(3)),
+            wastage_percentage: ingredientMap.get(row.id).wastage_percentage || 0,
+            unit: row.unit,
+            unit_cost: ingredientMap.get(row.id).unit_cost || 0,
+            wastage_cost: parseFloat(((ingredientMap.get(row.id).wastage_amount || 0) * (ingredientMap.get(row.id).unit_cost || 0)).toFixed(2)),
+            current_stock: parseFloat(row.quantity) - required
+        });
+    }
+
+    return { deductions: allDeductions, totalWastageCost: parseFloat(totalWastageCost.toFixed(2)) };
 };

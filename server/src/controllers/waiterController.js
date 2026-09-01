@@ -2,6 +2,7 @@
 
 import { query, getClient } from '../config/database.js';
 import { catchAsync, AppError } from '../middleware/errorHandler.js';
+import { processOrderStockDeduction } from './recipeController.js';
 
 const generateOrderNumber = () => {
     const date = new Date();
@@ -115,9 +116,20 @@ export const createOrder = catchAsync(async (req, res) => {
             `, [orderId, table_id]);
         }
         
+        // ✅ Stock deduction within the SAME transaction
+        let stockResult = { deductions: [], totalWastageCost: 0 };
+        try {
+            stockResult = await processOrderStockDeduction(orderId, items, client);
+        } catch (stockError) {
+            // If stock fails, rollback everything
+            console.warn('[STOCK] Stock deduction failed:', stockError.message);
+            await client.query('ROLLBACK');
+            throw new AppError(stockError.message, 409);
+        }
+        
         await client.query('COMMIT');
         
-        // ✅ SOCKET EMISSION - Real-time update
+        // ✅ SOCKET EMISSION - Real-time update (after commit)
         const io = req.app.get('io');
         if (io) {
             const orderData = {
@@ -150,13 +162,15 @@ export const createOrder = catchAsync(async (req, res) => {
                 order_number: orderNumber,
                 total_amount: totalAmount,
                 status: 'pending',
-                items: orderItems
+                items: orderItems,
+                stock_deductions: stockResult.deductions,
+                total_wastage_cost: stockResult.totalWastageCost
             }
         });
         
     } catch (error) {
         await client.query('ROLLBACK');
-        console.error('Create order error:', error);
+        console.error('[ORDER] Create order error:', error);
         throw error;
     } finally {
         client.release();
