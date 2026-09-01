@@ -45,19 +45,27 @@ export const protect = async (req, res, next) => {
       return res.status(401).json({ success: false, error: 'Account is not active.' });
     }
     
-    // Attach user data to request
+    // ✅ FIXED: Validate user has company and branch - NO FALLBACKS
+    if (!user.company_id || !user.branch_id) {
+      console.error(`[AUTH] User ${user.id} (${user.email}) has no company or branch assigned`);
+      return res.status(403).json({
+        success: false,
+        error: 'User is not assigned to a company and branch. Please contact administrator.'
+      });
+    }
+    
+    // Attach user data to request - NO FALLBACKS
     req.user = {
       id: user.id,
       name: user.name,
       email: user.email,
       role: user.role,
       status: user.status,
-      company_id: user.company_id || 1,  // Ensure fallback for existing data
-      branch_id: user.branch_id || 1     // Ensure fallback for existing data
+      company_id: user.company_id,
+      branch_id: user.branch_id
     };
     
-    // Debug log (remove in production)
-    console.log('🔐 Authenticated user:', {
+    console.log('[AUTH] Authenticated user:', {
       id: req.user.id,
       role: req.user.role,
       company_id: req.user.company_id,

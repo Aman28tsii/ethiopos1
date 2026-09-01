@@ -1,6 +1,7 @@
 ﻿// server/src/routes/auth.js
 
 import express from 'express';
+import rateLimit from 'express-rate-limit';
 import {
   login,
   signup,
@@ -14,7 +15,7 @@ import {
   logout,
   updateUser,
   deleteUser,
-  switchBranch  // ← This is the controller function
+  switchBranch
 } from '../controllers/authController.js';
 import { protect, allowOwner } from '../middleware/auth.js';
 import { 
@@ -29,9 +30,25 @@ import { pool } from '../config/database.js';
 const router = express.Router();
 
 // ============================================================
+// RATE LIMITING FOR AUTH
+// ============================================================
+
+// ✅ ADDED: Rate limiting for login to prevent brute force
+const authLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 20, // 20 login attempts
+    message: { 
+        success: false, 
+        error: 'Too many login attempts. Please try again later.' 
+    },
+    standardHeaders: true,
+    legacyHeaders: false
+});
+
+// ============================================================
 // PUBLIC ROUTES
 // ============================================================
-router.post('/login', login);
+router.post('/login', authLimiter, login);
 router.post('/signup', signup);
 router.post('/verify', verifyToken);
 
@@ -44,7 +61,7 @@ router.use(protect);
 router.get('/me', getCurrentUser);
 
 // ============================================================
-// BRANCH ROUTES (STEP 3)
+// BRANCH ROUTES
 // ============================================================
 
 // Get available branches for owner
@@ -82,7 +99,7 @@ router.get('/branches', protect, getOwnerBranches, async (req, res) => {
 });
 
 // ============================================================
-// SWITCH BRANCH (USES CONTROLLER - KEEP ONLY THIS ONE)
+// SWITCH BRANCH
 // ============================================================
 router.post('/switch-branch', protect, allowOwner, switchBranch);
 

@@ -9,8 +9,13 @@ import { AppError, catchAsync } from '../middleware/errorHandler.js';
 export const getAllProducts = catchAsync(async (req, res) => {
     const { limit = 100, offset = 0 } = req.pagination || {};
     
-    // Use authenticated company_id if available, otherwise use default company 1
-    const companyId = req.user?.company_id || 1;
+    // ✅ FIXED: Get company_id from authenticated user, NO FALLBACK
+    const companyId = req.user?.company_id;
+    
+    // ✅ FIXED: If no company_id, return error
+    if (!companyId) {
+        throw new AppError('User company not found. Please login again.', 403);
+    }
     
     const result = await query(
         `SELECT id, name, price, category, description, is_available, company_id 
@@ -27,11 +32,12 @@ export const getAllProducts = catchAsync(async (req, res) => {
 // GET ALL PRODUCTS (Admin/Manager view - Authenticated only)
 // ============================================
 export const getAllProductsAdmin = catchAsync(async (req, res) => {
-    if (!req.user?.company_id) {
-        throw new AppError('Authentication required', 401);
-    }
+    // ✅ FIXED: Get company_id from authenticated user, NO FALLBACK
+    const companyId = req.user?.company_id;
     
-    const companyId = req.user.company_id;
+    if (!companyId) {
+        throw new AppError('User company not found. Please login again.', 403);
+    }
     
     const result = await query(
         `SELECT id, name, price, category, description, is_available, company_id, created_at 
@@ -49,8 +55,12 @@ export const getAllProductsAdmin = catchAsync(async (req, res) => {
 export const getProductById = catchAsync(async (req, res) => {
     const { id } = req.params;
     
-    // Use authenticated company_id if available, otherwise use default company 1
-    const companyId = req.user?.company_id || 1;
+    // ✅ FIXED: Get company_id from authenticated user, NO FALLBACK
+    const companyId = req.user?.company_id;
+    
+    if (!companyId) {
+        throw new AppError('User company not found. Please login again.', 403);
+    }
     
     const result = await query(
         `SELECT id, name, price, category, description, is_available, company_id 
@@ -68,8 +78,12 @@ export const getProductById = catchAsync(async (req, res) => {
 // GET CATEGORIES (Public + Authenticated)
 // ============================================
 export const getCategories = catchAsync(async (req, res) => {
-    // Use authenticated company_id if available, otherwise use default company 1
-    const companyId = req.user?.company_id || 1;
+    // ✅ FIXED: Get company_id from authenticated user, NO FALLBACK
+    const companyId = req.user?.company_id;
+    
+    if (!companyId) {
+        throw new AppError('User company not found. Please login again.', 403);
+    }
     
     const result = await query(
         `SELECT DISTINCT category FROM products 
@@ -87,11 +101,12 @@ export const getCategories = catchAsync(async (req, res) => {
 export const createProduct = catchAsync(async (req, res) => {
     const { name, price, category, description } = req.body;
     
-    if (!req.user?.company_id) {
-        throw new AppError('Authentication required', 401);
-    }
+    // ✅ FIXED: Get company_id from authenticated user, NO FALLBACK
+    const companyId = req.user?.company_id;
     
-    const companyId = req.user.company_id;
+    if (!companyId) {
+        throw new AppError('User company not found. Please login again.', 403);
+    }
     
     if (!name || !price) {
         throw new AppError('Name and price are required', 400);
@@ -118,11 +133,12 @@ export const updateProduct = catchAsync(async (req, res) => {
     const { id } = req.params;
     const { name, price, category, is_available, description } = req.body;
     
-    if (!req.user?.company_id) {
-        throw new AppError('Authentication required', 401);
-    }
+    // ✅ FIXED: Get company_id from authenticated user, NO FALLBACK
+    const companyId = req.user?.company_id;
     
-    const companyId = req.user.company_id;
+    if (!companyId) {
+        throw new AppError('User company not found. Please login again.', 403);
+    }
     
     const result = await query(
         `UPDATE products 
@@ -154,11 +170,12 @@ export const updateProduct = catchAsync(async (req, res) => {
 export const deleteProduct = catchAsync(async (req, res) => {
     const { id } = req.params;
     
-    if (!req.user?.company_id) {
-        throw new AppError('Authentication required', 401);
-    }
+    // ✅ FIXED: Get company_id from authenticated user, NO FALLBACK
+    const companyId = req.user?.company_id;
     
-    const companyId = req.user.company_id;
+    if (!companyId) {
+        throw new AppError('User company not found. Please login again.', 403);
+    }
     
     const result = await query(
         'UPDATE products SET is_available = false WHERE id = $1 AND company_id = $2 RETURNING id',

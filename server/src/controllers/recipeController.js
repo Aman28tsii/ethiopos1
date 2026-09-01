@@ -747,8 +747,13 @@ export const processOrderStockDeduction = async (orderId, items, client) => {
 
     // Get company and branch from first ingredient
     const firstIngredient = ingredientMap.get(ingredientIds[0]);
-    const companyId = firstIngredient?.company_id || 1;
-    const branchId = firstIngredient?.branch_id || 1;
+   // ✅ FIXED: Get company_id and branch_id from ingredients, NO FALLBACK
+const companyId = firstIngredient?.company_id;
+const branchId = firstIngredient?.branch_id;
+
+if (!companyId || !branchId) {
+    throw new AppError('Company or branch context missing for stock deduction', 403);
+}
 
     // Step 3: Lock all ingredient rows in deterministic order
     const lockQuery = `
