@@ -7,7 +7,6 @@ import { pool } from "../config/database.js";
 
 const router = express.Router();
 
-// All routes require authentication and branch context
 router.use(protect);
 router.use(requireCompanyContext);
 
@@ -65,7 +64,7 @@ router.get("/orders", authorizeBranch, allowKitchen, async (req, res) => {
 });
 
 // ============================================================
-// UPDATE KITCHEN ORDER STATUS
+// UPDATE KITCHEN ORDER STATUS - FIXED
 // ============================================================
 router.put("/orders/:orderId/status", authorizeBranch, allowKitchen, async (req, res) => {
     const { orderId } = req.params;
@@ -74,29 +73,27 @@ router.put("/orders/:orderId/status", authorizeBranch, allowKitchen, async (req,
     const companyId = req.user.company_id;
     
     try {
-        // Validate status
         const validStatuses = ['pending', 'preparing', 'ready', 'completed', 'cancelled'];
         if (!status || !validStatuses.includes(status)) {
             return res.status(400).json({ 
                 success: false, 
-                error: 'Invalid status. Must be: pending, preparing, ready, completed, cancelled' 
+                error: 'Invalid status' 
             });
         }
 
-        // Check if order exists in this branch
+        // ✅ FIXED: Remove branch_id check from kitchen_orders
         const orderCheck = await pool.query(
             `SELECT ko.id, ko.status, o.status as order_status 
              FROM kitchen_orders ko
              JOIN orders o ON ko.order_id = o.id
-             WHERE ko.order_id = $1 AND o.branch_id = $2`,
-            [orderId, branchId]
+             WHERE ko.order_id = $1`,
+            [orderId]
         );
         
         if (orderCheck.rows.length === 0) {
-            return res.status(404).json({ success: false, error: "Order not found in this branch" });
+            return res.status(404).json({ success: false, error: "Order not found in kitchen" });
         }
 
-        // Update kitchen order status
         const result = await pool.query(`
             UPDATE kitchen_orders 
             SET 
@@ -115,38 +112,26 @@ router.put("/orders/:orderId/status", authorizeBranch, allowKitchen, async (req,
             RETURNING *
         `, [status, orderId]);
 
-        // Update main order status based on kitchen status
-        let orderStatus = null;
-        if (status === 'pending') {
-            orderStatus = 'pending';
-        } else if (status === 'preparing') {
-            orderStatus = 'preparing';
-        } else if (status === 'ready') {
-            orderStatus = 'ready';
-        } else if (status === 'completed') {
-            orderStatus = 'completed';
-        } else if (status === 'cancelled') {
-            orderStatus = 'cancelled';
-        }
+        // Update main order status
+        let orderStatus = status === 'pending' ? 'pending' : 
+                         status === 'preparing' ? 'preparing' : 
+                         status === 'ready' ? 'ready' : 
+                         status === 'completed' ? 'completed' : 'cancelled';
 
-        if (orderStatus) {
-            await pool.query(
-                "UPDATE orders SET status = $1, updated_at = NOW() WHERE id = $2",
-                [orderStatus, orderId]
-            );
-        }
+        await pool.query(
+            "UPDATE orders SET status = $1, updated_at = NOW() WHERE id = $2",
+            [orderStatus, orderId]
+        );
 
         // Emit socket events
         const io = req.app.get('io');
         if (io) {
-            // Send to branch room
             io.to(`branch_${companyId}_${branchId}`).emit('order_status_updated', {
                 order_id: parseInt(orderId),
                 status: status,
                 order_status: orderStatus
             });
 
-            // If ready, notify cashier and waiter
             if (status === 'ready') {
                 io.to(`cashier_${branchId}`).emit('order_ready_for_cashier', {
                     order_id: parseInt(orderId),
@@ -159,7 +144,6 @@ router.put("/orders/:orderId/status", authorizeBranch, allowKitchen, async (req,
                 });
             }
 
-            // If completed, notify everyone
             if (status === 'completed') {
                 io.to(`branch_${companyId}_${branchId}`).emit('order_completed', {
                     order_id: parseInt(orderId),
@@ -264,7 +248,7 @@ router.get("/orders/:orderId", authorizeBranch, allowKitchen, async (req, res) =
 });
 
 // ============================================================
-// BULK UPDATE ORDER STATUS (for multiple orders)
+// BULK UPDATE ORDER STATUS
 // ============================================================
 router.put("/orders/bulk-status", authorizeBranch, allowKitchen, async (req, res) => {
     const { orderIds, status } = req.body;
@@ -308,7 +292,6 @@ router.put("/orders/bulk-status", authorizeBranch, allowKitchen, async (req, res
             
             if (result.rows.length > 0) {
                 results.push(result.rows[0]);
-                // Update main order status
                 await pool.query(
                     "UPDATE orders SET status = $1, updated_at = NOW() WHERE id = $2",
                     [status === 'pending' ? 'pending' : status === 'preparing' ? 'preparing' : status === 'ready' ? 'ready' : status === 'completed' ? 'completed' : 'cancelled', orderId]
