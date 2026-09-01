@@ -25,13 +25,21 @@ dotenv.config();
 
 const app = express();
 const server = createServer(app);
+
+
 const io = new SocketServer(server, {
     cors: {
-        origin: process.env.CORS_ORIGIN || "http://localhost:3000",
-        methods: ["GET", "POST", "PUT", "DELETE"],
-        credentials: true
+        origin: "*",  // ✅ Allow all origins for testing
+        methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        credentials: true,
+        allowedHeaders: ["Content-Type", "Authorization", "Idempotency-Key"]
     },
-    path: "/socket.io"
+    path: "/socket.io",
+    transports: ['polling', 'websocket'],  // ✅ Polling first
+    allowEIO3: true,
+    pingTimeout: 60000,
+    pingInterval: 25000,
+    cookie: false
 });
 
 app.set("io", io);

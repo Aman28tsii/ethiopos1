@@ -1,7 +1,7 @@
 ﻿// client/src/socket.js
 import io from 'socket.io-client';
 
-// ✅ FIX: Use window.location.origin instead of hardcoded URL
+// Use the current window location
 const SOCKET_URL = window.location.origin;
 
 let socket = null;
@@ -48,7 +48,7 @@ export const connectSocket = () => {
     
     socket = io(SOCKET_URL, {
         path: '/socket.io',
-        transports: ['websocket', 'polling'],
+        transports: ['polling', 'websocket'],  // ✅ Polling first, then upgrade
         auth: {
             token: token
         },
@@ -61,7 +61,10 @@ export const connectSocket = () => {
         reconnectionAttempts: MAX_RECONNECT_ATTEMPTS,
         reconnectionDelay: 1000,
         reconnectionDelayMax: 5000,
-        timeout: 20000
+        timeout: 20000,
+        upgrade: true,
+        forceNew: true,
+        withCredentials: true
     });
 
     socket.on('connect', () => {
