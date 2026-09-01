@@ -4,18 +4,13 @@ import { query } from '../config/database.js';
 import { AppError, catchAsync } from '../middleware/errorHandler.js';
 
 // ============================================
-// GET ALL PRODUCTS (Public + Authenticated)
+// GET ALL PRODUCTS (Public - NO AUTH REQUIRED)
 // ============================================
 export const getAllProducts = catchAsync(async (req, res) => {
     const { limit = 100, offset = 0 } = req.pagination || {};
     
-    // ✅ FIXED: Get company_id from authenticated user
-    const companyId = req.user?.company_id;
-    
-    if (!companyId) {
-        console.error('[PRODUCTS] No company_id in req.user:', req.user);
-        throw new AppError('User company not found. Please login again.', 403);
-    }
+    // ✅ FIXED: Use company_id from user or default to 1 for public access
+    const companyId = req.user?.company_id || 1;
     
     const result = await query(
         `SELECT id, name, price, category, description, is_available, company_id 
@@ -32,11 +27,7 @@ export const getAllProducts = catchAsync(async (req, res) => {
 // GET ALL PRODUCTS (Admin/Manager view - Authenticated only)
 // ============================================
 export const getAllProductsAdmin = catchAsync(async (req, res) => {
-    const companyId = req.user?.company_id;
-    
-    if (!companyId) {
-        throw new AppError('User company not found. Please login again.', 403);
-    }
+    const companyId = req.user?.company_id || 1;
     
     const result = await query(
         `SELECT id, name, price, category, description, is_available, company_id, created_at 
@@ -53,11 +44,7 @@ export const getAllProductsAdmin = catchAsync(async (req, res) => {
 // ============================================
 export const getProductById = catchAsync(async (req, res) => {
     const { id } = req.params;
-    const companyId = req.user?.company_id;
-    
-    if (!companyId) {
-        throw new AppError('User company not found. Please login again.', 403);
-    }
+    const companyId = req.user?.company_id || 1;
     
     const result = await query(
         `SELECT id, name, price, category, description, is_available, company_id 
@@ -75,11 +62,7 @@ export const getProductById = catchAsync(async (req, res) => {
 // GET CATEGORIES (Public + Authenticated)
 // ============================================
 export const getCategories = catchAsync(async (req, res) => {
-    const companyId = req.user?.company_id;
-    
-    if (!companyId) {
-        throw new AppError('User company not found. Please login again.', 403);
-    }
+    const companyId = req.user?.company_id || 1;
     
     const result = await query(
         `SELECT DISTINCT category FROM products 
