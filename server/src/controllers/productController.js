@@ -9,11 +9,11 @@ import { AppError, catchAsync } from '../middleware/errorHandler.js';
 export const getAllProducts = catchAsync(async (req, res) => {
     const { limit = 100, offset = 0 } = req.pagination || {};
     
-    // ✅ FIXED: Get company_id from authenticated user, NO FALLBACK
+    // ✅ FIXED: Get company_id from authenticated user
     const companyId = req.user?.company_id;
     
-    // ✅ FIXED: If no company_id, return error
     if (!companyId) {
+        console.error('[PRODUCTS] No company_id in req.user:', req.user);
         throw new AppError('User company not found. Please login again.', 403);
     }
     
@@ -32,7 +32,6 @@ export const getAllProducts = catchAsync(async (req, res) => {
 // GET ALL PRODUCTS (Admin/Manager view - Authenticated only)
 // ============================================
 export const getAllProductsAdmin = catchAsync(async (req, res) => {
-    // ✅ FIXED: Get company_id from authenticated user, NO FALLBACK
     const companyId = req.user?.company_id;
     
     if (!companyId) {
@@ -54,8 +53,6 @@ export const getAllProductsAdmin = catchAsync(async (req, res) => {
 // ============================================
 export const getProductById = catchAsync(async (req, res) => {
     const { id } = req.params;
-    
-    // ✅ FIXED: Get company_id from authenticated user, NO FALLBACK
     const companyId = req.user?.company_id;
     
     if (!companyId) {
@@ -78,7 +75,6 @@ export const getProductById = catchAsync(async (req, res) => {
 // GET CATEGORIES (Public + Authenticated)
 // ============================================
 export const getCategories = catchAsync(async (req, res) => {
-    // ✅ FIXED: Get company_id from authenticated user, NO FALLBACK
     const companyId = req.user?.company_id;
     
     if (!companyId) {
@@ -100,8 +96,6 @@ export const getCategories = catchAsync(async (req, res) => {
 // ============================================
 export const createProduct = catchAsync(async (req, res) => {
     const { name, price, category, description } = req.body;
-    
-    // ✅ FIXED: Get company_id from authenticated user, NO FALLBACK
     const companyId = req.user?.company_id;
     
     if (!companyId) {
@@ -132,8 +126,6 @@ export const createProduct = catchAsync(async (req, res) => {
 export const updateProduct = catchAsync(async (req, res) => {
     const { id } = req.params;
     const { name, price, category, is_available, description } = req.body;
-    
-    // ✅ FIXED: Get company_id from authenticated user, NO FALLBACK
     const companyId = req.user?.company_id;
     
     if (!companyId) {
@@ -169,8 +161,6 @@ export const updateProduct = catchAsync(async (req, res) => {
 // ============================================
 export const deleteProduct = catchAsync(async (req, res) => {
     const { id } = req.params;
-    
-    // ✅ FIXED: Get company_id from authenticated user, NO FALLBACK
     const companyId = req.user?.company_id;
     
     if (!companyId) {
