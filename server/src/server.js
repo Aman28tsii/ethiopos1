@@ -27,9 +27,11 @@ const app = express();
 const server = createServer(app);
 
 
+// server/src/server.js - Socket.IO section
+
 const io = new SocketServer(server, {
     cors: {
-        origin: "*",  // ✅ Allow all origins for testing
+        origin: process.env.CORS_ORIGIN || "*",
         methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
         credentials: true,
         allowedHeaders: ["Content-Type", "Authorization", "Idempotency-Key"]
@@ -42,7 +44,76 @@ const io = new SocketServer(server, {
     cookie: false
 });
 
+// Make io available to routes
 app.set("io", io);
+
+// Socket.IO authentication middleware
+io.use((socket, next) => {
+    const token = socket.handshake.auth.token || socket.handshake.query.token;
+    
+    if (!token) {
+        return next(new Error('Authentication required'));
+    }
+
+    try {
+        const decoded = jwt.verify(token, JWT_SECRET);
+        socket.user = {
+            id: decoded.id,
+            email: decoded.email,
+            role: decoded.role,
+            company_id: decoded.company_id || 1,
+            branch_id: decoded.branch_id || 1,
+            name: decoded.name
+        };
+        next();
+    } catch (error) {
+        return next(new Error('Invalid token'));
+    }
+});
+
+io.on("connection", (socket) => {
+    const user = socket.user;
+    console.log(`[SOCKET] Client connected: ${socket.id} (${user?.email || 'unknown'})`);
+    console.log(`[SOCKET] Transport: ${socket.conn.transport.name}`);
+
+    // Join branch room
+    socket.on('join_branch', (data) => {
+        const branchRoom = `branch_${data.company_id}_${data.branch_id}`;
+        socket.join(branchRoom);
+        console.log(`[SOCKET] ${socket.id} joined ${branchRoom}`);
+        
+        if (data.role) {
+            const roleRoom = `role_${data.role}_${data.branch_id}`;
+            socket.join(roleRoom);
+            console.log(`[SOCKET] ${socket.id} joined ${roleRoom}`);
+        }
+    });
+
+    // Join waiter room
+    socket.on('join_waiter', (data) => {
+        const waiterRoom = `waiter_${data.user_id}`;
+        socket.join(waiterRoom);
+        console.log(`[SOCKET] ${socket.id} joined ${waiterRoom}`);
+    });
+
+    // Join kitchen room
+    socket.on('join_kitchen', (data) => {
+        const kitchenRoom = `kitchen_${data.branch_id}`;
+        socket.join(kitchenRoom);
+        console.log(`[SOCKET] ${socket.id} joined ${kitchenRoom}`);
+    });
+
+    // Join cashier room
+    socket.on('join_cashier', (data) => {
+        const cashierRoom = `cashier_${data.branch_id}`;
+        socket.join(cashierRoom);
+        console.log(`[SOCKET] ${socket.id} joined ${cashierRoom}`);
+    });
+
+    socket.on("disconnect", () => {
+        console.log(`[SOCKET] Client disconnected: ${socket.id}`);
+    });
+});
 
 // Middleware
 app.use(helmet({

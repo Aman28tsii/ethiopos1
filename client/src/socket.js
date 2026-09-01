@@ -63,7 +63,7 @@ export const connectSocket = () => {
         reconnectionDelayMax: 5000,
         timeout: 20000,
         upgrade: true,
-        forceNew: true,
+        forceNew: false,
         withCredentials: true
     });
 
@@ -112,6 +112,15 @@ export const connectSocket = () => {
 
     socket.on('reconnect_attempt', (attempt) => {
         console.log(`[SOCKET] Reconnect attempt ${attempt}`);
+    });
+
+    // ✅ Listen for upgrade events
+    socket.on('upgrading', (transport) => {
+        console.log(`[SOCKET] Upgrading to ${transport}`);
+    });
+
+    socket.on('upgrade', (transport) => {
+        console.log(`[SOCKET] Upgraded to ${transport}`);
     });
 
     return socket;
