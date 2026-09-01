@@ -308,15 +308,15 @@ export const clearCart = async (branchId) => {
 };
 
 // ============================================
-// OFFLINE ORDER OPERATIONS (for future use)
+// OFFLINE ORDER OPERATIONS
 // ============================================
 
 export const saveOfflineOrder = async (order) => {
     const orderData = {
         ...order,
-        status: 'pending',
-        created_at: new Date().toISOString(),
-        attempts: 0
+        status: order.status || 'pending',
+        created_at: order.created_at || new Date().toISOString(),
+        attempts: order.attempts || 0
     };
     await saveToStore('offline_orders', orderData);
     return orderData;
@@ -328,6 +328,23 @@ export const getPendingOfflineOrders = async () => {
 
 export const getAllOfflineOrders = async () => {
     return await getAllFromStore('offline_orders');
+};
+
+// ✅ FIX: Add this missing function
+export const getOfflineOrder = async (id) => {
+    try {
+        const database = await openDB();
+        return new Promise((resolve, reject) => {
+            const transaction = database.transaction('offline_orders', 'readonly');
+            const store = transaction.objectStore('offline_orders');
+            const request = store.get(id);
+            request.onsuccess = () => resolve(request.result || null);
+            request.onerror = () => reject(request.error);
+        });
+    } catch (err) {
+        console.warn('[INDEXEDDB] getOfflineOrder failed:', err);
+        return null;
+    }
 };
 
 export const updateOfflineOrderStatus = async (id, status, error = null) => {
@@ -353,7 +370,7 @@ export const deleteAllOfflineOrders = async () => {
 };
 
 // ============================================
-// SYNC METADATA (for future use)
+// SYNC METADATA
 // ============================================
 
 export const getSyncMetadata = async (key) => {
