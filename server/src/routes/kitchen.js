@@ -86,12 +86,9 @@ router.put("/orders/:orderId/status", authorizeBranch, allowKitchen, async (req,
             return res.status(400).json({ success: false, error: 'Invalid order ID' });
         }
 
-        // Check if order exists in kitchen_orders
+        // Check if order exists
         const orderCheck = await pool.query(
-            `SELECT ko.id, ko.status, o.status as order_status 
-             FROM kitchen_orders ko
-             JOIN orders o ON ko.order_id = o.id
-             WHERE ko.order_id = $1`,
+            `SELECT id FROM kitchen_orders WHERE order_id = $1`,
             [orderIdInt]
         );
         
@@ -100,23 +97,32 @@ router.put("/orders/:orderId/status", authorizeBranch, allowKitchen, async (req,
         }
 
         // Update kitchen order status
-        const result = await pool.query(`
-            UPDATE kitchen_orders 
-            SET 
-                status = $1,
-                started_at = CASE 
-                    WHEN $1 = 'preparing' AND status = 'pending' THEN NOW() 
-                    ELSE started_at 
-                END,
-                completed_at = CASE 
-                    WHEN $1 = 'ready' THEN NOW() 
-                    WHEN $1 = 'completed' THEN NOW()
-                    ELSE completed_at 
-                END,
-                updated_at = NOW()
-            WHERE order_id = $2
-            RETURNING *
-        `, [status, orderIdInt]);
+        await pool.query(
+            `UPDATE kitchen_orders 
+             SET status = $1, updated_at = NOW() 
+             WHERE order_id = $2`,
+            [status, orderIdInt]
+        );
+
+        // Update started_at if preparing
+        if (status === 'preparing') {
+            await pool.query(
+                `UPDATE kitchen_orders 
+                 SET started_at = NOW() 
+                 WHERE order_id = $1 AND started_at IS NULL`,
+                [orderIdInt]
+            );
+        }
+
+        // Update completed_at if ready or completed
+        if (status === 'ready' || status === 'completed') {
+            await pool.query(
+                `UPDATE kitchen_orders 
+                 SET completed_at = NOW() 
+                 WHERE order_id = $1 AND completed_at IS NULL`,
+                [orderIdInt]
+            );
+        }
 
         // Update main order status
         const orderStatus = status === 'pending' ? 'pending' : 
@@ -127,6 +133,12 @@ router.put("/orders/:orderId/status", authorizeBranch, allowKitchen, async (req,
         await pool.query(
             "UPDATE orders SET status = $1, updated_at = NOW() WHERE id = $2",
             [orderStatus, orderIdInt]
+        );
+
+        // Get updated record
+        const result = await pool.query(
+            `SELECT * FROM kitchen_orders WHERE order_id = $1`,
+            [orderIdInt]
         );
 
         // Emit socket events
@@ -240,7 +252,7 @@ router.get("/orders/:orderId", authorizeBranch, allowKitchen, async (req, res) =
             LEFT JOIN products p ON oi.product_id = p.id
             WHERE ko.order_id = $1 AND o.branch_id = $2
             GROUP BY ko.id, o.order_number, o.total_amount, o.customer_name, o.customer_phone, o.notes, o.table_id, t.table_number
-        `, [orderId, branchId]);
+        `, [parseInt(orderId), branchId]);
         
         if (result.rows.length === 0) {
             return res.status(404).json({ success: false, error: "Order not found" });
@@ -281,31 +293,42 @@ router.put("/orders/bulk-status", authorizeBranch, allowKitchen, async (req, res
             const orderIdInt = parseInt(orderId);
             if (isNaN(orderIdInt)) continue;
             
-            const result = await pool.query(`
-                UPDATE kitchen_orders 
-                SET 
-                    status = $1,
-                    started_at = CASE 
-                        WHEN $1 = 'preparing' AND status = 'pending' THEN NOW() 
-                        ELSE started_at 
-                    END,
-                    completed_at = CASE 
-                        WHEN $1 = 'ready' THEN NOW() 
-                        WHEN $1 = 'completed' THEN NOW()
-                        ELSE completed_at 
-                    END,
-                    updated_at = NOW()
-                WHERE order_id = $2
-                RETURNING order_id, status
-            `, [status, orderIdInt]);
-            
-            if (result.rows.length > 0) {
-                results.push(result.rows[0]);
+            await pool.query(
+                `UPDATE kitchen_orders 
+                 SET status = $1, updated_at = NOW() 
+                 WHERE order_id = $2`,
+                [status, orderIdInt]
+            );
+
+            if (status === 'preparing') {
                 await pool.query(
-                    "UPDATE orders SET status = $1, updated_at = NOW() WHERE id = $2",
-                    [status === 'pending' ? 'pending' : status === 'preparing' ? 'preparing' : status === 'ready' ? 'ready' : status === 'completed' ? 'completed' : 'cancelled', orderIdInt]
+                    `UPDATE kitchen_orders 
+                     SET started_at = NOW() 
+                     WHERE order_id = $1 AND started_at IS NULL`,
+                    [orderIdInt]
                 );
             }
+
+            if (status === 'ready' || status === 'completed') {
+                await pool.query(
+                    `UPDATE kitchen_orders 
+                     SET completed_at = NOW() 
+                     WHERE order_id = $1 AND completed_at IS NULL`,
+                    [orderIdInt]
+                );
+            }
+
+            const orderStatus = status === 'pending' ? 'pending' : 
+                               status === 'preparing' ? 'preparing' : 
+                               status === 'ready' ? 'ready' : 
+                               status === 'completed' ? 'completed' : 'cancelled';
+
+            await pool.query(
+                "UPDATE orders SET status = $1, updated_at = NOW() WHERE id = $2",
+                [orderStatus, orderIdInt]
+            );
+
+            results.push({ order_id: orderIdInt, status: status });
         }
 
         res.json({
