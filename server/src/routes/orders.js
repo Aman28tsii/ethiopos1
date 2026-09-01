@@ -313,6 +313,98 @@ router.post("/", authorizeBranch, allowWaiter, requireIdempotency, idempotent, a
     }
 });
 
+// ============================================================
+// CASHIER ROUTES - MUST BE BEFORE /:orderId
+// ============================================================
+
+// GET READY ORDERS - MUST BE BEFORE ANY /:orderId ROUTE
+router.get("/ready", protect, async (req, res) => {
+    try {
+        const branchId = req.user?.branch_id || 1;
+        const companyId = req.user?.company_id || 1;
+        
+        const result = await pool.query(`
+            SELECT 
+                id, 
+                order_number, 
+                total_amount, 
+                customer_name, 
+                table_id,
+                created_at,
+                status,
+                payment_status
+            FROM orders 
+            WHERE payment_status = 'pending'
+                AND status = 'pending'
+                AND branch_id = $1
+                AND company_id = $2
+            ORDER BY created_at ASC
+        `, [branchId, companyId]);
+        
+        res.json({ success: true, data: result.rows });
+    } catch (err) {
+        console.error("[READY] Error:", err.message);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+router.post("/:orderId/pay", authorizeBranch, allowCashier, requireIdempotency, idempotent, async (req, res) => {
+    const { orderId } = req.params;
+    const { payment_method } = req.body;
+    const branchId = req.user.branch_id;
+    const companyId = req.user.company_id;
+    
+    const client = await pool.connect();
+    try {
+        await client.query("BEGIN");
+        const orderResult = await client.query(`
+            SELECT o.*, ko.status as kitchen_status 
+            FROM orders o
+            JOIN kitchen_orders ko ON o.id = ko.order_id
+            WHERE o.id = $1 AND o.branch_id = $2 AND o.company_id = $3
+        `, [orderId, branchId, companyId]);
+        if (orderResult.rows.length === 0) {
+            throw new Error("Order not found");
+        }
+        const order = orderResult.rows[0];
+        if (order.kitchen_status !== 'ready') {
+            throw new Error("Order is not ready for payment");
+        }
+        if (order.payment_status === 'paid') {
+            throw new Error("Order already paid");
+        }
+        await client.query(`
+            UPDATE orders 
+            SET payment_status = 'paid', payment_method = $1, status = 'completed', updated_at = NOW()
+            WHERE id = $2
+        `, [payment_method, orderId]);
+        if (order.table_id) {
+            await client.query(`
+                UPDATE tables 
+                SET status = 'available', current_order_id = NULL, updated_at = NOW()
+                WHERE id = $1
+            `, [order.table_id]);
+        }
+        const saleNumber = generateSaleNumber();
+        await client.query(`
+            INSERT INTO sales (sale_number, order_id, total_amount, payment_method, status, branch_id, company_id, created_at)
+            VALUES ($1, $2, $3, $4, 'completed', $5, $6, NOW())
+        `, [saleNumber, orderId, order.total_amount, payment_method, branchId, companyId]);
+        await client.query("COMMIT");
+        res.json({ success: true, message: "Payment processed successfully", data: { sale_number: saleNumber, order_id: orderId, total_amount: order.total_amount } });
+    } catch (err) {
+        await client.query("ROLLBACK");
+        console.error("Payment error:", err);
+        res.status(500).json({ success: false, error: err.message });
+    } finally {
+        client.release();
+    }
+});
+
+// ============================================================
+// WAITER ROUTES - WITH :orderId PARAM (MUST BE AFTER /ready)
+// ============================================================
+
 router.get("/:orderId", authorizeBranch, allowWaiter, async (req, res) => {
     const { orderId } = req.params;
     const branchId = req.user.branch_id;
@@ -601,95 +693,6 @@ router.get("/my-orders", authorizeBranch, allowWaiter, async (req, res) => {
     } catch (err) {
         console.error("Get waiter orders error:", err);
         res.status(500).json({ success: false, error: err.message });
-    }
-});
-
-// ============================================================
-// CASHIER ROUTES - FIXED
-// ============================================================
-
-// GET READY ORDERS
-router.get("/ready", protect, async (req, res) => {
-    try {
-        const branchId = req.user.branch_id;
-        const companyId = req.user.company_id;
-        
-        const result = await pool.query(`
-            SELECT 
-                o.id, 
-                o.order_number, 
-                o.total_amount, 
-                o.customer_name, 
-                o.table_id,
-                t.table_number, 
-                o.created_at,
-                o.status
-            FROM orders o
-            LEFT JOIN tables t ON o.table_id = t.id
-            WHERE o.payment_status = 'pending'
-                AND o.status = 'pending'
-                AND o.branch_id = $1
-                AND o.company_id = $2
-            ORDER BY o.created_at ASC
-        `, [branchId, companyId]);
-        
-        res.json({ success: true, data: result.rows });
-    } catch (err) {
-        console.error("[READY] Error:", err);
-        res.status(500).json({ success: false, error: err.message });
-    }
-});
-
-router.post("/:orderId/pay", authorizeBranch, allowCashier, requireIdempotency, idempotent, async (req, res) => {
-    const { orderId } = req.params;
-    const { payment_method } = req.body;
-    const branchId = req.user.branch_id;
-    const companyId = req.user.company_id;
-    
-    const client = await pool.connect();
-    try {
-        await client.query("BEGIN");
-        const orderResult = await client.query(`
-            SELECT o.*, ko.status as kitchen_status 
-            FROM orders o
-            JOIN kitchen_orders ko ON o.id = ko.order_id
-            WHERE o.id = $1 AND o.branch_id = $2 AND o.company_id = $3
-        `, [orderId, branchId, companyId]);
-        if (orderResult.rows.length === 0) {
-            throw new Error("Order not found");
-        }
-        const order = orderResult.rows[0];
-        if (order.kitchen_status !== 'ready') {
-            throw new Error("Order is not ready for payment");
-        }
-        if (order.payment_status === 'paid') {
-            throw new Error("Order already paid");
-        }
-        await client.query(`
-            UPDATE orders 
-            SET payment_status = 'paid', payment_method = $1, status = 'completed', updated_at = NOW()
-            WHERE id = $2
-        `, [payment_method, orderId]);
-        if (order.table_id) {
-            await client.query(`
-                UPDATE tables 
-                SET status = 'available', current_order_id = NULL, updated_at = NOW()
-                WHERE id = $1
-            `, [order.table_id]);
-        }
-        const saleNumber = generateSaleNumber();
-        await client.query(`
-            INSERT INTO sales (sale_number, order_id, total_amount, payment_method, status, branch_id, company_id, created_at)
-            VALUES ($1, $2, $3, $4, 'completed', $5, $6, NOW())
-        `, [saleNumber, orderId, order.total_amount, payment_method, branchId, companyId]);
-        await client.query("COMMIT");
-        res.json({ success: true, message: "Payment processed successfully", data: { sale_number: saleNumber, order_id: orderId, total_amount: order.total_amount } });
-    } catch (err) {
-        await client.query("ROLLBACK");
-        console.error("Payment error:", err);
-        res.status(500).json({ success: false, error: err.message });
-    } finally {
-        client.release();
     }
 });
 
