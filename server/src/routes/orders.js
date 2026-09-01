@@ -616,10 +616,18 @@ router.get("/ready", authorizeBranch, allowCashier, async (req, res) => {
     try {
         const branchId = req.user.branch_id;
         const companyId = req.user.company_id;
+        
+        // FIXED: Use COALESCE to handle NULL kitchen_status
         const result = await pool.query(`
-            SELECT o.id, o.order_number, o.total_amount, o.customer_name, o.table_id,
-                   t.table_number, o.created_at,
-                   ko.status as kitchen_status
+            SELECT 
+                o.id, 
+                o.order_number, 
+                o.total_amount, 
+                o.customer_name, 
+                o.table_id,
+                t.table_number, 
+                o.created_at,
+                COALESCE(ko.status, 'pending') as kitchen_status
             FROM orders o
             LEFT JOIN tables t ON o.table_id = t.id
             LEFT JOIN kitchen_orders ko ON o.id = ko.order_id
@@ -628,9 +636,10 @@ router.get("/ready", authorizeBranch, allowCashier, async (req, res) => {
                 AND o.status != 'cancelled'
                 AND o.branch_id = $1
                 AND o.company_id = $2
-                AND ko.status = 'ready'
+                AND COALESCE(ko.status, 'pending') = 'ready'
             ORDER BY o.created_at ASC
         `, [branchId, companyId]);
+        
         res.json({ success: true, data: result.rows });
     } catch (err) {
         console.error("Ready orders error:", err);
