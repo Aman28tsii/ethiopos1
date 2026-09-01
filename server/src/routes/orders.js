@@ -1,8 +1,8 @@
 // server/src/routes/orders.js
 
 import express from "express";
-import { protect, allowWaiter, allowCashier, allowKitchen, allowManager, allowOwner } from "../middleware/auth.js";
-import { authorizeCompany, authorizeBranch, requireCompanyContext } from "../middleware/authorization.js";
+import { protect, allowWaiter, allowCashier } from "../middleware/auth.js";
+import { authorizeBranch, requireCompanyContext } from "../middleware/authorization.js";
 import { idempotent, requireIdempotency } from "../middleware/idempotency.js";
 import { pool } from "../config/database.js";
 import rateLimit from "express-rate-limit";
@@ -10,7 +10,6 @@ import { processOrderStockDeduction } from "../controllers/recipeController.js";
 
 const router = express.Router();
 
-// Rate limiter for public tracking endpoint
 const trackLimiter = rateLimit({
     windowMs: 60 * 1000,
     max: 30,
@@ -35,7 +34,6 @@ const generateOrderNumber = () => {
 // PUBLIC ROUTES
 // ============================================================
 
-// Track order - public
 router.get("/track/:orderNumber", trackLimiter, async (req, res) => {
     const { orderNumber } = req.params;
     try {
@@ -70,7 +68,6 @@ router.get("/track/:orderNumber", trackLimiter, async (req, res) => {
     }
 });
 
-// QR order - public
 router.post("/qr-order", requireIdempotency, idempotent, async (req, res) => {
     try {
         const { items, table_id, customer_name, customer_phone, notes } = req.body;
@@ -612,12 +609,14 @@ router.get("/my-orders", authorizeBranch, allowWaiter, async (req, res) => {
 // CASHIER ROUTES - FIXED
 // ============================================================
 
-router.get("/ready", authorizeBranch, allowCashier, async (req, res) => {
+// GET READY ORDERS - SIMPLE VERSION
+router.get("/ready", protect, async (req, res) => {
     try {
         const branchId = req.user.branch_id;
         const companyId = req.user.company_id;
         
-        // SIMPLE QUERY - no kitchen_orders join to avoid errors
+        console.log("[READY] Fetching orders for branch:", branchId, "company:", companyId);
+        
         const result = await pool.query(`
             SELECT 
                 o.id, 
@@ -627,7 +626,7 @@ router.get("/ready", authorizeBranch, allowCashier, async (req, res) => {
                 o.table_id,
                 t.table_number, 
                 o.created_at,
-                o.status as order_status
+                o.status
             FROM orders o
             LEFT JOIN tables t ON o.table_id = t.id
             WHERE o.payment_status = 'pending'
@@ -637,9 +636,10 @@ router.get("/ready", authorizeBranch, allowCashier, async (req, res) => {
             ORDER BY o.created_at ASC
         `, [branchId, companyId]);
         
+        console.log("[READY] Found", result.rows.length, "orders");
         res.json({ success: true, data: result.rows });
     } catch (err) {
-        console.error("Ready orders error:", err);
+        console.error("[READY] Error:", err);
         res.status(500).json({ success: false, error: err.message });
     }
 });
