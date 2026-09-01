@@ -1,5 +1,4 @@
 // client/src/components/SyncStatusIndicator.js
-// NEW FILE
 
 import React, { useState, useEffect } from 'react';
 import { Wifi, WifiOff, RefreshCw, CheckCircle, AlertTriangle, Upload } from 'lucide-react';

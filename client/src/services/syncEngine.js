@@ -7,6 +7,7 @@ import {
     deleteOfflineOrder,
     getCount
 } from './offlineDB';
+import { isFullyOnline } from './offlineService';
 
 let isSyncing = false;
 let syncInterval = null;
@@ -17,9 +18,10 @@ let onlineHandler = null;
 const getUserContext = () => {
     try {
         const user = JSON.parse(localStorage.getItem('user') || '{}');
+        const branchId = localStorage.getItem('ethiopos_selected_branch') || user.branch_id || 1;
         return {
             company_id: user.company_id || 1,
-            branch_id: user.branch_id || 1,
+            branch_id: parseInt(branchId),
             user_id: user.id
         };
     } catch (e) {
@@ -40,7 +42,7 @@ export const startSyncEngine = () => {
     console.log('[SYNC] Starting sync engine...');
     isInitialized = true;
 
-    // Initial sync after startup (with delay)
+    // Initial sync after startup
     setTimeout(() => {
         if (navigator.onLine) {
             sync();
@@ -85,11 +87,10 @@ export const stopSyncEngine = () => {
 };
 
 // ============================================
-// SYNC — Process All Pending Orders
+// SYNC — PROCESS ALL PENDING ORDERS
 // ============================================
 
 export const sync = async () => {
-    // Prevent multiple simultaneous syncs
     if (isSyncing) {
         console.log('[SYNC] Already in progress');
         return;
@@ -97,6 +98,12 @@ export const sync = async () => {
 
     if (!navigator.onLine) {
         console.log('[SYNC] Offline - skipping');
+        return;
+    }
+
+    const online = await isFullyOnline();
+    if (!online) {
+        console.log('[SYNC] Server not reachable - skipping');
         return;
     }
 
@@ -148,7 +155,6 @@ export const sync = async () => {
 
 const syncSingleOrder = async (order) => {
     try {
-        // Mark as syncing
         await updateOfflineOrderStatus(order.id, 'syncing');
 
         console.log(`[SYNC] Processing order ${order.id}`);
@@ -161,13 +167,11 @@ const syncSingleOrder = async (order) => {
         });
 
         if (response.data.success) {
-            // Success - delete local order
             await deleteOfflineOrder(order.id);
             console.log(`[SYNC] Order ${order.id} synced successfully`);
             return 'synced';
         }
 
-        // Server returned error
         const errorMsg = response.data.error || 'Unknown server error';
         await updateOfflineOrderStatus(order.id, 'failed', errorMsg);
         console.error(`[SYNC] Order ${order.id} failed:`, errorMsg);
@@ -177,22 +181,18 @@ const syncSingleOrder = async (order) => {
         const status = error.response?.status;
         const errorMsg = error.response?.data?.error || error.message;
 
-        // Handle specific error cases
         if (status === 401 || status === 403) {
-            // Authentication/authorization failure - don't retry
             await updateOfflineOrderStatus(order.id, 'failed', `Auth error: ${errorMsg}`);
             console.error(`[SYNC] Order ${order.id} auth failed:`, errorMsg);
             return 'failed';
         }
 
         if (status === 409) {
-            // Duplicate - already processed
             await deleteOfflineOrder(order.id);
             console.log(`[SYNC] Order ${order.id} already exists (duplicate)`);
             return 'synced';
         }
 
-        // Retry logic with exponential backoff
         const attempts = (order.attempts || 0) + 1;
         if (attempts >= 5) {
             await updateOfflineOrderStatus(order.id, 'failed', `Max retries exceeded: ${errorMsg}`);
@@ -200,7 +200,6 @@ const syncSingleOrder = async (order) => {
             return 'failed';
         }
 
-        // Keep for retry
         await updateOfflineOrderStatus(order.id, 'pending', errorMsg);
         console.log(`[SYNC] Order ${order.id} will retry (attempt ${attempts}/5)`);
         return 'pending';

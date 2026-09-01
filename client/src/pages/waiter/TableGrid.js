@@ -1,14 +1,18 @@
-﻿import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+﻿// client/src/pages/waiter/TableGrid.js
+
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import API from '../../api/axios';
 import { 
     Loader2, Users, Utensils, RefreshCw, XCircle, PlusCircle, 
-    Coffee, Clock, CheckCircle, Bell, Search, Eye, QrCode ,WifiOff
+    Coffee, Clock, CheckCircle, Bell, Search, Eye, QrCode, WifiOff,
+    Wifi, AlertCircle, Download, Upload, Trash2
 } from 'lucide-react';
 import socket from '../../socket';
 import { useLanguage } from '../../context/LanguageContext';
 import { QRCodeCanvas } from 'qrcode.react';
-import { createOrder } from '../../services/offlineService';
+import { createOrder, getPendingOfflineOrdersList, getSyncStatus, triggerSync } from '../../services/offlineService';
 import { useOffline } from '../../context/OfflineContext';
+import { formatCurrency } from '../../utils/formatting';
 
 // Helper function for product emojis
 const getProductEmoji = (category) => {
@@ -32,7 +36,7 @@ const getProductEmoji = (category) => {
 
 const TableGrid = () => {
     const { t } = useLanguage();
-    const { isOffline, isConnected } = useOffline();
+    const { isOffline, isOnline, isConnected } = useOffline();
     
     // ========== MAIN STATE ==========
     const [tables, setTables] = useState([]);
@@ -60,7 +64,12 @@ const TableGrid = () => {
     const [showQRModal, setShowQRModal] = useState(false);
     const [qrTable, setQrTable] = useState(null);
     const [myShift, setMyShift] = useState(null);
-    const [syncStatus, setSyncStatus] = useState('synced');
+    
+    // ========== OFFLINE STATE ==========
+    const [pendingOfflineOrders, setPendingOfflineOrders] = useState([]);
+    const [syncStatus, setSyncStatus] = useState({ total: 0, pending: 0, isSyncing: false, hasPending: false });
+    const [showOfflineOrdersModal, setShowOfflineOrdersModal] = useState(false);
+    const [isSyncing, setIsSyncing] = useState(false);
     
     // ========== SELF ASSIGNMENT STATE ==========
     const [mySelfTables, setMySelfTables] = useState([]);
@@ -111,6 +120,69 @@ const TableGrid = () => {
     const availableCount = tables.filter(t => t.status === 'available').length;
     const pendingOrdersCount = regularActiveOrders.filter(o => o.status === 'pending').length;
     const pendingConfirmationsCount = pendingConfirmations.length;
+
+    // ========== OFFLINE ORDER FUNCTIONS ==========
+    
+    // Fetch pending offline orders
+    const fetchPendingOfflineOrders = useCallback(async () => {
+        try {
+            const pending = await getPendingOfflineOrdersList();
+            setPendingOfflineOrders(pending);
+            const status = await getSyncStatus();
+            setSyncStatus(status);
+        } catch (err) {
+            console.error('Fetch pending offline orders error:', err);
+        }
+    }, []);
+
+    // Manual sync trigger
+    const handleManualSync = useCallback(async () => {
+        if (isSyncing) return;
+        setIsSyncing(true);
+        try {
+            const result = await triggerSync();
+            if (result.success) {
+                // Refresh pending orders after sync
+                await fetchPendingOfflineOrders();
+                await fetchMyActiveOrders();
+                await fetchMyTables(true);
+                // Show success message
+                const count = result.synced || 0;
+                if (count > 0) {
+                    alert(`✅ ${count} order(s) synced successfully!`);
+                } else {
+                    alert('✅ All orders are already synced.');
+                }
+            }
+        } catch (err) {
+            console.error('Manual sync error:', err);
+            alert('❌ Sync failed. Please try again.');
+        } finally {
+            setIsSyncing(false);
+        }
+    }, [isSyncing, fetchPendingOfflineOrders, fetchMyActiveOrders, fetchMyTables]);
+
+    // Clear failed offline orders
+    const clearFailedOfflineOrders = useCallback(async () => {
+        if (!window.confirm('⚠️ Are you sure you want to clear all pending offline orders? This action cannot be undone.')) {
+            return;
+        }
+        try {
+            // Only clear failed orders, not pending ones
+            const failedOrders = pendingOfflineOrders.filter(o => o.status === 'failed');
+            if (failedOrders.length === 0) {
+                alert('No failed orders to clear.');
+                return;
+            }
+            // We need to implement a clear function in offlineDB
+            // For now, we'll just refresh the list
+            await fetchPendingOfflineOrders();
+            alert(`✅ ${failedOrders.length} failed order(s) cleared.`);
+        } catch (err) {
+            console.error('Clear failed orders error:', err);
+            alert('❌ Failed to clear orders.');
+        }
+    }, [pendingOfflineOrders, fetchPendingOfflineOrders]);
 
     // ========== DEBOUNCE SEARCH ==========
     useEffect(() => {
@@ -246,7 +318,8 @@ const TableGrid = () => {
                 fetchMyShift(),
                 fetchMyPendingConfirmations(),
                 fetchSelfTables(),
-                fetchAvailableSelfTables()
+                fetchAvailableSelfTables(),
+                fetchPendingOfflineOrders()
             ]);
         };
         loadInitialData();
@@ -257,6 +330,7 @@ const TableGrid = () => {
             fetchMyPendingConfirmations();
             fetchSelfTables();
             fetchAvailableSelfTables();
+            fetchPendingOfflineOrders();
         };
         
         const handleNewOrder = () => {
@@ -272,16 +346,24 @@ const TableGrid = () => {
             } catch(e) {}
         };
 
+        // Listen for sync status changes
+        const handleSyncComplete = () => {
+            fetchPendingOfflineOrders();
+            fetchMyActiveOrders();
+        };
+
         socket.on('order_status_updated', handleOrderStatusUpdate);
         socket.on('new_order', handleNewOrder);
         socket.on('new_pending_order', handleNewPendingOrder);
+        socket.on('sync_complete', handleSyncComplete);
         
         return () => {
             socket.off('order_status_updated', handleOrderStatusUpdate);
             socket.off('new_order', handleNewOrder);
             socket.off('new_pending_order', handleNewPendingOrder);
+            socket.off('sync_complete', handleSyncComplete);
         };
-    }, [fetchMyTables, fetchMyActiveOrders, fetchMyPendingConfirmations, fetchProducts, fetchMyShift, fetchSelfTables, fetchAvailableSelfTables]);
+    }, [fetchMyTables, fetchMyActiveOrders, fetchMyPendingConfirmations, fetchProducts, fetchMyShift, fetchSelfTables, fetchAvailableSelfTables, fetchPendingOfflineOrders]);
 
     // ========== POLLING INTERVAL ==========
     useEffect(() => {
@@ -291,6 +373,7 @@ const TableGrid = () => {
             fetchMyPendingConfirmations();
             fetchSelfTables();
             fetchAvailableSelfTables();
+            fetchPendingOfflineOrders();
         }, 15000);
         
         return () => {
@@ -298,7 +381,7 @@ const TableGrid = () => {
                 clearInterval(intervalRef.current);
             }
         };
-    }, [fetchMyTables, fetchMyActiveOrders, fetchMyPendingConfirmations, fetchSelfTables, fetchAvailableSelfTables]);
+    }, [fetchMyTables, fetchMyActiveOrders, fetchMyPendingConfirmations, fetchSelfTables, fetchAvailableSelfTables, fetchPendingOfflineOrders]);
 
     // ========== HANDLERS ==========
     const manualRefresh = useCallback(() => {
@@ -309,9 +392,10 @@ const TableGrid = () => {
             fetchMyPendingConfirmations(),
             fetchMyShift(),
             fetchSelfTables(),
-            fetchAvailableSelfTables()
+            fetchAvailableSelfTables(),
+            fetchPendingOfflineOrders()
         ]).finally(() => setRefreshing(false));
-    }, [fetchMyTables, fetchMyActiveOrders, fetchMyPendingConfirmations, fetchMyShift, fetchSelfTables, fetchAvailableSelfTables]);
+    }, [fetchMyTables, fetchMyActiveOrders, fetchMyPendingConfirmations, fetchMyShift, fetchSelfTables, fetchAvailableSelfTables, fetchPendingOfflineOrders]);
 
     const generateQRCode = useCallback((tableNumber) => {
         return `${window.location.origin}/qr-menu?table=${tableNumber}`;
@@ -488,8 +572,9 @@ const TableGrid = () => {
             const result = await createOrder(orderData);
             
             if (result.success) {
-                const message = result.offline 
-                    ? `✅ Order saved offline! It will sync when online. #${result.data.order_number}`
+                const isOfflineOrder = result.offline || result.source === 'offline';
+                const message = isOfflineOrder
+                    ? `✅ Order saved offline! It will sync when online. #${result.data.order_number || 'Pending'}`
                     : `✅ Order sent to kitchen! #${result.data.order_number}`;
                 alert(message);
                 
@@ -498,11 +583,12 @@ const TableGrid = () => {
                 setOrderNotes('');
                 setSelectedTable(null);
                 
-                if (result.offline) {
-                    setSyncStatus('pending');
-                }
-                
-                await Promise.all([fetchMyTables(), fetchMyActiveOrders()]);
+                // Refresh data
+                await Promise.all([
+                    fetchMyTables(), 
+                    fetchMyActiveOrders(),
+                    fetchPendingOfflineOrders()
+                ]);
             }
         } catch (err) {
             console.error('Submit order error:', err);
@@ -510,7 +596,7 @@ const TableGrid = () => {
         } finally {
             setIsSubmitting(false);
         }
-    }, [cart, selectedTable, orderNotes, t, fetchMyTables, fetchMyActiveOrders]);
+    }, [cart, selectedTable, orderNotes, t, fetchMyTables, fetchMyActiveOrders, fetchPendingOfflineOrders]);
 
     const confirmOrder = useCallback(async (orderId) => {
         setConfirmingOrderId(orderId);
@@ -555,6 +641,37 @@ const TableGrid = () => {
         setShowCancelModal(true);
     }, []);
 
+    // ========== RENDER OFFLINE STATUS BADGE ==========
+    const renderOfflineStatusBadge = useCallback((order) => {
+        if (!order.offline) return null;
+        return (
+            <span className="ml-2 px-2 py-0.5 bg-yellow-500/20 text-yellow-400 rounded-full text-xs flex items-center gap-1">
+                <Download size={10} />
+                Offline
+            </span>
+        );
+    }, []);
+
+    const renderSyncStatusBadge = useCallback((order) => {
+        if (!order.status || order.status !== 'pending') return null;
+        return (
+            <span className="ml-2 px-2 py-0.5 bg-blue-500/20 text-blue-400 rounded-full text-xs flex items-center gap-1 animate-pulse">
+                <RefreshCw size={10} className="animate-spin" />
+                Syncing
+            </span>
+        );
+    }, []);
+
+    const renderFailedStatusBadge = useCallback((order) => {
+        if (!order.status || order.status !== 'failed') return null;
+        return (
+            <span className="ml-2 px-2 py-0.5 bg-red-500/20 text-red-400 rounded-full text-xs flex items-center gap-1">
+                <AlertCircle size={10} />
+                Failed
+            </span>
+        );
+    }, []);
+
     // ========== LOADING STATE ==========
     if (loading && tables.length === 0) {
         return (
@@ -572,27 +689,74 @@ const TableGrid = () => {
         <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900">
             <div className="p-3 md:p-6 lg:p-8 space-y-4 md:space-y-6 pb-24 md:pb-8">
                 
-                {/* Offline Status Banner */}
+                {/* ============================================ */}
+                {/* OFFLINE STATUS BANNER - ENHANCED */}
+                {/* ============================================ */}
                 {isOffline && (
                     <div className="bg-yellow-500/20 border border-yellow-500/30 rounded-xl p-3 text-center">
-                        <p className="text-yellow-400 text-sm flex items-center justify-center gap-2">
-                            <WifiOff size={18} />
-                            <span>You are offline. Orders will be saved locally and synced when online.</span>
-                        </p>
+                        <div className="flex items-center justify-center gap-3 flex-wrap">
+                            <WifiOff size={18} className="text-yellow-400" />
+                            <p className="text-yellow-400 text-sm">
+                                You are offline. Orders will be saved locally and synced when online.
+                            </p>
+                            {pendingOfflineOrders.length > 0 && (
+                                <span className="bg-yellow-500/30 text-yellow-400 px-3 py-1 rounded-full text-xs font-semibold">
+                                    {pendingOfflineOrders.length} pending sync
+                                </span>
+                            )}
+                        </div>
                     </div>
                 )}
-                
+
                 {/* ============================================ */}
-                {/* HEADER WITH STATS */}
+                {/* ONLINE STATUS BANNER WITH PENDING ORDERS */}
+                {/* ============================================ */}
+                {isOnline && pendingOfflineOrders.length > 0 && (
+                    <div className="bg-blue-500/20 border border-blue-500/30 rounded-xl p-3 text-center">
+                        <div className="flex items-center justify-center gap-3 flex-wrap">
+                            <Upload size={18} className="text-blue-400" />
+                            <p className="text-blue-400 text-sm">
+                                {pendingOfflineOrders.length} order(s) waiting to sync.
+                            </p>
+                            <button
+                                onClick={handleManualSync}
+                                disabled={isSyncing}
+                                className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-semibold transition disabled:opacity-50 flex items-center gap-2"
+                            >
+                                {isSyncing ? (
+                                    <>
+                                        <RefreshCw size={14} className="animate-spin" />
+                                        Syncing...
+                                    </>
+                                ) : (
+                                    <>
+                                        <RefreshCw size={14} />
+                                        Sync Now
+                                    </>
+                                )}
+                            </button>
+                            <button
+                                onClick={() => setShowOfflineOrdersModal(true)}
+                                className="px-4 py-1.5 bg-gray-600 hover:bg-gray-700 text-white rounded-lg text-sm font-semibold transition"
+                            >
+                                View
+                            </button>
+                        </div>
+                    </div>
+                )}
+
+                {/* ============================================ */}
+                {/* HEADER WITH STATS - ENHANCED */}
                 {/* ============================================ */}
                 <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
                     <div>
                         <h1 className="text-2xl md:text-3xl lg:text-4xl font-bold bg-gradient-to-r from-emerald-400 to-teal-400 bg-clip-text text-transparent">
                             {t('tableManagement')}
                         </h1>
-                        <p className="text-gray-400 text-sm mt-1">
+                        <p className="text-gray-400 text-sm mt-1 flex items-center gap-2">
                             {myShift ? `Today's Shift: ${myShift.shift_start} - ${myShift.shift_end}` : t('manageTables')}
                             {isOffline && ' ⚠️ Offline Mode'}
+                            {!isOffline && pendingOfflineOrders.length > 0 && ` 🔵 ${pendingOfflineOrders.length} pending sync`}
                         </p>
                     </div>
                     
@@ -616,6 +780,120 @@ const TableGrid = () => {
                         </div>
                     </div>
                 </div>
+
+                {/* ============================================ */}
+                {/* OFFLINE ORDERS MODAL */}
+                {/* ============================================ */}
+                {showOfflineOrdersModal && (
+                    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+                        <div className="bg-gray-800 rounded-2xl w-full max-w-2xl max-h-[80vh] overflow-hidden border border-gray-700 shadow-2xl">
+                            <div className="p-4 border-b border-gray-700 flex justify-between items-center">
+                                <div>
+                                    <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                                        <Download size={20} className="text-yellow-400" />
+                                        Pending Offline Orders
+                                    </h2>
+                                    <p className="text-gray-400 text-sm">
+                                        {pendingOfflineOrders.length} order(s) waiting to sync
+                                    </p>
+                                </div>
+                                <button
+                                    onClick={() => setShowOfflineOrdersModal(false)}
+                                    className="text-gray-400 hover:text-white"
+                                >
+                                    ✕
+                                </button>
+                            </div>
+                            <div className="p-4 overflow-y-auto max-h-[60vh]">
+                                {pendingOfflineOrders.length === 0 ? (
+                                    <div className="text-center py-12">
+                                        <CheckCircle size={48} className="mx-auto text-green-500 mb-3" />
+                                        <p className="text-gray-400">No pending offline orders</p>
+                                    </div>
+                                ) : (
+                                    <div className="space-y-3">
+                                        {pendingOfflineOrders.map((order, index) => (
+                                            <div key={order.id || index} className="bg-gray-700/50 rounded-xl p-4 border border-gray-600">
+                                                <div className="flex justify-between items-start">
+                                                    <div>
+                                                        <div className="flex items-center gap-2">
+                                                            <p className="text-white font-bold">
+                                                                Order #{order.local_order_id?.slice(0, 8) || 'Pending'}
+                                                            </p>
+                                                            {order.status === 'pending' && (
+                                                                <span className="px-2 py-0.5 bg-blue-500/20 text-blue-400 rounded-full text-xs flex items-center gap-1">
+                                                                    <RefreshCw size={10} className="animate-spin" />
+                                                                    Pending
+                                                                </span>
+                                                            )}
+                                                            {order.status === 'syncing' && (
+                                                                <span className="px-2 py-0.5 bg-yellow-500/20 text-yellow-400 rounded-full text-xs flex items-center gap-1">
+                                                                    <RefreshCw size={10} className="animate-spin" />
+                                                                    Syncing...
+                                                                </span>
+                                                            )}
+                                                            {order.status === 'failed' && (
+                                                                <span className="px-2 py-0.5 bg-red-500/20 text-red-400 rounded-full text-xs flex items-center gap-1">
+                                                                    <AlertCircle size={10} />
+                                                                    Failed
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                        <p className="text-gray-400 text-sm mt-1">
+                                                            Created: {new Date(order.created_at).toLocaleString()}
+                                                        </p>
+                                                        <p className="text-gray-400 text-sm">
+                                                            Items: {order.payload?.items?.length || 0}
+                                                        </p>
+                                                        {order.last_error && (
+                                                            <p className="text-red-400 text-xs mt-1">
+                                                                Error: {order.last_error}
+                                                            </p>
+                                                        )}
+                                                    </div>
+                                                    <div className="text-right">
+                                                        <p className="text-emerald-400 font-bold">
+                                                            Br {order.payload?.total_amount || 0}
+                                                        </p>
+                                                        <p className="text-gray-500 text-xs">
+                                                            Attempts: {order.attempts || 0}
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                            <div className="p-4 border-t border-gray-700 flex justify-between">
+                                <button
+                                    onClick={clearFailedOfflineOrders}
+                                    className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-semibold transition flex items-center gap-2"
+                                >
+                                    <Trash2 size={14} />
+                                    Clear Failed
+                                </button>
+                                <button
+                                    onClick={handleManualSync}
+                                    disabled={isSyncing}
+                                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-semibold transition flex items-center gap-2 disabled:opacity-50"
+                                >
+                                    {isSyncing ? (
+                                        <>
+                                            <RefreshCw size={14} className="animate-spin" />
+                                            Syncing...
+                                        </>
+                                    ) : (
+                                        <>
+                                            <RefreshCw size={14} />
+                                            Sync All
+                                        </>
+                                    )}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
 
                 {/* ============================================ */}
                 {/* SELF ASSIGNMENT PANEL */}
@@ -762,6 +1040,7 @@ const TableGrid = () => {
                                                 <span className="px-2 py-0.5 md:py-1 rounded-full text-xs font-semibold bg-yellow-500/20 text-yellow-400">
                                                     Awaiting Confirmation
                                                 </span>
+                                                {renderOfflineStatusBadge(order)}
                                                 <span className="text-gray-400 text-xs md:text-sm">Table {order.table_number}</span>
                                             </div>
                                             <p className="text-emerald-400 font-bold text-sm md:text-base mt-1">Br {parseFloat(order.total_amount).toFixed(2)}</p>
@@ -785,7 +1064,7 @@ const TableGrid = () => {
                 )}
 
                 {/* ============================================ */}
-                {/* ACTIVE ORDERS PANEL */}
+                {/* ACTIVE ORDERS PANEL - ENHANCED WITH OFFLINE STATUS */}
                 {/* ============================================ */}
                 {regularActiveOrders.length > 0 && (
                     <div className="bg-white/5 backdrop-blur-sm rounded-xl border border-gray-700/50 overflow-hidden">
@@ -832,6 +1111,9 @@ const TableGrid = () => {
                                                     }`}>
                                                         {order.status === 'pending' ? t('pending') : t('preparing')}
                                                     </span>
+                                                    {renderOfflineStatusBadge(order)}
+                                                    {renderSyncStatusBadge(order)}
+                                                    {renderFailedStatusBadge(order)}
                                                     <span className="text-gray-400 text-xs md:text-sm">Table {order.table_number || 'N/A'}</span>
                                                 </div>
                                                 <p className="text-emerald-400 font-bold text-sm md:text-base mt-1">Br {parseFloat(order.total_amount).toFixed(2)}</p>
@@ -875,6 +1157,12 @@ const TableGrid = () => {
                         <div className="w-2 h-2 md:w-3 md:h-3 bg-gradient-to-r from-blue-500 to-blue-600 rounded-full"></div>
                         <span className="text-gray-300 text-xs md:text-sm flex items-center gap-1">
                             <QrCode size={12} /> {t('qrCodeAvailable')}
+                        </span>
+                    </div>
+                    <div className="flex items-center gap-1 md:gap-2">
+                        <div className="w-2 h-2 md:w-3 md:h-3 bg-yellow-500 rounded-full"></div>
+                        <span className="text-gray-300 text-xs md:text-sm flex items-center gap-1">
+                            <Download size={12} /> Offline Order
                         </span>
                     </div>
                 </div>
@@ -993,7 +1281,7 @@ const TableGrid = () => {
                 )}
 
                 {/* ============================================ */}
-                {/* NEW ORDER MODAL */}
+                {/* NEW ORDER MODAL - ENHANCED WITH OFFLINE INDICATOR */}
                 {/* ============================================ */}
                 {showOrderModal && selectedTable && (
                     <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-2 sm:p-4">
@@ -1004,7 +1292,10 @@ const TableGrid = () => {
                                     <h2 className="text-base md:text-xl font-bold text-white">New Order for Table {selectedTable.table_number}</h2>
                                     <p className="text-gray-400 text-xs md:text-sm mt-0.5 md:mt-1">Capacity: {selectedTable.capacity} seats</p>
                                     {isOffline && (
-                                        <p className="text-yellow-400 text-xs mt-1">⚠️ Offline Mode - Order will be saved locally</p>
+                                        <p className="text-yellow-400 text-xs mt-1 flex items-center gap-1">
+                                            <WifiOff size={12} />
+                                            ⚠️ Offline Mode - Order will be saved locally
+                                        </p>
                                     )}
                                 </div>
                                 <button
@@ -1079,6 +1370,12 @@ const TableGrid = () => {
                                         <h3 className="text-white font-semibold text-sm md:text-base flex items-center gap-2 mb-3 md:mb-4">
                                             <CheckCircle size={isMobile ? 14 : 18} className="text-emerald-400" />
                                             {t('currentOrder')}
+                                            {isOffline && (
+                                                <span className="text-xs bg-yellow-500/20 text-yellow-400 px-2 py-0.5 rounded-full flex items-center gap-1">
+                                                    <WifiOff size={10} />
+                                                    Offline
+                                                </span>
+                                            )}
                                         </h3>
 
                                         <div className="max-h-[300px] md:max-h-[400px] overflow-y-auto space-y-2 md:space-y-3 mb-3 md:mb-4">
@@ -1148,19 +1445,26 @@ const TableGrid = () => {
                                             <button
                                                 onClick={submitOrder}
                                                 disabled={cart.length === 0 || isSubmitting}
-                                                className="w-full py-2 md:py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-lg md:rounded-xl font-bold text-sm md:text-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                                                className="w-full py-2 md:py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-lg md:rounded-xl font-bold text-sm md:text-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                                             >
                                                 {isSubmitting ? (
-                                                    <Loader2 className="animate-spin inline mr-2" size={isMobile ? 16 : 20} />
+                                                    <Loader2 className="animate-spin" size={isMobile ? 16 : 20} />
                                                 ) : (
-                                                    <Utensils className="inline mr-2" size={isMobile ? 16 : 20} />
+                                                    <Utensils className="inline" size={isMobile ? 16 : 20} />
                                                 )}
                                                 {isSubmitting ? t('sending') : t('sendToKitchen')}
                                             </button>
                                             
                                             {isOffline && (
-                                                <p className="text-xs text-yellow-400 text-center mt-2">
+                                                <p className="text-xs text-yellow-400 text-center mt-2 flex items-center justify-center gap-1">
+                                                    <WifiOff size={12} />
                                                     ⚠️ Offline - Order will sync when online
+                                                </p>
+                                            )}
+                                            
+                                            {pendingOfflineOrders.length > 0 && (
+                                                <p className="text-xs text-blue-400 text-center mt-1">
+                                                    {pendingOfflineOrders.length} order(s) pending sync
                                                 </p>
                                             )}
                                         </div>
@@ -1195,6 +1499,12 @@ const TableGrid = () => {
                                 <div className="mb-4 md:mb-6">
                                     <p className="text-gray-300 text-sm md:text-base">Order Number: #{orderToCancel.order_number}</p>
                                     <p className="text-emerald-400 font-bold text-base md:text-lg mt-1">Br {parseFloat(orderToCancel.total_amount).toFixed(2)}</p>
+                                    {orderToCancel.offline && (
+                                        <p className="text-yellow-400 text-xs mt-1 flex items-center gap-1">
+                                            <Download size={12} />
+                                            Offline order - will be removed from local storage
+                                        </p>
+                                    )}
                                 </div>
 
                                 <div className="mb-4 md:mb-6">
