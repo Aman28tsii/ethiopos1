@@ -70,7 +70,7 @@ router.get("/track/:orderNumber", trackLimiter, async (req, res) => {
     }
 });
 
-// QR order - public (assigns branch from table)
+// QR order - public
 router.post("/qr-order", requireIdempotency, idempotent, async (req, res) => {
     try {
         const { items, table_id, customer_name, customer_phone, notes } = req.body;
@@ -161,7 +161,7 @@ router.use(protect);
 router.use(requireCompanyContext);
 
 // ============================================================
-// WAITER ROUTES (Branch-level)
+// WAITER ROUTES
 // ============================================================
 
 router.get("/", authorizeBranch, allowWaiter, async (req, res) => {
@@ -290,9 +290,7 @@ router.post("/", authorizeBranch, allowWaiter, requireIdempotency, idempotent, a
                     created_by: userId
                 };
                 
-                // Emit to kitchen
                 io.to(`kitchen_${branchId}`).emit('new_order', orderData);
-                // Emit to branch room
                 io.to(`branch_${companyId}_${branchId}`).emit('new_order_branch', orderData);
             }
             
@@ -611,7 +609,7 @@ router.get("/my-orders", authorizeBranch, allowWaiter, async (req, res) => {
 });
 
 // ============================================================
-// CASHIER ROUTES (Branch-level)
+// CASHIER ROUTES - FIXED
 // ============================================================
 
 router.get("/ready", authorizeBranch, allowCashier, async (req, res) => {
@@ -630,7 +628,7 @@ router.get("/ready", authorizeBranch, allowCashier, async (req, res) => {
                 AND o.status != 'cancelled'
                 AND o.branch_id = $1
                 AND o.company_id = $2
-                AND (ko.status = 'ready' OR ko.status IS NULL)
+                AND ko.status = 'ready'
             ORDER BY o.created_at ASC
         `, [branchId, companyId]);
         res.json({ success: true, data: result.rows });
