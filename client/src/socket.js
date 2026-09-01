@@ -1,10 +1,8 @@
 ﻿// client/src/socket.js
-// MODIFIED — Restore real Socket.IO
-
 import io from 'socket.io-client';
-import { isFullyOnline } from './services/offlineService';
 
-const SOCKET_URL = process.env.REACT_APP_SOCKET_URL || 'https://ethiopos1.onrender.com';
+// ✅ FIX: Use window.location.origin instead of hardcoded URL
+const SOCKET_URL = window.location.origin;
 
 let socket = null;
 let isConnected = false;
@@ -46,7 +44,7 @@ export const connectSocket = () => {
 
     const context = getUserContext();
 
-    console.log('[SOCKET] Connecting...');
+    console.log('[SOCKET] Connecting to:', SOCKET_URL);
     
     socket = io(SOCKET_URL, {
         path: '/socket.io',
