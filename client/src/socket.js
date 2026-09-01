@@ -1,7 +1,7 @@
 ﻿// client/src/socket.js
 import io from 'socket.io-client';
 
-// Use the current window location
+// ✅ Use the correct URL - match your deployment
 const SOCKET_URL = 'https://ethiopos1.onrender.com';
 
 let socket = null;
@@ -31,11 +31,13 @@ const getUserContext = () => {
 
 // Connect to Socket.IO
 export const connectSocket = () => {
+    // ✅ Prevent duplicate connections
     if (socket && isConnected) {
         console.log('[SOCKET] Already connected');
         return socket;
     }
 
+    // ✅ Get fresh token
     const token = getToken();
     if (!token) {
         console.log('[SOCKET] No token, skipping connection');
@@ -43,12 +45,11 @@ export const connectSocket = () => {
     }
 
     const context = getUserContext();
-
     console.log('[SOCKET] Connecting to:', SOCKET_URL);
-    
+
     socket = io(SOCKET_URL, {
         path: '/socket.io',
-        transports: ['polling', 'websocket'],  // ✅ Polling first, then upgrade
+        transports: ['polling', 'websocket'],
         auth: {
             token: token
         },
@@ -69,10 +70,12 @@ export const connectSocket = () => {
 
     socket.on('connect', () => {
         console.log('[SOCKET] Connected successfully');
+        console.log('[SOCKET] Socket ID:', socket.id);
+        console.log('[SOCKET] Transport:', socket.io.engine.transport.name);
         isConnected = true;
         reconnectAttempts = 0;
         
-        // Join company/branch room
+        // Join branch room
         socket.emit('join_branch', {
             company_id: context.company_id,
             branch_id: context.branch_id,
@@ -81,10 +84,12 @@ export const connectSocket = () => {
         });
 
         // Join role-specific room
-        socket.emit(`join_${context.role}`, {
-            user_id: context.id,
-            branch_id: context.branch_id
-        });
+        if (context.role) {
+            socket.emit(`join_${context.role}`, {
+                user_id: context.id,
+                branch_id: context.branch_id
+            });
+        }
     });
 
     socket.on('connect_error', (error) => {
@@ -100,7 +105,6 @@ export const connectSocket = () => {
     socket.on('reconnect', (attemptNumber) => {
         console.log(`[SOCKET] Reconnected after ${attemptNumber} attempts`);
         isConnected = true;
-        // Re-join rooms
         const ctx = getUserContext();
         socket.emit('join_branch', {
             company_id: ctx.company_id,
@@ -114,13 +118,9 @@ export const connectSocket = () => {
         console.log(`[SOCKET] Reconnect attempt ${attempt}`);
     });
 
-    // ✅ Listen for upgrade events
-    socket.on('upgrading', (transport) => {
-        console.log(`[SOCKET] Upgrading to ${transport}`);
-    });
-
-    socket.on('upgrade', (transport) => {
-        console.log(`[SOCKET] Upgraded to ${transport}`);
+    // ✅ Monitor transport upgrades
+    socket.io.engine.on('upgrade', (transport) => {
+        console.log('[SOCKET] Transport upgraded to:', transport.name);
     });
 
     return socket;
@@ -176,7 +176,7 @@ export const offEvent = (event, callback) => {
     }
 };
 
-// Default export for backward compatibility
+// Default export
 const socketInstance = {
     on: onEvent,
     off: offEvent,
