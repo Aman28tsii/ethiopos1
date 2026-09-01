@@ -4,14 +4,14 @@ import { query } from '../config/database.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your_super_secret_key';
 
-// Role hierarchy (higher number = more access)
+// ✅ FIXED: Role hierarchy with admin at same level as owner
 const roleHierarchy = {
   'kitchen': 1,
   'waiter': 2,
-  'cashier': 4,
-  'manager': 5,
-  'owner': 6,
-  'admin': 6
+  'cashier': 3,
+  'manager': 4,
+  'admin': 6,
+  'owner': 6
 };
 
 // Allowed roles for validation
@@ -45,7 +45,7 @@ export const protect = async (req, res, next) => {
       return res.status(401).json({ success: false, error: 'Account is not active.' });
     }
     
-    // ✅ FIXED: Attach company_id and branch_id from database
+    // Attach user data to request
     req.user = {
       id: user.id,
       name: user.name,
