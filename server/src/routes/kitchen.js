@@ -81,19 +81,25 @@ router.put("/orders/:orderId/status", authorizeBranch, allowKitchen, async (req,
             });
         }
 
-        // ✅ FIXED: Remove branch_id check from kitchen_orders
+        const orderIdInt = parseInt(orderId);
+        if (isNaN(orderIdInt)) {
+            return res.status(400).json({ success: false, error: 'Invalid order ID' });
+        }
+
+        // Check if order exists in kitchen_orders
         const orderCheck = await pool.query(
             `SELECT ko.id, ko.status, o.status as order_status 
              FROM kitchen_orders ko
              JOIN orders o ON ko.order_id = o.id
              WHERE ko.order_id = $1`,
-            [orderId]
+            [orderIdInt]
         );
         
         if (orderCheck.rows.length === 0) {
             return res.status(404).json({ success: false, error: "Order not found in kitchen" });
         }
 
+        // Update kitchen order status
         const result = await pool.query(`
             UPDATE kitchen_orders 
             SET 
@@ -110,43 +116,43 @@ router.put("/orders/:orderId/status", authorizeBranch, allowKitchen, async (req,
                 updated_at = NOW()
             WHERE order_id = $2
             RETURNING *
-        `, [status, orderId]);
+        `, [status, orderIdInt]);
 
         // Update main order status
-        let orderStatus = status === 'pending' ? 'pending' : 
-                         status === 'preparing' ? 'preparing' : 
-                         status === 'ready' ? 'ready' : 
-                         status === 'completed' ? 'completed' : 'cancelled';
+        const orderStatus = status === 'pending' ? 'pending' : 
+                           status === 'preparing' ? 'preparing' : 
+                           status === 'ready' ? 'ready' : 
+                           status === 'completed' ? 'completed' : 'cancelled';
 
         await pool.query(
             "UPDATE orders SET status = $1, updated_at = NOW() WHERE id = $2",
-            [orderStatus, orderId]
+            [orderStatus, orderIdInt]
         );
 
         // Emit socket events
         const io = req.app.get('io');
         if (io) {
             io.to(`branch_${companyId}_${branchId}`).emit('order_status_updated', {
-                order_id: parseInt(orderId),
+                order_id: orderIdInt,
                 status: status,
                 order_status: orderStatus
             });
 
             if (status === 'ready') {
                 io.to(`cashier_${branchId}`).emit('order_ready_for_cashier', {
-                    order_id: parseInt(orderId),
+                    order_id: orderIdInt,
                     status: 'ready'
                 });
                 io.to(`waiter_${branchId}`).emit('order_ready_for_waiter', {
-                    order_id: parseInt(orderId),
+                    order_id: orderIdInt,
                     status: 'ready',
-                    message: `Order #${orderId} is ready for pickup!`
+                    message: `Order #${orderIdInt} is ready for pickup!`
                 });
             }
 
             if (status === 'completed') {
                 io.to(`branch_${companyId}_${branchId}`).emit('order_completed', {
-                    order_id: parseInt(orderId),
+                    order_id: orderIdInt,
                     status: 'completed'
                 });
             }
@@ -272,6 +278,9 @@ router.put("/orders/bulk-status", authorizeBranch, allowKitchen, async (req, res
     try {
         const results = [];
         for (const orderId of orderIds) {
+            const orderIdInt = parseInt(orderId);
+            if (isNaN(orderIdInt)) continue;
+            
             const result = await pool.query(`
                 UPDATE kitchen_orders 
                 SET 
@@ -288,13 +297,13 @@ router.put("/orders/bulk-status", authorizeBranch, allowKitchen, async (req, res
                     updated_at = NOW()
                 WHERE order_id = $2
                 RETURNING order_id, status
-            `, [status, orderId]);
+            `, [status, orderIdInt]);
             
             if (result.rows.length > 0) {
                 results.push(result.rows[0]);
                 await pool.query(
                     "UPDATE orders SET status = $1, updated_at = NOW() WHERE id = $2",
-                    [status === 'pending' ? 'pending' : status === 'preparing' ? 'preparing' : status === 'ready' ? 'ready' : status === 'completed' ? 'completed' : 'cancelled', orderId]
+                    [status === 'pending' ? 'pending' : status === 'preparing' ? 'preparing' : status === 'ready' ? 'ready' : status === 'completed' ? 'completed' : 'cancelled', orderIdInt]
                 );
             }
         }
