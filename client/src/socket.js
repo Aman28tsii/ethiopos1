@@ -2,7 +2,7 @@
 import io from 'socket.io-client';
 
 // Use the current window location
-const SOCKET_URL = window.location.origin;
+const SOCKET_URL = 'https://ethiopos1.onrender.com';
 
 let socket = null;
 let isConnected = false;
