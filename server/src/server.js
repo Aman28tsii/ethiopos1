@@ -30,15 +30,13 @@ const server = createServer(app);
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your_super_secret_key';
 const PORT = process.env.PORT || 5000;
+const CLIENT_URL = process.env.CLIENT_URL || 'https://ethiopos1.onrender.com';
 
-// ============================================================
-// SOCKET.IO CONFIGURATION
-// ============================================================
-
+// ✅ FIX: Socket.IO with proper CORS and error handling
 const io = new SocketServer(server, {
     cors: {
-        origin: process.env.CORS_ORIGIN || "*",
-        methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        origin: CLIENT_URL,
+        methods: ["GET", "POST", "PUT", "DELETE"],
         credentials: true,
         allowedHeaders: ["Content-Type", "Authorization", "Idempotency-Key"]
     },
@@ -50,14 +48,9 @@ const io = new SocketServer(server, {
     cookie: false
 });
 
-// ============================================================
-// SOCKET.IO AUTHENTICATION MIDDLEWARE
-// ============================================================
-
+// ✅ FIX: Socket.IO authentication middleware with better error handling
 io.use((socket, next) => {
     const token = socket.handshake.auth.token || socket.handshake.query.token;
-    
-    console.log('[SOCKET] Auth attempt - token present:', !!token);
     
     if (!token) {
         console.log('[SOCKET] No token provided');
@@ -66,8 +59,6 @@ io.use((socket, next) => {
 
     try {
         const decoded = jwt.verify(token, JWT_SECRET);
-        console.log('[SOCKET] Token verified for:', decoded.email);
-        
         socket.user = {
             id: decoded.id,
             email: decoded.email,
@@ -83,10 +74,6 @@ io.use((socket, next) => {
     }
 });
 
-// ============================================================
-// MAKE IO AVAILABLE TO ROUTES
-// ============================================================
-
 app.set("io", io);
 
 // ============================================================
@@ -99,7 +86,7 @@ app.use(helmet({
 }));
 
 app.use(cors({
-    origin: process.env.CORS_ORIGIN || "*",
+    origin: CLIENT_URL,
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization", "Idempotency-Key"]
@@ -128,10 +115,12 @@ app.use("/api/categories", categoryRoutes);
 app.use("/api/customers", customerRoutes);
 
 // ============================================================
-// HEALTH CHECK
+// HEALTH CHECK - ✅ FIX: Add CORS headers
 // ============================================================
 
 app.get("/health", (req, res) => {
+    res.setHeader('Access-Control-Allow-Origin', CLIENT_URL);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
     res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
@@ -152,7 +141,7 @@ app.use(notFound);
 app.use(errorHandler);
 
 // ============================================================
-// SOCKET.IO EVENTS
+// SOCKET.IO EVENTS - ✅ FIX: Better error handling
 // ============================================================
 
 io.on("connection", (socket) => {
@@ -162,45 +151,66 @@ io.on("connection", (socket) => {
 
     // Join branch room
     socket.on('join_branch', (data) => {
-        const branchRoom = `branch_${data.company_id}_${data.branch_id}`;
-        socket.join(branchRoom);
-        console.log(`[SOCKET] ${socket.id} joined ${branchRoom}`);
-        
-        if (data.role) {
-            const roleRoom = `role_${data.role}_${data.branch_id}`;
-            socket.join(roleRoom);
-            console.log(`[SOCKET] ${socket.id} joined ${roleRoom}`);
+        try {
+            const branchRoom = `branch_${data.company_id}_${data.branch_id}`;
+            socket.join(branchRoom);
+            console.log(`[SOCKET] ${socket.id} joined ${branchRoom}`);
+            
+            if (data.role) {
+                const roleRoom = `role_${data.role}_${data.branch_id}`;
+                socket.join(roleRoom);
+                console.log(`[SOCKET] ${socket.id} joined ${roleRoom}`);
+            }
+        } catch (err) {
+            console.error('[SOCKET] join_branch error:', err);
         }
     });
 
     // Join waiter room
     socket.on('join_waiter', (data) => {
-        const waiterRoom = `waiter_${data.user_id}`;
-        socket.join(waiterRoom);
-        console.log(`[SOCKET] ${socket.id} joined ${waiterRoom}`);
+        try {
+            const waiterRoom = `waiter_${data.user_id}`;
+            socket.join(waiterRoom);
+            console.log(`[SOCKET] ${socket.id} joined ${waiterRoom}`);
+        } catch (err) {
+            console.error('[SOCKET] join_waiter error:', err);
+        }
     });
 
     // Join kitchen room
     socket.on('join_kitchen', (data) => {
-        const kitchenRoom = `kitchen_${data.branch_id}`;
-        socket.join(kitchenRoom);
-        console.log(`[SOCKET] ${socket.id} joined ${kitchenRoom}`);
+        try {
+            const kitchenRoom = `kitchen_${data.branch_id}`;
+            socket.join(kitchenRoom);
+            console.log(`[SOCKET] ${socket.id} joined ${kitchenRoom}`);
+        } catch (err) {
+            console.error('[SOCKET] join_kitchen error:', err);
+        }
     });
 
     // Join cashier room
     socket.on('join_cashier', (data) => {
-        const cashierRoom = `cashier_${data.branch_id}`;
-        socket.join(cashierRoom);
-        console.log(`[SOCKET] ${socket.id} joined ${cashierRoom}`);
+        try {
+            const cashierRoom = `cashier_${data.branch_id}`;
+            socket.join(cashierRoom);
+            console.log(`[SOCKET] ${socket.id} joined ${cashierRoom}`);
+        } catch (err) {
+            console.error('[SOCKET] join_cashier error:', err);
+        }
     });
 
-    // Track transport upgrades
+    // ✅ FIX: Handle transport upgrade
     socket.conn.on('upgrade', () => {
         console.log(`[SOCKET] Transport upgraded to: ${socket.conn.transport.name}`);
     });
 
-    socket.on("disconnect", () => {
-        console.log(`[SOCKET] Client disconnected: ${socket.id}`);
+    // ✅ FIX: Handle errors
+    socket.on('error', (error) => {
+        console.error(`[SOCKET] Socket error for ${socket.id}:`, error);
+    });
+
+    socket.on("disconnect", (reason) => {
+        console.log(`[SOCKET] Client disconnected: ${socket.id} (${reason})`);
     });
 });
 
@@ -212,6 +222,7 @@ server.listen(PORT, async () => {
     console.log(`🚀 Server running on port ${PORT}`);
     console.log(`🔗 API: http://localhost:${PORT}/api`);
     console.log(`🔌 WebSocket: ws://localhost:${PORT}/socket.io`);
+    console.log(`📡 CORS allowed: ${CLIENT_URL}`);
     
     const dbConnected = await testConnection();
     if (dbConnected) {

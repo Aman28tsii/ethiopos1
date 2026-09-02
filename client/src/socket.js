@@ -1,14 +1,15 @@
 ﻿// client/src/socket.js
 import io from 'socket.io-client';
 
-// ✅ FIX: Use relative URL for same-domain deployment
-const SOCKET_URL = window.location.origin;
+// ✅ FIX: Use environment variable or relative URL
+const SOCKET_URL = process.env.REACT_APP_SOCKET_URL || window.location.origin;
 
 let socket = null;
 let isConnected = false;
 let reconnectAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = 3;
 const RECONNECT_DELAY = 5000;
+let connectionTimeout = null;
 
 // Get auth token
 const getToken = () => {
@@ -48,6 +49,12 @@ const shouldAttemptConnection = () => {
 
 // Connect to Socket.IO
 export const connectSocket = () => {
+    // Prevent multiple connection attempts
+    if (connectionTimeout) {
+        clearTimeout(connectionTimeout);
+        connectionTimeout = null;
+    }
+
     if (socket && isConnected) {
         console.log('[SOCKET] Already connected');
         return socket;
@@ -66,88 +73,110 @@ export const connectSocket = () => {
     const context = getUserContext();
     console.log('[SOCKET] Connecting to:', SOCKET_URL);
 
-    socket = io(SOCKET_URL, {
-        path: '/socket.io',
-        transports: ['polling', 'websocket'],
-        auth: { token: token },
-        query: {
-            company_id: context.company_id,
-            branch_id: context.branch_id,
-            role: context.role
-        },
-        reconnection: true,
-        reconnectionAttempts: MAX_RECONNECT_ATTEMPTS,
-        reconnectionDelay: RECONNECT_DELAY,
-        reconnectionDelayMax: 10000,
-        timeout: 10000,
-        upgrade: true,
-        forceNew: false,
-        withCredentials: true
-    });
-
-    socket.on('connect', () => {
-        console.log('[SOCKET] Connected successfully');
-        console.log('[SOCKET] Socket ID:', socket.id);
-        isConnected = true;
-        reconnectAttempts = 0;
-        
-        // Join branch room
-        socket.emit('join_branch', {
-            company_id: context.company_id,
-            branch_id: context.branch_id,
-            role: context.role,
-            user_id: context.id
+    try {
+        socket = io(SOCKET_URL, {
+            path: '/socket.io',
+            transports: ['polling', 'websocket'],
+            auth: { token: token },
+            query: {
+                company_id: context.company_id,
+                branch_id: context.branch_id,
+                role: context.role
+            },
+            reconnection: true,
+            reconnectionAttempts: MAX_RECONNECT_ATTEMPTS,
+            reconnectionDelay: RECONNECT_DELAY,
+            reconnectionDelayMax: 10000,
+            timeout: 10000,
+            upgrade: true,
+            forceNew: false,
+            withCredentials: true
         });
 
-        if (context.role) {
-            socket.emit(`join_${context.role}`, {
-                user_id: context.id,
-                branch_id: context.branch_id
+        socket.on('connect', () => {
+            console.log('[SOCKET] Connected successfully');
+            console.log('[SOCKET] Socket ID:', socket.id);
+            isConnected = true;
+            reconnectAttempts = 0;
+            
+            // Join branch room
+            socket.emit('join_branch', {
+                company_id: context.company_id,
+                branch_id: context.branch_id,
+                role: context.role,
+                user_id: context.id
             });
-        }
-    });
 
-    socket.on('connect_error', (error) => {
-        console.log('[SOCKET] Connection error:', error.message);
-        isConnected = false;
-        reconnectAttempts++;
-        
-        if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-            console.log('[SOCKET] Max attempts reached, giving up');
-            socket.disconnect();
-        }
-    });
-
-    socket.on('disconnect', (reason) => {
-        console.log('[SOCKET] Disconnected:', reason);
-        isConnected = false;
-    });
-
-    socket.on('reconnect', (attemptNumber) => {
-        console.log(`[SOCKET] Reconnected after ${attemptNumber} attempts`);
-        isConnected = true;
-        const ctx = getUserContext();
-        socket.emit('join_branch', {
-            company_id: ctx.company_id,
-            branch_id: ctx.branch_id,
-            role: ctx.role,
-            user_id: ctx.id
+            if (context.role) {
+                socket.emit(`join_${context.role}`, {
+                    user_id: context.id,
+                    branch_id: context.branch_id
+                });
+            }
         });
-    });
 
-    socket.on('reconnect_attempt', (attempt) => {
-        console.log(`[SOCKET] Reconnect attempt ${attempt}/${MAX_RECONNECT_ATTEMPTS}`);
-    });
+        socket.on('connect_error', (error) => {
+            console.log('[SOCKET] Connection error:', error.message);
+            isConnected = false;
+            reconnectAttempts++;
+            
+            if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+                console.log('[SOCKET] Max attempts reached, giving up');
+                socket.disconnect();
+            }
+        });
 
-    socket.io.engine.on('upgrade', (transport) => {
-        console.log('[SOCKET] Transport upgraded to:', transport.name);
-    });
+        socket.on('disconnect', (reason) => {
+            console.log('[SOCKET] Disconnected:', reason);
+            isConnected = false;
+        });
 
-    return socket;
+        socket.on('reconnect', (attemptNumber) => {
+            console.log(`[SOCKET] Reconnected after ${attemptNumber} attempts`);
+            isConnected = true;
+            const ctx = getUserContext();
+            socket.emit('join_branch', {
+                company_id: ctx.company_id,
+                branch_id: ctx.branch_id,
+                role: ctx.role,
+                user_id: ctx.id
+            });
+        });
+
+        socket.on('reconnect_attempt', (attempt) => {
+            console.log(`[SOCKET] Reconnect attempt ${attempt}/${MAX_RECONNECT_ATTEMPTS}`);
+        });
+
+        socket.on('reconnect_error', (error) => {
+            console.log('[SOCKET] Reconnect error:', error.message);
+        });
+
+        socket.on('reconnect_failed', () => {
+            console.log('[SOCKET] Reconnect failed - giving up');
+            isConnected = false;
+        });
+
+        socket.io.engine.on('upgrade', (transport) => {
+            console.log('[SOCKET] Transport upgraded to:', transport.name);
+        });
+
+        socket.io.engine.on('error', (error) => {
+            console.log('[SOCKET] Engine error:', error);
+        });
+
+        return socket;
+    } catch (error) {
+        console.error('[SOCKET] Connection error:', error);
+        return null;
+    }
 };
 
 // Disconnect Socket.IO
 export const disconnectSocket = () => {
+    if (connectionTimeout) {
+        clearTimeout(connectionTimeout);
+        connectionTimeout = null;
+    }
     if (socket) {
         console.log('[SOCKET] Disconnecting...');
         socket.disconnect();
@@ -210,12 +239,20 @@ export const setupOfflineHandlers = () => {
     const handleOnline = () => {
         console.log('[SOCKET] Network online - attempting reconnect');
         if (!socket || !isConnected) {
-            connectSocket();
+            // Add a small delay to prevent race conditions
+            connectionTimeout = setTimeout(() => {
+                connectSocket();
+                connectionTimeout = null;
+            }, 1000);
         }
     };
     
     const handleOffline = () => {
         console.log('[SOCKET] Network offline - disconnecting');
+        if (connectionTimeout) {
+            clearTimeout(connectionTimeout);
+            connectionTimeout = null;
+        }
         if (socket) {
             socket.disconnect();
         }
@@ -228,6 +265,10 @@ export const setupOfflineHandlers = () => {
     return () => {
         window.removeEventListener('online', handleOnline);
         window.removeEventListener('offline', handleOffline);
+        if (connectionTimeout) {
+            clearTimeout(connectionTimeout);
+            connectionTimeout = null;
+        }
     };
 };
 
