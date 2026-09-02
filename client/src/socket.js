@@ -7,7 +7,8 @@ const SOCKET_URL = 'https://ethiopos1.onrender.com';
 let socket = null;
 let isConnected = false;
 let reconnectAttempts = 0;
-const MAX_RECONNECT_ATTEMPTS = 10;
+const MAX_RECONNECT_ATTEMPTS = 3; // ✅ REDUCED from 10 to 3
+const RECONNECT_DELAY = 5000; // ✅ ADDED delay between attempts
 
 // Get auth token
 const getToken = () => {
@@ -29,6 +30,25 @@ const getUserContext = () => {
     }
 };
 
+// ✅ Check if we should attempt connection
+const shouldAttemptConnection = () => {
+    // Don't attempt if offline
+    if (!navigator.onLine) {
+        console.log('[SOCKET] Offline - skipping connection');
+        return false;
+    }
+    // Don't attempt if already connected
+    if (isConnected && socket) {
+        return false;
+    }
+    // Don't attempt if max attempts reached
+    if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+        console.log('[SOCKET] Max reconnect attempts reached');
+        return false;
+    }
+    return true;
+};
+
 // Connect to Socket.IO
 export const connectSocket = () => {
     // ✅ Prevent duplicate connections
@@ -37,7 +57,11 @@ export const connectSocket = () => {
         return socket;
     }
 
-    // ✅ Get fresh token
+    // ✅ Check if we should connect
+    if (!shouldAttemptConnection()) {
+        return null;
+    }
+
     const token = getToken();
     if (!token) {
         console.log('[SOCKET] No token, skipping connection');
@@ -50,9 +74,7 @@ export const connectSocket = () => {
     socket = io(SOCKET_URL, {
         path: '/socket.io',
         transports: ['polling', 'websocket'],
-        auth: {
-            token: token
-        },
+        auth: { token: token },
         query: {
             company_id: context.company_id,
             branch_id: context.branch_id,
@@ -60,9 +82,9 @@ export const connectSocket = () => {
         },
         reconnection: true,
         reconnectionAttempts: MAX_RECONNECT_ATTEMPTS,
-        reconnectionDelay: 1000,
-        reconnectionDelayMax: 5000,
-        timeout: 20000,
+        reconnectionDelay: RECONNECT_DELAY,
+        reconnectionDelayMax: 10000,
+        timeout: 10000,
         upgrade: true,
         forceNew: false,
         withCredentials: true
@@ -71,7 +93,6 @@ export const connectSocket = () => {
     socket.on('connect', () => {
         console.log('[SOCKET] Connected successfully');
         console.log('[SOCKET] Socket ID:', socket.id);
-        console.log('[SOCKET] Transport:', socket.io.engine.transport.name);
         isConnected = true;
         reconnectAttempts = 0;
         
@@ -83,7 +104,6 @@ export const connectSocket = () => {
             user_id: context.id
         });
 
-        // Join role-specific room
         if (context.role) {
             socket.emit(`join_${context.role}`, {
                 user_id: context.id,
@@ -95,11 +115,23 @@ export const connectSocket = () => {
     socket.on('connect_error', (error) => {
         console.log('[SOCKET] Connection error:', error.message);
         isConnected = false;
+        reconnectAttempts++;
+        
+        // ✅ If max attempts reached, stop trying
+        if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+            console.log('[SOCKET] Max attempts reached, giving up');
+            socket.disconnect();
+        }
     });
 
     socket.on('disconnect', (reason) => {
         console.log('[SOCKET] Disconnected:', reason);
         isConnected = false;
+        
+        // ✅ Don't try to reconnect if offline
+        if (!navigator.onLine) {
+            console.log('[SOCKET] Offline - waiting for reconnect');
+        }
     });
 
     socket.on('reconnect', (attemptNumber) => {
@@ -115,10 +147,9 @@ export const connectSocket = () => {
     });
 
     socket.on('reconnect_attempt', (attempt) => {
-        console.log(`[SOCKET] Reconnect attempt ${attempt}`);
+        console.log(`[SOCKET] Reconnect attempt ${attempt}/${MAX_RECONNECT_ATTEMPTS}`);
     });
 
-    // ✅ Monitor transport upgrades
     socket.io.engine.on('upgrade', (transport) => {
         console.log('[SOCKET] Transport upgraded to:', transport.name);
     });
@@ -133,11 +164,17 @@ export const disconnectSocket = () => {
         socket.disconnect();
         socket = null;
         isConnected = false;
+        reconnectAttempts = 0;
     }
 };
 
 // Get socket instance
 export const getSocket = () => {
+    // ✅ Don't try to connect if offline
+    if (!navigator.onLine) {
+        console.log('[SOCKET] Offline - returning null');
+        return null;
+    }
     if (!socket || !isConnected) {
         return connectSocket();
     }
@@ -151,6 +188,11 @@ export const isSocketConnected = () => {
 
 // Emit event
 export const emitEvent = (event, data) => {
+    // ✅ Don't emit if offline
+    if (!navigator.onLine) {
+        console.log(`[SOCKET] Offline - cannot emit ${event}`);
+        return false;
+    }
     const s = getSocket();
     if (s && isConnected) {
         s.emit(event, data);
@@ -176,6 +218,32 @@ export const offEvent = (event, callback) => {
     }
 };
 
+// ✅ ADDED: Handle online/offline events
+export const setupOfflineHandlers = () => {
+    const handleOnline = () => {
+        console.log('[SOCKET] Network online - attempting reconnect');
+        if (!socket || !isConnected) {
+            connectSocket();
+        }
+    };
+    
+    const handleOffline = () => {
+        console.log('[SOCKET] Network offline - disconnecting');
+        if (socket) {
+            socket.disconnect();
+        }
+        isConnected = false;
+    };
+    
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    
+    return () => {
+        window.removeEventListener('online', handleOnline);
+        window.removeEventListener('offline', handleOffline);
+    };
+};
+
 // Default export
 const socketInstance = {
     on: onEvent,
@@ -183,7 +251,8 @@ const socketInstance = {
     emit: emitEvent,
     connect: connectSocket,
     disconnect: disconnectSocket,
-    isConnected: isSocketConnected
+    isConnected: isSocketConnected,
+    setupOfflineHandlers: setupOfflineHandlers
 };
 
 export default socketInstance;

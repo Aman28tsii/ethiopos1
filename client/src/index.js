@@ -1,3 +1,4 @@
+// client/src/index.js
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import './index.css';
@@ -8,6 +9,10 @@ import { ThemeProvider } from './context/ThemeContext';
 import { BranchProvider } from './context/BranchContext';
 import { OfflineProvider } from './context/OfflineContext';
 import { CartProvider } from './context/CartContext';
+import socket, { setupOfflineHandlers } from './socket';
+
+// ✅ Setup offline handlers to prevent flickering
+setupOfflineHandlers();
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 
