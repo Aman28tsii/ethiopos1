@@ -1,4 +1,5 @@
 ﻿// server/src/server.js
+
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
@@ -30,12 +31,45 @@ const server = createServer(app);
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your_super_secret_key';
 const PORT = process.env.PORT || 5000;
-const CLIENT_URL = process.env.CLIENT_URL || 'https://ethiopos1.onrender.com';
 
-// ✅ FIX: Socket.IO with proper CORS and error handling
+// ✅ FIX: Allow multiple origins
+const allowedOrigins = [
+    'https://ethiopos1.onrender.com',
+    'https://ethiopos1-1.onrender.com',
+    'https://ethiopos-offline-pos.onrender.com',
+    'http://localhost:3000',
+    'http://localhost:3001'
+];
+
+// ✅ FIX: CORS middleware with dynamic origin
+app.use(cors({
+    origin: function (origin, callback) {
+        // Allow requests with no origin (like mobile apps or curl)
+        if (!origin) return callback(null, true);
+        
+        if (allowedOrigins.indexOf(origin) !== -1) {
+            callback(null, true);
+        } else {
+            console.log(`[CORS] Blocked origin: ${origin}`);
+            callback(new Error('Not allowed by CORS'));
+        }
+    },
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization", "Idempotency-Key"]
+}));
+
+// ✅ FIX: Socket.IO with dynamic CORS
 const io = new SocketServer(server, {
     cors: {
-        origin: CLIENT_URL,
+        origin: function (origin, callback) {
+            if (!origin) return callback(null, true);
+            if (allowedOrigins.indexOf(origin) !== -1) {
+                callback(null, true);
+            } else {
+                callback(new Error('Not allowed by CORS'));
+            }
+        },
         methods: ["GET", "POST", "PUT", "DELETE"],
         credentials: true,
         allowedHeaders: ["Content-Type", "Authorization", "Idempotency-Key"]
@@ -48,7 +82,7 @@ const io = new SocketServer(server, {
     cookie: false
 });
 
-// ✅ FIX: Socket.IO authentication middleware with better error handling
+// Socket.IO authentication middleware
 io.use((socket, next) => {
     const token = socket.handshake.auth.token || socket.handshake.query.token;
     
@@ -76,29 +110,29 @@ io.use((socket, next) => {
 
 app.set("io", io);
 
-// ============================================================
-// MIDDLEWARE
-// ============================================================
+// ✅ FIX: Health check with CORS headers
+app.get("/health", (req, res) => {
+    const origin = req.headers.origin;
+    if (origin && allowedOrigins.includes(origin)) {
+        res.setHeader('Access-Control-Allow-Origin', origin);
+    }
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.json({ status: "ok", timestamp: new Date().toISOString() });
+});
 
+// ✅ FIX: Preflight for all routes
+app.options('*', cors());
+
+// Middleware
 app.use(helmet({
     crossOriginResourcePolicy: { policy: "cross-origin" },
     contentSecurityPolicy: false
 }));
 
-app.use(cors({
-    origin: CLIENT_URL,
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "Idempotency-Key"]
-}));
-
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// ============================================================
-// ROUTES
-// ============================================================
-
+// Routes
 app.use("/api/auth", authRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/expenses", expenseRoutes);
@@ -114,16 +148,6 @@ app.use("/api/waiter", waiterRoutes);
 app.use("/api/categories", categoryRoutes);
 app.use("/api/customers", customerRoutes);
 
-// ============================================================
-// HEALTH CHECK - ✅ FIX: Add CORS headers
-// ============================================================
-
-app.get("/health", (req, res) => {
-    res.setHeader('Access-Control-Allow-Origin', CLIENT_URL);
-    res.setHeader('Access-Control-Allow-Credentials', 'true');
-    res.json({ status: "ok", timestamp: new Date().toISOString() });
-});
-
 app.get("/", (req, res) => {
     res.json({
         name: "EthioPOS API",
@@ -133,23 +157,14 @@ app.get("/", (req, res) => {
     });
 });
 
-// ============================================================
-// ERROR HANDLING
-// ============================================================
-
 app.use(notFound);
 app.use(errorHandler);
 
-// ============================================================
-// SOCKET.IO EVENTS - ✅ FIX: Better error handling
-// ============================================================
-
+// Socket.IO events
 io.on("connection", (socket) => {
     const user = socket.user;
     console.log(`[SOCKET] Client connected: ${socket.id} (${user?.email || 'unknown'})`);
-    console.log(`[SOCKET] Transport: ${socket.conn.transport.name}`);
 
-    // Join branch room
     socket.on('join_branch', (data) => {
         try {
             const branchRoom = `branch_${data.company_id}_${data.branch_id}`;
@@ -166,7 +181,6 @@ io.on("connection", (socket) => {
         }
     });
 
-    // Join waiter room
     socket.on('join_waiter', (data) => {
         try {
             const waiterRoom = `waiter_${data.user_id}`;
@@ -177,7 +191,6 @@ io.on("connection", (socket) => {
         }
     });
 
-    // Join kitchen room
     socket.on('join_kitchen', (data) => {
         try {
             const kitchenRoom = `kitchen_${data.branch_id}`;
@@ -188,7 +201,6 @@ io.on("connection", (socket) => {
         }
     });
 
-    // Join cashier room
     socket.on('join_cashier', (data) => {
         try {
             const cashierRoom = `cashier_${data.branch_id}`;
@@ -199,12 +211,10 @@ io.on("connection", (socket) => {
         }
     });
 
-    // ✅ FIX: Handle transport upgrade
     socket.conn.on('upgrade', () => {
         console.log(`[SOCKET] Transport upgraded to: ${socket.conn.transport.name}`);
     });
 
-    // ✅ FIX: Handle errors
     socket.on('error', (error) => {
         console.error(`[SOCKET] Socket error for ${socket.id}:`, error);
     });
@@ -214,15 +224,10 @@ io.on("connection", (socket) => {
     });
 });
 
-// ============================================================
-// START SERVER
-// ============================================================
-
 server.listen(PORT, async () => {
     console.log(`🚀 Server running on port ${PORT}`);
     console.log(`🔗 API: http://localhost:${PORT}/api`);
     console.log(`🔌 WebSocket: ws://localhost:${PORT}/socket.io`);
-    console.log(`📡 CORS allowed: ${CLIENT_URL}`);
     
     const dbConnected = await testConnection();
     if (dbConnected) {
