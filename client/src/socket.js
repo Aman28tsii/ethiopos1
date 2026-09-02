@@ -1,14 +1,14 @@
 ﻿// client/src/socket.js
 import io from 'socket.io-client';
 
-// ✅ Use the correct URL - match your deployment
-const SOCKET_URL = 'https://ethiopos1.onrender.com';
+// ✅ FIX: Use relative URL for same-domain deployment
+const SOCKET_URL = window.location.origin;
 
 let socket = null;
 let isConnected = false;
 let reconnectAttempts = 0;
-const MAX_RECONNECT_ATTEMPTS = 3; // ✅ REDUCED from 10 to 3
-const RECONNECT_DELAY = 5000; // ✅ ADDED delay between attempts
+const MAX_RECONNECT_ATTEMPTS = 3;
+const RECONNECT_DELAY = 5000;
 
 // Get auth token
 const getToken = () => {
@@ -30,18 +30,15 @@ const getUserContext = () => {
     }
 };
 
-// ✅ Check if we should attempt connection
+// Check if we should attempt connection
 const shouldAttemptConnection = () => {
-    // Don't attempt if offline
     if (!navigator.onLine) {
         console.log('[SOCKET] Offline - skipping connection');
         return false;
     }
-    // Don't attempt if already connected
     if (isConnected && socket) {
         return false;
     }
-    // Don't attempt if max attempts reached
     if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
         console.log('[SOCKET] Max reconnect attempts reached');
         return false;
@@ -51,13 +48,11 @@ const shouldAttemptConnection = () => {
 
 // Connect to Socket.IO
 export const connectSocket = () => {
-    // ✅ Prevent duplicate connections
     if (socket && isConnected) {
         console.log('[SOCKET] Already connected');
         return socket;
     }
 
-    // ✅ Check if we should connect
     if (!shouldAttemptConnection()) {
         return null;
     }
@@ -117,7 +112,6 @@ export const connectSocket = () => {
         isConnected = false;
         reconnectAttempts++;
         
-        // ✅ If max attempts reached, stop trying
         if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
             console.log('[SOCKET] Max attempts reached, giving up');
             socket.disconnect();
@@ -127,11 +121,6 @@ export const connectSocket = () => {
     socket.on('disconnect', (reason) => {
         console.log('[SOCKET] Disconnected:', reason);
         isConnected = false;
-        
-        // ✅ Don't try to reconnect if offline
-        if (!navigator.onLine) {
-            console.log('[SOCKET] Offline - waiting for reconnect');
-        }
     });
 
     socket.on('reconnect', (attemptNumber) => {
@@ -170,7 +159,6 @@ export const disconnectSocket = () => {
 
 // Get socket instance
 export const getSocket = () => {
-    // ✅ Don't try to connect if offline
     if (!navigator.onLine) {
         console.log('[SOCKET] Offline - returning null');
         return null;
@@ -188,7 +176,6 @@ export const isSocketConnected = () => {
 
 // Emit event
 export const emitEvent = (event, data) => {
-    // ✅ Don't emit if offline
     if (!navigator.onLine) {
         console.log(`[SOCKET] Offline - cannot emit ${event}`);
         return false;
@@ -218,7 +205,7 @@ export const offEvent = (event, callback) => {
     }
 };
 
-// ✅ ADDED: Handle online/offline events
+// Handle online/offline events
 export const setupOfflineHandlers = () => {
     const handleOnline = () => {
         console.log('[SOCKET] Network online - attempting reconnect');

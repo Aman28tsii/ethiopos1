@@ -2,6 +2,9 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 
+// ✅ Get API URL from environment or use relative path
+const API_URL = process.env.REACT_APP_API_URL || '';
+
 export const useNetworkStatus = () => {
     const [isOnline, setIsOnline] = useState(navigator.onLine);
     const [isServerReachable, setIsServerReachable] = useState(navigator.onLine);
@@ -30,7 +33,9 @@ export const useNetworkStatus = () => {
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 3000);
 
-            const response = await fetch('/health', {
+            // ✅ FIX: Use API_URL for health check
+            const healthUrl = API_URL ? `${API_URL}/health` : '/health';
+            const response = await fetch(healthUrl, {
                 method: 'GET',
                 signal: controller.signal,
                 headers: { 'Cache-Control': 'no-cache' }

@@ -9,6 +9,8 @@ import {
 } from './offlineDB';
 import { isFullyOnline } from './offlineService';
 
+const API_URL = process.env.REACT_APP_API_URL || '';
+
 let isSyncing = false;
 let syncInterval = null;
 let isInitialized = false;
