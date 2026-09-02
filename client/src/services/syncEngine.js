@@ -9,8 +9,6 @@ import {
 } from './offlineDB';
 import { isFullyOnline } from './offlineService';
 
-const API_URL = process.env.REACT_APP_API_URL || '';
-
 let isSyncing = false;
 let syncInterval = null;
 let isInitialized = false;
@@ -44,12 +42,12 @@ export const startSyncEngine = () => {
     console.log('[SYNC] Starting sync engine...');
     isInitialized = true;
 
-    // Initial sync after startup
+    // Initial sync after startup (delayed)
     setTimeout(() => {
         if (navigator.onLine) {
             sync();
         }
-    }, 3000);
+    }, 5000);
 
     // Periodic sync every 60 seconds
     syncInterval = setInterval(() => {
@@ -61,7 +59,7 @@ export const startSyncEngine = () => {
     // Sync on network reconnect
     onlineHandler = () => {
         console.log('[SYNC] Network reconnected, syncing...');
-        setTimeout(sync, 2000);
+        setTimeout(sync, 3000);
     };
     window.addEventListener('online', onlineHandler);
 
@@ -183,18 +181,21 @@ const syncSingleOrder = async (order) => {
         const status = error.response?.status;
         const errorMsg = error.response?.data?.error || error.message;
 
+        // Auth error - give up
         if (status === 401 || status === 403) {
             await updateOfflineOrderStatus(order.id, 'failed', `Auth error: ${errorMsg}`);
             console.error(`[SYNC] Order ${order.id} auth failed:`, errorMsg);
             return 'failed';
         }
 
+        // Duplicate - already exists on server
         if (status === 409) {
             await deleteOfflineOrder(order.id);
             console.log(`[SYNC] Order ${order.id} already exists (duplicate)`);
             return 'synced';
         }
 
+        // Retry logic - max 5 attempts
         const attempts = (order.attempts || 0) + 1;
         if (attempts >= 5) {
             await updateOfflineOrderStatus(order.id, 'failed', `Max retries exceeded: ${errorMsg}`);
@@ -202,6 +203,7 @@ const syncSingleOrder = async (order) => {
             return 'failed';
         }
 
+        // Requeue for retry
         await updateOfflineOrderStatus(order.id, 'pending', errorMsg);
         console.log(`[SYNC] Order ${order.id} will retry (attempt ${attempts}/5)`);
         return 'pending';
@@ -225,7 +227,7 @@ export const getSyncStatus = async () => {
         return {
             total: total || 0,
             pending: branchPending?.length || 0,
-            isSyncing,
+            isSyncing: isSyncing,
             hasPending: branchPending?.length > 0
         };
     } catch (error) {

@@ -31,21 +31,17 @@ const server = createServer(app);
 const JWT_SECRET = process.env.JWT_SECRET || 'your_super_secret_key';
 const PORT = process.env.PORT || 5000;
 
-// ✅ FIX: Allow ALL origins to prevent CORS issues
-const corsOptions = {
-    origin: '*', // Allow all origins for now
+// ✅ CORS - Allow all origins
+app.use(cors({
+    origin: '*',
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "Idempotency-Key", "X-Requested-With"]
-};
+    allowedHeaders: ["Content-Type", "Authorization", "Idempotency-Key"]
+}));
 
-// ✅ Apply CORS middleware
-app.use(cors(corsOptions));
+app.options('*', cors());
 
-// ✅ Handle preflight requests
-app.options('*', cors(corsOptions));
-
-// ✅ Socket.IO with relaxed CORS
+// ✅ Socket.IO
 const io = new SocketServer(server, {
     cors: {
         origin: '*',
@@ -58,20 +54,15 @@ const io = new SocketServer(server, {
     allowEIO3: true,
     pingTimeout: 60000,
     pingInterval: 25000,
-    cookie: false,
-    upgrade: true,
-    allowUpgrades: true
+    cookie: false
 });
 
-// Socket.IO authentication middleware
+// Socket.IO auth
 io.use((socket, next) => {
     const token = socket.handshake.auth.token || socket.handshake.query.token;
-    
     if (!token) {
-        console.log('[SOCKET] No token provided');
         return next(new Error('Authentication required'));
     }
-
     try {
         const decoded = jwt.verify(token, JWT_SECRET);
         socket.user = {
@@ -84,14 +75,13 @@ io.use((socket, next) => {
         };
         next();
     } catch (error) {
-        console.log('[SOCKET] Token verification failed:', error.message);
         return next(new Error('Invalid token'));
     }
 });
 
 app.set("io", io);
 
-// ✅ Other middleware
+// Middleware
 app.use(helmet({
     crossOriginResourcePolicy: { policy: "cross-origin" },
     contentSecurityPolicy: false
@@ -120,12 +110,11 @@ app.use("/api/categories", categoryRoutes);
 app.use("/api/customers", customerRoutes);
 
 // ============================================================
-// HEALTH CHECK - With CORS headers
+// HEALTH CHECK
 // ============================================================
 
 app.get("/health", (req, res) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Credentials', 'true');
     res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
@@ -150,36 +139,23 @@ app.use(errorHandler);
 // ============================================================
 
 io.on("connection", (socket) => {
-    const user = socket.user;
-    console.log(`[SOCKET] Client connected: ${socket.id} (${user?.email || 'unknown'})`);
-    console.log(`[SOCKET] Transport: ${socket.conn.transport.name}`);
-
-    // ✅ Keep connection alive with ping
-    socket.on('ping', () => {
-        socket.emit('pong');
-    });
-
+    console.log(`[SOCKET] Connected: ${socket.id}`);
+    
     socket.on('join_branch', (data) => {
         try {
-            const branchRoom = `branch_${data.company_id}_${data.branch_id}`;
-            socket.join(branchRoom);
-            console.log(`[SOCKET] ${socket.id} joined ${branchRoom}`);
-            
-            if (data.role) {
-                const roleRoom = `role_${data.role}_${data.branch_id}`;
-                socket.join(roleRoom);
-                console.log(`[SOCKET] ${socket.id} joined ${roleRoom}`);
-            }
+            const room = `branch_${data.company_id}_${data.branch_id}`;
+            socket.join(room);
+            console.log(`[SOCKET] ${socket.id} joined ${room}`);
         } catch (err) {
-            console.error('[SOCKET] join_branch error:', err);
+            console.error('[SOCKET] join error:', err);
         }
     });
 
     socket.on('join_waiter', (data) => {
         try {
-            const waiterRoom = `waiter_${data.user_id}`;
-            socket.join(waiterRoom);
-            console.log(`[SOCKET] ${socket.id} joined ${waiterRoom}`);
+            const room = `waiter_${data.user_id}`;
+            socket.join(room);
+            console.log(`[SOCKET] ${socket.id} joined ${room}`);
         } catch (err) {
             console.error('[SOCKET] join_waiter error:', err);
         }
@@ -187,9 +163,9 @@ io.on("connection", (socket) => {
 
     socket.on('join_kitchen', (data) => {
         try {
-            const kitchenRoom = `kitchen_${data.branch_id}`;
-            socket.join(kitchenRoom);
-            console.log(`[SOCKET] ${socket.id} joined ${kitchenRoom}`);
+            const room = `kitchen_${data.branch_id}`;
+            socket.join(room);
+            console.log(`[SOCKET] ${socket.id} joined ${room}`);
         } catch (err) {
             console.error('[SOCKET] join_kitchen error:', err);
         }
@@ -197,24 +173,16 @@ io.on("connection", (socket) => {
 
     socket.on('join_cashier', (data) => {
         try {
-            const cashierRoom = `cashier_${data.branch_id}`;
-            socket.join(cashierRoom);
-            console.log(`[SOCKET] ${socket.id} joined ${cashierRoom}`);
+            const room = `cashier_${data.branch_id}`;
+            socket.join(room);
+            console.log(`[SOCKET] ${socket.id} joined ${room}`);
         } catch (err) {
             console.error('[SOCKET] join_cashier error:', err);
         }
     });
 
-    socket.conn.on('upgrade', () => {
-        console.log(`[SOCKET] Transport upgraded to: ${socket.conn.transport.name}`);
-    });
-
-    socket.on('error', (error) => {
-        console.error(`[SOCKET] Socket error for ${socket.id}:`, error);
-    });
-
-    socket.on("disconnect", (reason) => {
-        console.log(`[SOCKET] Client disconnected: ${socket.id} (${reason})`);
+    socket.on('disconnect', (reason) => {
+        console.log(`[SOCKET] Disconnected: ${socket.id} (${reason})`);
     });
 });
 
@@ -229,7 +197,7 @@ server.listen(PORT, async () => {
     
     const dbConnected = await testConnection();
     if (dbConnected) {
-        console.log("✅ Database connected successfully");
+        console.log("✅ Database connected");
     } else {
         console.log("❌ Database connection failed");
     }

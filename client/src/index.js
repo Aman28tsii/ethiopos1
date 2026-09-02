@@ -10,10 +10,6 @@ import { BranchProvider } from './context/BranchContext';
 import { OfflineProvider } from './context/OfflineContext';
 import { CartProvider } from './context/CartContext';
 
-// ✅ REMOVED: No socket auto-connect to stop flickering
-// import { setupOfflineHandlers } from './socket';
-// setupOfflineHandlers();
-
 const root = ReactDOM.createRoot(document.getElementById('root'));
 
 root.render(

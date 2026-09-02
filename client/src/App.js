@@ -1,5 +1,4 @@
 // client/src/App.js
-
 import React, { useState, useEffect, Suspense, lazy, useCallback, useRef } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import Login from './pages/Login';
@@ -43,14 +42,12 @@ const MyOrders = lazy(() => import('./pages/waiter/MyOrders'));
 const TableStatus = lazy(() => import('./pages/waiter/TableStatus'));
 const PendingConfirmations = lazy(() => import('./pages/waiter/PendingConfirmations'));
 
-// Loading component
 const LoadingSpinner = () => (
   <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
     <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
   </div>
 );
 
-// Role-based route guard
 const RoleRoute = React.memo(({ children, allowedRoles, userRole, redirectTo = '/login' }) => {
   if (!userRole) return <Navigate to="/login" replace />;
   if (!allowedRoles.includes(userRole)) {
@@ -59,7 +56,6 @@ const RoleRoute = React.memo(({ children, allowedRoles, userRole, redirectTo = '
   return children;
 });
 
-// Get default route based on role
 const getDefaultRoute = (role) => {
   switch(role) {
     case 'owner': return '/owner/dashboard';
@@ -96,7 +92,6 @@ function App() {
     setLoading(false);
   }, []);
 
-  // ✅ Start sync engine when authenticated
   useEffect(() => {
     if (isAuthenticated && !syncStartedRef.current) {
       syncStartedRef.current = true;
@@ -128,7 +123,6 @@ function App() {
     return <LoadingSpinner />;
   }
 
-  // PUBLIC ROUTES
   if (!isAuthenticated) {
     return (
       <ErrorBoundary>
@@ -153,7 +147,6 @@ function App() {
 
   const userRole = user?.role || 'cashier';
 
-  // AUTHENTICATED ROUTES
   return (
     <ErrorBoundary>
       <ThemeProvider>
@@ -164,11 +157,9 @@ function App() {
                 <Router>
                   <Suspense fallback={<LoadingSpinner />}>
                     <Routes>
-                      {/* Public routes also accessible to logged-in users */}
                       <Route path="/qr-menu" element={<QRMenu />} />
                       <Route path="/track-order" element={<TrackOrder />} />
 
-                      {/* Owner Routes */}
                       <Route path="/owner/*" element={
                         <RoleRoute allowedRoles={['owner', 'admin']} userRole={userRole}>
                           <OwnerLayout user={user} onLogout={handleLogout}>
@@ -192,7 +183,6 @@ function App() {
                         </RoleRoute>
                       } />
 
-                      {/* Manager Routes */}
                       <Route path="/manager/*" element={
                         <RoleRoute allowedRoles={['manager', 'owner', 'admin']} userRole={userRole}>
                           <ManagerLayout user={user} onLogout={handleLogout}>
@@ -211,14 +201,12 @@ function App() {
                         </RoleRoute>
                       } />
 
-                      {/* Cashier Routes */}
                       <Route path="/cashier/*" element={
                         <RoleRoute allowedRoles={['cashier', 'manager', 'owner', 'admin']} userRole={userRole}>
                           <CashierLayout user={user} onLogout={handleLogout}>
                             <Suspense fallback={<LoadingSpinner />}>
                               <Routes>
                                 <Route path="pos" element={<CashierPOS />} />
-                                <Route path="history" element={<div className="text-gray-900 dark:text-white p-6">Sales History</div>} />
                                 <Route path="manual-order" element={<ManualOrder />} />
                                 <Route path="*" element={<Navigate to="/cashier/pos" />} />
                               </Routes>
@@ -227,14 +215,12 @@ function App() {
                         </RoleRoute>
                       } />
 
-                      {/* Waiter Routes */}
                       <Route path="/waiter/*" element={
                         <RoleRoute allowedRoles={['waiter', 'cashier', 'manager', 'owner', 'admin']} userRole={userRole}>
                           <WaiterLayout user={user} onLogout={handleLogout}>
                             <Suspense fallback={<LoadingSpinner />}>
                               <Routes>
                                 <Route path="tables" element={<TableGrid />} />
-                                <Route path="orders" element={<div className="text-gray-900 dark:text-white p-6">My Orders</div>} />
                                 <Route path="my-orders" element={<MyOrders />} />
                                 <Route path="table-status" element={<TableStatus />} />
                                 <Route path="pending-confirmations" element={<PendingConfirmations />} />
@@ -245,7 +231,6 @@ function App() {
                         </RoleRoute>
                       } />
 
-                      {/* Kitchen Routes */}
                       <Route path="/kitchen/*" element={
                         <RoleRoute allowedRoles={['kitchen', 'manager', 'owner', 'admin']} userRole={userRole}>
                           <KitchenLayout user={user} onLogout={handleLogout}>
@@ -259,7 +244,6 @@ function App() {
                         </RoleRoute>
                       } />
 
-                      {/* Root redirect based on role */}
                       <Route path="/" element={<Navigate to={getDefaultRoute(userRole)} replace />} />
                       <Route path="*" element={<Navigate to={getDefaultRoute(userRole)} replace />} />
                     </Routes>

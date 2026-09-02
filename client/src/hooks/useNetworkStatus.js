@@ -1,41 +1,26 @@
 // client/src/hooks/useNetworkStatus.js
-
 import { useState, useEffect, useCallback, useRef } from 'react';
-
-// ✅ Get API URL from environment or use relative path
-const API_URL = process.env.REACT_APP_API_URL || '';
 
 export const useNetworkStatus = () => {
     const [isOnline, setIsOnline] = useState(navigator.onLine);
-    const [isServerReachable, setIsServerReachable] = useState(navigator.onLine);
+    const [isServerReachable, setIsServerReachable] = useState(true);
     const [checkingServer, setCheckingServer] = useState(false);
     const isMounted = useRef(true);
-    const isOfflineRef = useRef(!navigator.onLine);
     const intervalRef = useRef(null);
+    const initialCheckDone = useRef(false);
 
     const checkServer = useCallback(async () => {
-        // Skip if offline
-        if (!navigator.onLine) {
-            if (isMounted.current) {
-                setIsServerReachable(false);
-            }
+        if (!navigator.onLine || !isMounted.current) {
             return false;
         }
-
-        // Skip if already checking
         if (checkingServer) return false;
 
-        if (isMounted.current) {
-            setCheckingServer(true);
-        }
-        
+        setCheckingServer(true);
         try {
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 3000);
+            const timeoutId = setTimeout(() => controller.abort(), 5000);
 
-            // ✅ FIX: Use API_URL for health check
-            const healthUrl = API_URL ? `${API_URL}/health` : '/health';
-            const response = await fetch(healthUrl, {
+            const response = await fetch('https://ethiopos1.onrender.com/health', {
                 method: 'GET',
                 signal: controller.signal,
                 headers: { 'Cache-Control': 'no-cache' }
@@ -48,7 +33,6 @@ export const useNetworkStatus = () => {
             }
             return response.ok;
         } catch (error) {
-            // Don't update state if we're already offline
             if (isMounted.current) {
                 setIsServerReachable(false);
             }
@@ -66,36 +50,39 @@ export const useNetworkStatus = () => {
         const handleOnline = () => {
             if (!isMounted.current) return;
             setIsOnline(true);
-            isOfflineRef.current = false;
-            // Check server when coming back online
-            checkServer();
+            setTimeout(() => {
+                if (isMounted.current) {
+                    checkServer();
+                }
+            }, 3000);
         };
 
         const handleOffline = () => {
             if (!isMounted.current) return;
             setIsOnline(false);
             setIsServerReachable(false);
-            isOfflineRef.current = true;
         };
 
         window.addEventListener('online', handleOnline);
         window.addEventListener('offline', handleOffline);
 
-        // Only check server initially if online
-        if (navigator.onLine) {
-            checkServer();
-        } else {
-            setIsServerReachable(false);
+        // Only check once after mount
+        if (!initialCheckDone.current && navigator.onLine) {
+            initialCheckDone.current = true;
+            setTimeout(() => {
+                if (isMounted.current) {
+                    checkServer();
+                }
+            }, 5000);
         }
 
-        // ✅ FIX: Only check when online, and clear interval properly
+        // Check every 5 minutes instead of 60 seconds
         intervalRef.current = setInterval(() => {
-            // Skip if offline or component unmounted
             if (!isMounted.current || !navigator.onLine) {
                 return;
             }
             checkServer();
-        }, 60000);
+        }, 300000);
 
         return () => {
             isMounted.current = false;
