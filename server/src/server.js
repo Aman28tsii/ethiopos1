@@ -31,32 +31,9 @@ const server = createServer(app);
 const JWT_SECRET = process.env.JWT_SECRET || 'your_super_secret_key';
 const PORT = process.env.PORT || 5000;
 
-// ✅ FIX: Allow ALL origins for development, restrict in production
-const allowedOrigins = (process.env.CORS_ORIGIN || '').split(',').map(o => o.trim()).filter(Boolean);
-
-// If no origins specified, allow all (development mode)
+// ✅ FIX: Allow ALL origins to prevent CORS issues
 const corsOptions = {
-    origin: function (origin, callback) {
-        // Allow requests with no origin (like mobile apps or curl)
-        if (!origin) return callback(null, true);
-        
-        // If no allowed origins configured, allow all (development)
-        if (allowedOrigins.length === 0) {
-            return callback(null, true);
-        }
-        
-        if (allowedOrigins.indexOf(origin) !== -1) {
-            callback(null, true);
-        } else {
-            console.log(`[CORS] Blocked origin: ${origin}`);
-            // In development, allow all
-            if (process.env.NODE_ENV !== 'production') {
-                callback(null, true);
-            } else {
-                callback(new Error('Not allowed by CORS'));
-            }
-        }
-    },
+    origin: '*', // Allow all origins for now
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization", "Idempotency-Key", "X-Requested-With"]
@@ -68,16 +45,20 @@ app.use(cors(corsOptions));
 // ✅ Handle preflight requests
 app.options('*', cors(corsOptions));
 
-// ✅ Socket.IO with same CORS
+// ✅ Socket.IO with relaxed CORS
 const io = new SocketServer(server, {
-    cors: corsOptions,
+    cors: {
+        origin: '*',
+        methods: ["GET", "POST", "PUT", "DELETE"],
+        credentials: true,
+        allowedHeaders: ["Content-Type", "Authorization", "Idempotency-Key"]
+    },
     path: "/socket.io",
     transports: ['polling', 'websocket'],
     allowEIO3: true,
     pingTimeout: 60000,
     pingInterval: 25000,
     cookie: false,
-    // ✅ FIX: Don't upgrade immediately, let polling work first
     upgrade: true,
     allowUpgrades: true
 });
@@ -143,12 +124,7 @@ app.use("/api/customers", customerRoutes);
 // ============================================================
 
 app.get("/health", (req, res) => {
-    const origin = req.headers.origin;
-    if (origin) {
-        res.setHeader('Access-Control-Allow-Origin', origin);
-    } else {
-        res.setHeader('Access-Control-Allow-Origin', '*');
-    }
+    res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Credentials', 'true');
     res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
@@ -158,8 +134,7 @@ app.get("/", (req, res) => {
         name: "EthioPOS API",
         version: "1.0.0",
         status: "running",
-        endpoints: "/api/*",
-        cors_origins: allowedOrigins.length > 0 ? allowedOrigins : 'all'
+        endpoints: "/api/*"
     });
 });
 
@@ -251,7 +226,6 @@ server.listen(PORT, async () => {
     console.log(`🚀 Server running on port ${PORT}`);
     console.log(`🔗 API: http://localhost:${PORT}/api`);
     console.log(`🔌 WebSocket: ws://localhost:${PORT}/socket.io`);
-    console.log(`📡 CORS origins: ${allowedOrigins.length > 0 ? allowedOrigins.join(', ') : 'ALL'}`);
     
     const dbConnected = await testConnection();
     if (dbConnected) {

@@ -9,10 +9,10 @@ import { ThemeProvider } from './context/ThemeContext';
 import { BranchProvider } from './context/BranchContext';
 import { OfflineProvider } from './context/OfflineContext';
 import { CartProvider } from './context/CartContext';
-import { setupOfflineHandlers } from './socket';
 
-// ✅ Only setup offline handlers, don't auto-connect
-setupOfflineHandlers();
+// ✅ REMOVED: No socket auto-connect to stop flickering
+// import { setupOfflineHandlers } from './socket';
+// setupOfflineHandlers();
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 

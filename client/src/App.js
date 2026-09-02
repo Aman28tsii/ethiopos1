@@ -77,7 +77,6 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState(null);
   const syncStartedRef = useRef(false);
-  const socketConnectedRef = useRef(false);
 
   useEffect(() => {
     const token = localStorage.getItem('token');
@@ -108,30 +107,11 @@ function App() {
     }
   }, [isAuthenticated]);
 
-  // ✅ Connect socket when authenticated
-  useEffect(() => {
-    if (isAuthenticated && !socketConnectedRef.current) {
-      socketConnectedRef.current = true;
-      // Lazy import socket to avoid blocking render
-      import('./socket').then(({ connectSocket }) => {
-        setTimeout(() => {
-          connectSocket();
-        }, 1500);
-      });
-    } else if (!isAuthenticated) {
-      socketConnectedRef.current = false;
-      import('./socket').then(({ disconnectSocket }) => {
-        disconnectSocket();
-      });
-    }
-  }, [isAuthenticated]);
-
   const handleLogin = useCallback((userData, token) => {
     localStorage.setItem('token', token);
     localStorage.setItem('user', JSON.stringify(userData));
     setIsAuthenticated(true);
     setUser(userData);
-    socketConnectedRef.current = false; // Reset so socket connects
   }, []);
 
   const handleLogout = useCallback(() => {
@@ -141,11 +121,7 @@ function App() {
     setIsAuthenticated(false);
     setUser(null);
     syncStartedRef.current = false;
-    socketConnectedRef.current = false;
     stopSyncEngine();
-    import('./socket').then(({ disconnectSocket }) => {
-      disconnectSocket();
-    });
   }, []);
 
   if (loading) {
