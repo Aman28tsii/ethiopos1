@@ -2,7 +2,7 @@
 
 import axios from 'axios';
 
-const API_URL = process.env.REACT_APP_API_URL || 'https://ethiopos-backend.onrender.com/api';
+const API_URL = process.env.REACT_APP_API_URL || 'https://ethiopos1.onrender.com/api';
 
 const API = axios.create({
   baseURL: API_URL,
@@ -16,8 +16,9 @@ console.log('API Base URL:', API_URL);
 
 // ✅ FIX: Prevent redirect loops
 let isRedirecting = false;
+let redirectTimeout = null;
 
-// Request interceptor - add token and branch for owner
+// Request interceptor
 API.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('token');
@@ -33,28 +34,14 @@ API.interceptors.request.use(
       if (isOwner) {
         const selectedBranch = localStorage.getItem('ethiopos_selected_branch');
         if (selectedBranch) {
-          // Only add branchId for endpoints that support it
           const branchEndpoints = [
-            '/dashboard',
-            '/dashboard/charts',
-            '/tables/owner',
-            '/sales',
-            '/sales/today',
-            '/profit/report',
-            '/profit/today',
-            '/profit/trend',
-            '/expenses',
-            '/expenses/summary',
-            '/orders/ready',
-            '/orders/my-orders',
-            '/orders/pending-confirmation',
-            '/kitchen/orders',
-            '/kitchen/completed',
-            '/ingredients',
-            '/ingredients/low-stock',
-            '/recipes/wastage-report',
-            '/recipes/ingredients',
-            '/auth/me'
+            '/dashboard', '/dashboard/charts', '/tables/owner',
+            '/sales', '/sales/today', '/profit/report',
+            '/profit/today', '/profit/trend', '/expenses',
+            '/expenses/summary', '/orders/ready', '/orders/my-orders',
+            '/orders/pending-confirmation', '/kitchen/orders',
+            '/kitchen/completed', '/ingredients', '/ingredients/low-stock',
+            '/recipes/wastage-report', '/recipes/ingredients', '/auth/me'
           ];
           
           const shouldAddBranch = branchEndpoints.some(endpoint => 
@@ -70,7 +57,7 @@ API.interceptors.request.use(
         }
       }
     } catch (e) {
-      // Silent fail - user not logged in or not owner
+      // Silent fail
     }
     
     return config;
@@ -78,11 +65,11 @@ API.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
-// RETRY LOGIC - MAX 3 retries on network errors
+// RETRY LOGIC
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 1000;
 
-// Response interceptor with retry logic
+// Response interceptor
 API.interceptors.response.use(
   (response) => response,
   async (error) => {
@@ -107,37 +94,36 @@ API.interceptors.response.use(
       return API(config);
     }
     
-    // ✅ FIX: Prevent redirect loops
+    // ✅ FIX: Handle 401 without page reload loop
     if (error.response?.status === 401) {
       const isPublicRoute = error.config?.url?.includes('/qr-order') || 
                            error.config?.url?.includes('/track') ||
-                           error.config?.url?.includes('/products');
+                           error.config?.url?.includes('/products') ||
+                           error.config?.url?.includes('/health');
       
       if (!isPublicRoute && !isRedirecting) {
         isRedirecting = true;
+        
+        console.log('[AUTH] 401 received - redirecting to login');
         
         // Clear auth data
         localStorage.removeItem('token');
         localStorage.removeItem('user');
         localStorage.removeItem('ethiopos_selected_branch');
         
-        // Use React Router navigation if available, otherwise fallback to window.location
-        try {
-          // Check if we're in a React Router context
-          const navigate = window.__reactRouterNavigate;
-          if (navigate) {
-            navigate('/login');
-          } else {
-            window.location.href = '/login';
-          }
-        } catch (e) {
+        // Clear redirect flag after delay
+        if (redirectTimeout) {
+          clearTimeout(redirectTimeout);
+        }
+        redirectTimeout = setTimeout(() => {
+          isRedirecting = false;
+          redirectTimeout = null;
+        }, 2000);
+        
+        // Use window.location as fallback, but only once
+        if (!window.location.pathname.includes('/login')) {
           window.location.href = '/login';
         }
-        
-        // Reset redirect flag after a delay
-        setTimeout(() => {
-          isRedirecting = false;
-        }, 1000);
       }
     }
     

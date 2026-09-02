@@ -21,8 +21,8 @@ export const BranchProvider = ({ children }) => {
     const [isOwner, setIsOwner] = useState(false);
     const isLoadingRef = useRef(false);
     const initialLoadDone = useRef(false);
+    const loadTimeoutRef = useRef(null);
 
-    // Load branches on mount
     const loadBranches = useCallback(async (silent = false) => {
         // Prevent concurrent loads
         if (isLoadingRef.current) {
@@ -36,6 +36,14 @@ export const BranchProvider = ({ children }) => {
             return;
         }
         
+        // Don't load if no token
+        const token = localStorage.getItem('token');
+        if (!token) {
+            console.log('[BRANCH] No token, skipping load');
+            if (!silent) setLoading(false);
+            return;
+        }
+        
         isLoadingRef.current = true;
         if (!silent) setLoading(true);
         setError(null);
@@ -45,24 +53,20 @@ export const BranchProvider = ({ children }) => {
             const branchesData = response.data.data || [];
             setBranches(branchesData);
             
-            // Check if user is owner/admin
             const user = JSON.parse(localStorage.getItem('user') || '{}');
             const isOwnerOrAdmin = user.role === 'owner' || user.role === 'admin';
             setIsOwner(isOwnerOrAdmin);
             
             if (branchesData.length > 0 && isOwnerOrAdmin) {
-                // Try to restore saved branch
                 const savedBranchId = localStorage.getItem('ethiopos_selected_branch');
                 const savedBranch = branchesData.find(b => b.id === parseInt(savedBranchId));
                 
                 if (savedBranch) {
                     setSelectedBranch(savedBranch);
                 } else {
-                    // Default to first branch
                     setSelectedBranch(branchesData[0]);
                 }
             } else if (branchesData.length > 0) {
-                // Staff: use their branch from JWT
                 const userBranchId = user.branch_id;
                 const userBranch = branchesData.find(b => b.id === userBranchId);
                 if (userBranch) {
@@ -75,17 +79,18 @@ export const BranchProvider = ({ children }) => {
             initialLoadDone.current = true;
         } catch (err) {
             console.error('Load branches error:', err);
-            setError(err.response?.data?.error || 'Failed to load branches');
+            // Don't set error for 401 - it will redirect
+            if (err.response?.status !== 401) {
+                setError(err.response?.data?.error || 'Failed to load branches');
+            }
         } finally {
             if (!silent) setLoading(false);
             isLoadingRef.current = false;
         }
     }, []);
 
-    // Switch branch
     const switchBranch = useCallback(async (branchId) => {
         if (isLoadingRef.current) {
-            console.log('[BRANCH] Switch already in progress, skipping');
             return { success: false, error: 'Switch already in progress' };
         }
         
@@ -98,21 +103,17 @@ export const BranchProvider = ({ children }) => {
             if (response.data.success) {
                 const { token, user, branch } = response.data;
                 
-                // Update localStorage
                 localStorage.setItem('token', token);
                 localStorage.setItem('user', JSON.stringify(user));
                 localStorage.setItem('ethiopos_selected_branch', String(branchId));
                 
-                // Update selected branch
                 const branchData = branches.find(b => b.id === branchId) || branch;
                 setSelectedBranch(branchData);
                 
-                // Update axios default headers
                 API.defaults.headers.common['Authorization'] = `Bearer ${token}`;
                 
-                // ✅ FIX: Use React Router navigation instead of full page reload
-                // This prevents the infinite reload loop
-                // window.location.reload(); // DISABLED
+                // ✅ FIX: Use React Router navigation instead of reload
+                // window.location.reload(); // REMOVED - causes flickering
                 
                 return { success: true, branch: branchData };
             }
@@ -126,11 +127,29 @@ export const BranchProvider = ({ children }) => {
         }
     }, [branches]);
 
-    // Load branches on mount - ONLY ONCE
+    // Load branches on mount - ONLY ONCE with delay
     useEffect(() => {
-        if (!initialLoadDone.current) {
-            loadBranches();
+        // Clear any pending timeout
+        if (loadTimeoutRef.current) {
+            clearTimeout(loadTimeoutRef.current);
         }
+        
+        loadTimeoutRef.current = setTimeout(() => {
+            if (!initialLoadDone.current) {
+                const token = localStorage.getItem('token');
+                if (token) {
+                    loadBranches();
+                } else {
+                    setLoading(false);
+                }
+            }
+        }, 500);
+        
+        return () => {
+            if (loadTimeoutRef.current) {
+                clearTimeout(loadTimeoutRef.current);
+            }
+        };
     }, [loadBranches]);
 
     const value = {
