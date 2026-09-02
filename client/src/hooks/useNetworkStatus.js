@@ -1,21 +1,31 @@
 // client/src/hooks/useNetworkStatus.js
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 
 export const useNetworkStatus = () => {
     const [isOnline, setIsOnline] = useState(navigator.onLine);
-    const [isServerReachable, setIsServerReachable] = useState(true);
+    const [isServerReachable, setIsServerReachable] = useState(navigator.onLine);
     const [checkingServer, setCheckingServer] = useState(false);
+    const isMounted = useRef(true);
+    const isOfflineRef = useRef(!navigator.onLine);
 
     const checkServer = useCallback(async () => {
+        // Skip if offline
         if (!navigator.onLine) {
-            setIsServerReachable(false);
+            if (isMounted.current) {
+                setIsServerReachable(false);
+            }
             return false;
         }
 
-        setCheckingServer(true);
+        // Skip if already checking
+        if (checkingServer) return false;
+
+        if (isMounted.current) {
+            setCheckingServer(true);
+        }
+        
         try {
-            // Use the health endpoint with a short timeout
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 3000);
 
@@ -27,24 +37,29 @@ export const useNetworkStatus = () => {
 
             clearTimeout(timeoutId);
 
-            if (response.ok) {
-                setIsServerReachable(true);
-                return true;
-            } else {
-                setIsServerReachable(false);
-                return false;
+            if (isMounted.current) {
+                setIsServerReachable(response.ok);
             }
+            return response.ok;
         } catch (error) {
-            setIsServerReachable(false);
+            // ✅ Don't update state if we're already offline
+            if (isMounted.current) {
+                setIsServerReachable(false);
+            }
             return false;
         } finally {
-            setCheckingServer(false);
+            if (isMounted.current) {
+                setCheckingServer(false);
+            }
         }
-    }, []);
+    }, [checkingServer]);
 
     useEffect(() => {
+        isMounted.current = true;
+
         const handleOnline = () => {
             setIsOnline(true);
+            isOfflineRef.current = false;
             // Check server when coming back online
             checkServer();
         };
@@ -52,22 +67,30 @@ export const useNetworkStatus = () => {
         const handleOffline = () => {
             setIsOnline(false);
             setIsServerReachable(false);
+            isOfflineRef.current = true;
         };
 
         window.addEventListener('online', handleOnline);
         window.addEventListener('offline', handleOffline);
 
-        // Initial server check
-        checkServer();
+        // ✅ Only check server initially if online
+        if (navigator.onLine) {
+            checkServer();
+        } else {
+            setIsServerReachable(false);
+        }
 
-        // Periodic server check when online
+        // ✅ Reduce check frequency and only check when online
         const interval = setInterval(() => {
-            if (navigator.onLine) {
-                checkServer();
+            // ✅ Skip if offline or component unmounted
+            if (!isMounted.current || !navigator.onLine) {
+                return;
             }
-        }, 30000);
+            checkServer();
+        }, 60000); // ✅ Increased from 30000 to 60000
 
         return () => {
+            isMounted.current = false;
             window.removeEventListener('online', handleOnline);
             window.removeEventListener('offline', handleOffline);
             clearInterval(interval);
