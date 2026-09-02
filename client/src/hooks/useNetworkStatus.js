@@ -8,6 +8,7 @@ export const useNetworkStatus = () => {
     const [checkingServer, setCheckingServer] = useState(false);
     const isMounted = useRef(true);
     const isOfflineRef = useRef(!navigator.onLine);
+    const intervalRef = useRef(null);
 
     const checkServer = useCallback(async () => {
         // Skip if offline
@@ -42,7 +43,7 @@ export const useNetworkStatus = () => {
             }
             return response.ok;
         } catch (error) {
-            // ✅ Don't update state if we're already offline
+            // Don't update state if we're already offline
             if (isMounted.current) {
                 setIsServerReachable(false);
             }
@@ -58,6 +59,7 @@ export const useNetworkStatus = () => {
         isMounted.current = true;
 
         const handleOnline = () => {
+            if (!isMounted.current) return;
             setIsOnline(true);
             isOfflineRef.current = false;
             // Check server when coming back online
@@ -65,6 +67,7 @@ export const useNetworkStatus = () => {
         };
 
         const handleOffline = () => {
+            if (!isMounted.current) return;
             setIsOnline(false);
             setIsServerReachable(false);
             isOfflineRef.current = true;
@@ -73,27 +76,30 @@ export const useNetworkStatus = () => {
         window.addEventListener('online', handleOnline);
         window.addEventListener('offline', handleOffline);
 
-        // ✅ Only check server initially if online
+        // Only check server initially if online
         if (navigator.onLine) {
             checkServer();
         } else {
             setIsServerReachable(false);
         }
 
-        // ✅ Reduce check frequency and only check when online
-        const interval = setInterval(() => {
-            // ✅ Skip if offline or component unmounted
+        // ✅ FIX: Only check when online, and clear interval properly
+        intervalRef.current = setInterval(() => {
+            // Skip if offline or component unmounted
             if (!isMounted.current || !navigator.onLine) {
                 return;
             }
             checkServer();
-        }, 60000); // ✅ Increased from 30000 to 60000
+        }, 60000);
 
         return () => {
             isMounted.current = false;
+            if (intervalRef.current) {
+                clearInterval(intervalRef.current);
+                intervalRef.current = null;
+            }
             window.removeEventListener('online', handleOnline);
             window.removeEventListener('offline', handleOffline);
-            clearInterval(interval);
         };
     }, [checkServer]);
 

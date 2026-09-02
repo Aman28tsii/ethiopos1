@@ -1,6 +1,6 @@
 // client/src/context/BranchContext.js
 
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import API from '../api/axios';
 
 const BranchContext = createContext();
@@ -19,11 +19,27 @@ export const BranchProvider = ({ children }) => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [isOwner, setIsOwner] = useState(false);
+    const isLoadingRef = useRef(false);
+    const initialLoadDone = useRef(false);
 
     // Load branches on mount
-    const loadBranches = useCallback(async () => {
-        setLoading(true);
+    const loadBranches = useCallback(async (silent = false) => {
+        // Prevent concurrent loads
+        if (isLoadingRef.current) {
+            console.log('[BRANCH] Load already in progress, skipping');
+            return;
+        }
+        
+        // Prevent multiple initial loads
+        if (initialLoadDone.current && !silent) {
+            console.log('[BRANCH] Initial load already done, skipping');
+            return;
+        }
+        
+        isLoadingRef.current = true;
+        if (!silent) setLoading(true);
         setError(null);
+        
         try {
             const response = await API.get('/auth/branches');
             const branchesData = response.data.data || [];
@@ -55,16 +71,25 @@ export const BranchProvider = ({ children }) => {
                     setSelectedBranch(branchesData[0]);
                 }
             }
+            
+            initialLoadDone.current = true;
         } catch (err) {
             console.error('Load branches error:', err);
             setError(err.response?.data?.error || 'Failed to load branches');
         } finally {
-            setLoading(false);
+            if (!silent) setLoading(false);
+            isLoadingRef.current = false;
         }
     }, []);
 
     // Switch branch
     const switchBranch = useCallback(async (branchId) => {
+        if (isLoadingRef.current) {
+            console.log('[BRANCH] Switch already in progress, skipping');
+            return { success: false, error: 'Switch already in progress' };
+        }
+        
+        isLoadingRef.current = true;
         setLoading(true);
         setError(null);
         try {
@@ -85,8 +110,9 @@ export const BranchProvider = ({ children }) => {
                 // Update axios default headers
                 API.defaults.headers.common['Authorization'] = `Bearer ${token}`;
                 
-                // Reload page to refresh all data with new branch
-                window.location.reload();
+                // ✅ FIX: Use React Router navigation instead of full page reload
+                // This prevents the infinite reload loop
+                // window.location.reload(); // DISABLED
                 
                 return { success: true, branch: branchData };
             }
@@ -96,12 +122,15 @@ export const BranchProvider = ({ children }) => {
             return { success: false, error: err.response?.data?.error };
         } finally {
             setLoading(false);
+            isLoadingRef.current = false;
         }
     }, [branches]);
 
-    // Load branches on mount
+    // Load branches on mount - ONLY ONCE
     useEffect(() => {
-        loadBranches();
+        if (!initialLoadDone.current) {
+            loadBranches();
+        }
     }, [loadBranches]);
 
     const value = {

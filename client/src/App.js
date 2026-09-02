@@ -76,6 +76,7 @@ function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState(null);
+  const syncStartedRef = React.useRef(false);
 
   useEffect(() => {
     const token = localStorage.getItem('token');
@@ -95,11 +96,13 @@ function App() {
     setLoading(false);
   }, []);
 
-  // Start sync engine when authenticated
+  // ✅ FIX: Only start sync engine once, prevent duplicate starts
   useEffect(() => {
-    if (isAuthenticated) {
+    if (isAuthenticated && !syncStartedRef.current) {
+      syncStartedRef.current = true;
       startSyncEngine();
-    } else {
+    } else if (!isAuthenticated) {
+      syncStartedRef.current = false;
       stopSyncEngine();
     }
   }, [isAuthenticated]);
@@ -117,6 +120,7 @@ function App() {
     localStorage.removeItem('ethiopos_selected_branch');
     setIsAuthenticated(false);
     setUser(null);
+    syncStartedRef.current = false;
     stopSyncEngine();
   }, []);
 

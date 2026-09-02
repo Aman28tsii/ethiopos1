@@ -4,6 +4,7 @@ class ErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
     this.state = { hasError: false, error: null, errorInfo: null };
+    this.reloadAttempts = 0;
   }
 
   static getDerivedStateFromError(error) {
@@ -21,15 +22,31 @@ class ErrorBoundary extends React.Component {
   }
 
   handleRefresh = () => {
+    // ✅ FIX: Prevent automatic reload loops
+    // Only allow manual refresh, and only if not in a loop
+    this.reloadAttempts = 0;
     window.location.reload();
   };
 
   handleGoHome = () => {
-    window.location.href = '/';
+    // ✅ FIX: Use React Router navigate if available
+    // Fallback to window.location.href
+    if (this.props.navigate) {
+      this.props.navigate('/');
+    } else {
+      window.location.href = '/';
+    }
+  };
+
+  handleDismiss = () => {
+    // ✅ FIX: Allow dismissing the error overlay without reloading
+    // This prevents the error from causing a reload loop
+    this.setState({ hasError: false });
   };
 
   render() {
     if (this.state.hasError) {
+      // ✅ FIX: Don't automatically reload - show error UI with dismiss option
       return (
         <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 p-4">
           <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl max-w-md w-full p-8 text-center border border-gray-200 dark:border-gray-700">
@@ -42,7 +59,7 @@ class ErrorBoundary extends React.Component {
             <p className="text-gray-500 dark:text-gray-400 mb-6">
               {this.state.error?.message || 'An unexpected error occurred'}
             </p>
-            <div className="flex gap-3">
+            <div className="flex gap-3 flex-wrap">
               <button
                 onClick={this.handleRefresh}
                 className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold transition"
@@ -55,11 +72,17 @@ class ErrorBoundary extends React.Component {
               >
                 Go Home
               </button>
+              <button
+                onClick={this.handleDismiss}
+                className="flex-1 py-3 bg-green-600 hover:bg-green-700 text-white rounded-xl font-semibold transition"
+              >
+                Dismiss & Continue
+              </button>
             </div>
             {process.env.NODE_ENV === 'development' && this.state.errorInfo && (
               <details className="mt-4 text-left text-xs text-gray-500 dark:text-gray-400">
                 <summary>Error Details</summary>
-                <pre className="mt-2 p-2 bg-gray-100 dark:bg-gray-900 rounded overflow-auto">
+                <pre className="mt-2 p-2 bg-gray-100 dark:bg-gray-900 rounded overflow-auto max-h-40">
                   {this.state.errorInfo.componentStack}
                 </pre>
               </details>

@@ -15,9 +15,10 @@ const RealTimeNotifications = memo(() => {
   const isFetchingRef = useRef(false);
   const socketInitializedRef = useRef(false);
   const intervalRef = useRef(null);
+  const isMounted = useRef(true);
 
   const fetchNotifications = useCallback(async () => {
-    if (isFetchingRef.current) return;
+    if (isFetchingRef.current || !isMounted.current) return;
     isFetchingRef.current = true;
     
     try {
@@ -45,30 +46,28 @@ const RealTimeNotifications = memo(() => {
         }
       }
       
-      // In RealTimeNotifications.js, find the fetchNotifications function
-// and update the kitchen orders fetch:
-
-if (role === 'kitchen' || role === 'manager' || role === 'owner' || role === 'admin') {
-    try {
-        // ✅ FIXED: Changed from /orders/kitchen to /kitchen/orders
-        const pendingOrdersRes = await API.get('/kitchen/orders');
-        const pendingOrders = pendingOrdersRes.data.data || [];
-        const pendingCount = pendingOrders.filter(o => o.status === 'pending').length;
-        
-        if (pendingCount > 0) {
+      // ✅ FIX: Use correct endpoint - /kitchen/orders (matching backend)
+      if (role === 'kitchen' || role === 'manager' || role === 'owner' || role === 'admin') {
+        try {
+          const pendingOrdersRes = await API.get('/kitchen/orders');
+          const pendingOrders = pendingOrdersRes.data.data || [];
+          const pendingCount = pendingOrders.filter(o => o.status === 'pending').length;
+          
+          if (pendingCount > 0) {
             newNotifications.push({
-                id: 'pending-orders-' + Date.now(),
-                type: 'info',
-                message: pendingCount + ' ' + t('newOrdersWaiting'),
-                time: new Date().toLocaleTimeString(),
-                read: false,
-                link: '/kitchen/orders'
+              id: 'pending-orders-' + Date.now(),
+              type: 'info',
+              message: pendingCount + ' ' + t('newOrdersWaiting'),
+              time: new Date().toLocaleTimeString(),
+              read: false,
+              link: '/kitchen/orders'
             });
+          }
+        } catch (err) {
+          console.log('Kitchen orders not available for this role');
         }
-    } catch (err) {
-        console.log('Kitchen orders not available for this role');
-    }
-}
+      }
+      
       setNotifications(prev => {
         const existingIds = new Set(prev.map(n => n.id.split('-')[0]));
         const uniqueNew = newNotifications.filter(n => !existingIds.has(n.id.split('-')[0]));
@@ -85,9 +84,14 @@ if (role === 'kitchen' || role === 'manager' || role === 'owner' || role === 'ad
   }, [t]);
 
   useEffect(() => {
+    isMounted.current = true;
     fetchNotifications();
     
-    intervalRef.current = setInterval(fetchNotifications, 60000);
+    intervalRef.current = setInterval(() => {
+      if (isMounted.current) {
+        fetchNotifications();
+      }
+    }, 60000);
     
     if (socket && socket.on && !socketInitializedRef.current) {
       socketInitializedRef.current = true;
@@ -158,6 +162,7 @@ if (role === 'kitchen' || role === 'manager' || role === 'owner' || role === 'ad
     }
     
     return () => {
+      isMounted.current = false;
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
       }

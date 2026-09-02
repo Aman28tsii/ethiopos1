@@ -1,0 +1,11 @@
+[1mdiff --git a/server/src/controllers/recipeController.js b/server/src/controllers/recipeController.js[m
+[1mindex 1402e9a..2251796 100644[m
+[1m--- a/server/src/controllers/recipeController.js[m
+[1m+++ b/server/src/controllers/recipeController.js[m
+[36m@@ -861,4 +861,4 @@[m [mexport const processOrderStockDeduction = async (orderId, items, client) => {[m
+     }[m
+ [m
+     return { deductions: allDeductions, totalWastageCost: parseFloat(totalWastageCost.toFixed(2)) };[m
+[31m-};[m
+\ No newline at end of file[m
+[32m+[m[32m};[m

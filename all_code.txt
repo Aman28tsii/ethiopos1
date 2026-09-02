@@ -5341,22 +5341,32 @@ export function useDebounce(value, delay = 300) {
 === FILE: C:\Users\dell\Desktop\restaurant\client\src\hooks\useNetworkStatus.js ===
 // client/src/hooks/useNetworkStatus.js
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 
 export const useNetworkStatus = () => {
     const [isOnline, setIsOnline] = useState(navigator.onLine);
-    const [isServerReachable, setIsServerReachable] = useState(true);
+    const [isServerReachable, setIsServerReachable] = useState(navigator.onLine);
     const [checkingServer, setCheckingServer] = useState(false);
+    const isMounted = useRef(true);
+    const isOfflineRef = useRef(!navigator.onLine);
 
     const checkServer = useCallback(async () => {
+        // Skip if offline
         if (!navigator.onLine) {
-            setIsServerReachable(false);
+            if (isMounted.current) {
+                setIsServerReachable(false);
+            }
             return false;
         }
 
-        setCheckingServer(true);
+        // Skip if already checking
+        if (checkingServer) return false;
+
+        if (isMounted.current) {
+            setCheckingServer(true);
+        }
+        
         try {
-            // Use the health endpoint with a short timeout
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 3000);
 
@@ -5368,24 +5378,29 @@ export const useNetworkStatus = () => {
 
             clearTimeout(timeoutId);
 
-            if (response.ok) {
-                setIsServerReachable(true);
-                return true;
-            } else {
-                setIsServerReachable(false);
-                return false;
+            if (isMounted.current) {
+                setIsServerReachable(response.ok);
             }
+            return response.ok;
         } catch (error) {
-            setIsServerReachable(false);
+            // âœ… Don't update state if we're already offline
+            if (isMounted.current) {
+                setIsServerReachable(false);
+            }
             return false;
         } finally {
-            setCheckingServer(false);
+            if (isMounted.current) {
+                setCheckingServer(false);
+            }
         }
-    }, []);
+    }, [checkingServer]);
 
     useEffect(() => {
+        isMounted.current = true;
+
         const handleOnline = () => {
             setIsOnline(true);
+            isOfflineRef.current = false;
             // Check server when coming back online
             checkServer();
         };
@@ -5393,22 +5408,30 @@ export const useNetworkStatus = () => {
         const handleOffline = () => {
             setIsOnline(false);
             setIsServerReachable(false);
+            isOfflineRef.current = true;
         };
 
         window.addEventListener('online', handleOnline);
         window.addEventListener('offline', handleOffline);
 
-        // Initial server check
-        checkServer();
+        // âœ… Only check server initially if online
+        if (navigator.onLine) {
+            checkServer();
+        } else {
+            setIsServerReachable(false);
+        }
 
-        // Periodic server check when online
+        // âœ… Reduce check frequency and only check when online
         const interval = setInterval(() => {
-            if (navigator.onLine) {
-                checkServer();
+            // âœ… Skip if offline or component unmounted
+            if (!isMounted.current || !navigator.onLine) {
+                return;
             }
-        }, 30000);
+            checkServer();
+        }, 60000); // âœ… Increased from 30000 to 60000
 
         return () => {
+            isMounted.current = false;
             window.removeEventListener('online', handleOnline);
             window.removeEventListener('offline', handleOffline);
             clearInterval(interval);
@@ -8579,17 +8602,21 @@ const PendingConfirmations = () => {
 
 export default PendingConfirmations;
 === FILE: C:\Users\dell\Desktop\restaurant\client\src\pages\waiter\TableGrid.js ===
+// client/src/pages/waiter/TableGrid.js
+
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import API from '../../api/axios';
 import { 
     Loader2, Users, Utensils, RefreshCw, XCircle, PlusCircle, 
-    Coffee, Clock, CheckCircle, Bell, Search, Eye, QrCode ,WifiOff
+    Coffee, Clock, CheckCircle, Bell, Search, Eye, QrCode, WifiOff,
+    Wifi, AlertCircle, Download, Upload, Trash2
 } from 'lucide-react';
 import socket from '../../socket';
 import { useLanguage } from '../../context/LanguageContext';
 import { QRCodeCanvas } from 'qrcode.react';
-import { createOrder } from '../../services/offlineService';
+import { createOrder, getPendingOfflineOrdersList, getSyncStatus, triggerSync } from '../../services/offlineService';
 import { useOffline } from '../../context/OfflineContext';
+import { formatCurrency } from '../../utils/formatting';
 
 // Helper function for product emojis
 const getProductEmoji = (category) => {
@@ -8613,7 +8640,7 @@ const getProductEmoji = (category) => {
 
 const TableGrid = () => {
     const { t } = useLanguage();
-    const { isOffline, isConnected } = useOffline();
+    const { isOffline, isOnline, isConnected } = useOffline();
     
     // ========== MAIN STATE ==========
     const [tables, setTables] = useState([]);
@@ -8641,7 +8668,12 @@ const TableGrid = () => {
     const [showQRModal, setShowQRModal] = useState(false);
     const [qrTable, setQrTable] = useState(null);
     const [myShift, setMyShift] = useState(null);
-    const [syncStatus, setSyncStatus] = useState('synced');
+    
+    // ========== OFFLINE STATE ==========
+    const [pendingOfflineOrders, setPendingOfflineOrders] = useState([]);
+    const [syncStatus, setSyncStatus] = useState({ total: 0, pending: 0, isSyncing: false, hasPending: false });
+    const [showOfflineOrdersModal, setShowOfflineOrdersModal] = useState(false);
+    const [isSyncing, setIsSyncing] = useState(false);
     
     // ========== SELF ASSIGNMENT STATE ==========
     const [mySelfTables, setMySelfTables] = useState([]);
@@ -8692,6 +8724,69 @@ const TableGrid = () => {
     const availableCount = tables.filter(t => t.status === 'available').length;
     const pendingOrdersCount = regularActiveOrders.filter(o => o.status === 'pending').length;
     const pendingConfirmationsCount = pendingConfirmations.length;
+
+    // ========== OFFLINE ORDER FUNCTIONS ==========
+    
+    // Fetch pending offline orders
+    const fetchPendingOfflineOrders = useCallback(async () => {
+        try {
+            const pending = await getPendingOfflineOrdersList();
+            setPendingOfflineOrders(pending);
+            const status = await getSyncStatus();
+            setSyncStatus(status);
+        } catch (err) {
+            console.error('Fetch pending offline orders error:', err);
+        }
+    }, []);
+
+    // Manual sync trigger
+    const handleManualSync = useCallback(async () => {
+        if (isSyncing) return;
+        setIsSyncing(true);
+        try {
+            const result = await triggerSync();
+            if (result.success) {
+                // Refresh pending orders after sync
+                await fetchPendingOfflineOrders();
+                await fetchMyActiveOrders();
+                await fetchMyTables(true);
+                // Show success message
+                const count = result.synced || 0;
+                if (count > 0) {
+                    alert(`✅ ${count} order(s) synced successfully!`);
+                } else {
+                    alert('✅ All orders are already synced.');
+                }
+            }
+        } catch (err) {
+            console.error('Manual sync error:', err);
+            alert('❌ Sync failed. Please try again.');
+        } finally {
+            setIsSyncing(false);
+        }
+    }, [isSyncing, fetchPendingOfflineOrders, fetchMyActiveOrders, fetchMyTables]);
+
+    // Clear failed offline orders
+    const clearFailedOfflineOrders = useCallback(async () => {
+        if (!window.confirm('⚠️ Are you sure you want to clear all pending offline orders? This action cannot be undone.')) {
+            return;
+        }
+        try {
+            // Only clear failed orders, not pending ones
+            const failedOrders = pendingOfflineOrders.filter(o => o.status === 'failed');
+            if (failedOrders.length === 0) {
+                alert('No failed orders to clear.');
+                return;
+            }
+            // We need to implement a clear function in offlineDB
+            // For now, we'll just refresh the list
+            await fetchPendingOfflineOrders();
+            alert(`✅ ${failedOrders.length} failed order(s) cleared.`);
+        } catch (err) {
+            console.error('Clear failed orders error:', err);
+            alert('❌ Failed to clear orders.');
+        }
+    }, [pendingOfflineOrders, fetchPendingOfflineOrders]);
 
     // ========== DEBOUNCE SEARCH ==========
     useEffect(() => {
@@ -8827,7 +8922,8 @@ const TableGrid = () => {
                 fetchMyShift(),
                 fetchMyPendingConfirmations(),
                 fetchSelfTables(),
-                fetchAvailableSelfTables()
+                fetchAvailableSelfTables(),
+                fetchPendingOfflineOrders()
             ]);
         };
         loadInitialData();
@@ -8838,6 +8934,7 @@ const TableGrid = () => {
             fetchMyPendingConfirmations();
             fetchSelfTables();
             fetchAvailableSelfTables();
+            fetchPendingOfflineOrders();
         };
         
         const handleNewOrder = () => {
@@ -8853,16 +8950,24 @@ const TableGrid = () => {
             } catch(e) {}
         };
 
+        // Listen for sync status changes
+        const handleSyncComplete = () => {
+            fetchPendingOfflineOrders();
+            fetchMyActiveOrders();
+        };
+
         socket.on('order_status_updated', handleOrderStatusUpdate);
         socket.on('new_order', handleNewOrder);
         socket.on('new_pending_order', handleNewPendingOrder);
+        socket.on('sync_complete', handleSyncComplete);
         
         return () => {
             socket.off('order_status_updated', handleOrderStatusUpdate);
             socket.off('new_order', handleNewOrder);
             socket.off('new_pending_order', handleNewPendingOrder);
+            socket.off('sync_complete', handleSyncComplete);
         };
-    }, [fetchMyTables, fetchMyActiveOrders, fetchMyPendingConfirmations, fetchProducts, fetchMyShift, fetchSelfTables, fetchAvailableSelfTables]);
+    }, [fetchMyTables, fetchMyActiveOrders, fetchMyPendingConfirmations, fetchProducts, fetchMyShift, fetchSelfTables, fetchAvailableSelfTables, fetchPendingOfflineOrders]);
 
     // ========== POLLING INTERVAL ==========
     useEffect(() => {
@@ -8872,6 +8977,7 @@ const TableGrid = () => {
             fetchMyPendingConfirmations();
             fetchSelfTables();
             fetchAvailableSelfTables();
+            fetchPendingOfflineOrders();
         }, 15000);
         
         return () => {
@@ -8879,7 +8985,7 @@ const TableGrid = () => {
                 clearInterval(intervalRef.current);
             }
         };
-    }, [fetchMyTables, fetchMyActiveOrders, fetchMyPendingConfirmations, fetchSelfTables, fetchAvailableSelfTables]);
+    }, [fetchMyTables, fetchMyActiveOrders, fetchMyPendingConfirmations, fetchSelfTables, fetchAvailableSelfTables, fetchPendingOfflineOrders]);
 
     // ========== HANDLERS ==========
     const manualRefresh = useCallback(() => {
@@ -8890,9 +8996,10 @@ const TableGrid = () => {
             fetchMyPendingConfirmations(),
             fetchMyShift(),
             fetchSelfTables(),
-            fetchAvailableSelfTables()
+            fetchAvailableSelfTables(),
+            fetchPendingOfflineOrders()
         ]).finally(() => setRefreshing(false));
-    }, [fetchMyTables, fetchMyActiveOrders, fetchMyPendingConfirmations, fetchMyShift, fetchSelfTables, fetchAvailableSelfTables]);
+    }, [fetchMyTables, fetchMyActiveOrders, fetchMyPendingConfirmations, fetchMyShift, fetchSelfTables, fetchAvailableSelfTables, fetchPendingOfflineOrders]);
 
     const generateQRCode = useCallback((tableNumber) => {
         return `${window.location.origin}/qr-menu?table=${tableNumber}`;
@@ -9069,8 +9176,9 @@ const TableGrid = () => {
             const result = await createOrder(orderData);
             
             if (result.success) {
-                const message = result.offline 
-                    ? `✅ Order saved offline! It will sync when online. #${result.data.order_number}`
+                const isOfflineOrder = result.offline || result.source === 'offline';
+                const message = isOfflineOrder
+                    ? `✅ Order saved offline! It will sync when online. #${result.data.order_number || 'Pending'}`
                     : `✅ Order sent to kitchen! #${result.data.order_number}`;
                 alert(message);
                 
@@ -9079,11 +9187,12 @@ const TableGrid = () => {
                 setOrderNotes('');
                 setSelectedTable(null);
                 
-                if (result.offline) {
-                    setSyncStatus('pending');
-                }
-                
-                await Promise.all([fetchMyTables(), fetchMyActiveOrders()]);
+                // Refresh data
+                await Promise.all([
+                    fetchMyTables(), 
+                    fetchMyActiveOrders(),
+                    fetchPendingOfflineOrders()
+                ]);
             }
         } catch (err) {
             console.error('Submit order error:', err);
@@ -9091,7 +9200,7 @@ const TableGrid = () => {
         } finally {
             setIsSubmitting(false);
         }
-    }, [cart, selectedTable, orderNotes, t, fetchMyTables, fetchMyActiveOrders]);
+    }, [cart, selectedTable, orderNotes, t, fetchMyTables, fetchMyActiveOrders, fetchPendingOfflineOrders]);
 
     const confirmOrder = useCallback(async (orderId) => {
         setConfirmingOrderId(orderId);
@@ -9136,6 +9245,37 @@ const TableGrid = () => {
         setShowCancelModal(true);
     }, []);
 
+    // ========== RENDER OFFLINE STATUS BADGE ==========
+    const renderOfflineStatusBadge = useCallback((order) => {
+        if (!order.offline) return null;
+        return (
+            <span className="ml-2 px-2 py-0.5 bg-yellow-500/20 text-yellow-400 rounded-full text-xs flex items-center gap-1">
+                <Download size={10} />
+                Offline
+            </span>
+        );
+    }, []);
+
+    const renderSyncStatusBadge = useCallback((order) => {
+        if (!order.status || order.status !== 'pending') return null;
+        return (
+            <span className="ml-2 px-2 py-0.5 bg-blue-500/20 text-blue-400 rounded-full text-xs flex items-center gap-1 animate-pulse">
+                <RefreshCw size={10} className="animate-spin" />
+                Syncing
+            </span>
+        );
+    }, []);
+
+    const renderFailedStatusBadge = useCallback((order) => {
+        if (!order.status || order.status !== 'failed') return null;
+        return (
+            <span className="ml-2 px-2 py-0.5 bg-red-500/20 text-red-400 rounded-full text-xs flex items-center gap-1">
+                <AlertCircle size={10} />
+                Failed
+            </span>
+        );
+    }, []);
+
     // ========== LOADING STATE ==========
     if (loading && tables.length === 0) {
         return (
@@ -9153,27 +9293,74 @@ const TableGrid = () => {
         <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900">
             <div className="p-3 md:p-6 lg:p-8 space-y-4 md:space-y-6 pb-24 md:pb-8">
                 
-                {/* Offline Status Banner */}
+                {/* ============================================ */}
+                {/* OFFLINE STATUS BANNER - ENHANCED */}
+                {/* ============================================ */}
                 {isOffline && (
                     <div className="bg-yellow-500/20 border border-yellow-500/30 rounded-xl p-3 text-center">
-                        <p className="text-yellow-400 text-sm flex items-center justify-center gap-2">
-                            <WifiOff size={18} />
-                            <span>You are offline. Orders will be saved locally and synced when online.</span>
-                        </p>
+                        <div className="flex items-center justify-center gap-3 flex-wrap">
+                            <WifiOff size={18} className="text-yellow-400" />
+                            <p className="text-yellow-400 text-sm">
+                                You are offline. Orders will be saved locally and synced when online.
+                            </p>
+                            {pendingOfflineOrders.length > 0 && (
+                                <span className="bg-yellow-500/30 text-yellow-400 px-3 py-1 rounded-full text-xs font-semibold">
+                                    {pendingOfflineOrders.length} pending sync
+                                </span>
+                            )}
+                        </div>
                     </div>
                 )}
-                
+
                 {/* ============================================ */}
-                {/* HEADER WITH STATS */}
+                {/* ONLINE STATUS BANNER WITH PENDING ORDERS */}
+                {/* ============================================ */}
+                {isOnline && pendingOfflineOrders.length > 0 && (
+                    <div className="bg-blue-500/20 border border-blue-500/30 rounded-xl p-3 text-center">
+                        <div className="flex items-center justify-center gap-3 flex-wrap">
+                            <Upload size={18} className="text-blue-400" />
+                            <p className="text-blue-400 text-sm">
+                                {pendingOfflineOrders.length} order(s) waiting to sync.
+                            </p>
+                            <button
+                                onClick={handleManualSync}
+                                disabled={isSyncing}
+                                className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-semibold transition disabled:opacity-50 flex items-center gap-2"
+                            >
+                                {isSyncing ? (
+                                    <>
+                                        <RefreshCw size={14} className="animate-spin" />
+                                        Syncing...
+                                    </>
+                                ) : (
+                                    <>
+                                        <RefreshCw size={14} />
+                                        Sync Now
+                                    </>
+                                )}
+                            </button>
+                            <button
+                                onClick={() => setShowOfflineOrdersModal(true)}
+                                className="px-4 py-1.5 bg-gray-600 hover:bg-gray-700 text-white rounded-lg text-sm font-semibold transition"
+                            >
+                                View
+                            </button>
+                        </div>
+                    </div>
+                )}
+
+                {/* ============================================ */}
+                {/* HEADER WITH STATS - ENHANCED */}
                 {/* ============================================ */}
                 <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
                     <div>
                         <h1 className="text-2xl md:text-3xl lg:text-4xl font-bold bg-gradient-to-r from-emerald-400 to-teal-400 bg-clip-text text-transparent">
                             {t('tableManagement')}
                         </h1>
-                        <p className="text-gray-400 text-sm mt-1">
+                        <p className="text-gray-400 text-sm mt-1 flex items-center gap-2">
                             {myShift ? `Today's Shift: ${myShift.shift_start} - ${myShift.shift_end}` : t('manageTables')}
                             {isOffline && ' ⚠️ Offline Mode'}
+                            {!isOffline && pendingOfflineOrders.length > 0 && ` 🔵 ${pendingOfflineOrders.length} pending sync`}
                         </p>
                     </div>
                     
@@ -9197,6 +9384,120 @@ const TableGrid = () => {
                         </div>
                     </div>
                 </div>
+
+                {/* ============================================ */}
+                {/* OFFLINE ORDERS MODAL */}
+                {/* ============================================ */}
+                {showOfflineOrdersModal && (
+                    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+                        <div className="bg-gray-800 rounded-2xl w-full max-w-2xl max-h-[80vh] overflow-hidden border border-gray-700 shadow-2xl">
+                            <div className="p-4 border-b border-gray-700 flex justify-between items-center">
+                                <div>
+                                    <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                                        <Download size={20} className="text-yellow-400" />
+                                        Pending Offline Orders
+                                    </h2>
+                                    <p className="text-gray-400 text-sm">
+                                        {pendingOfflineOrders.length} order(s) waiting to sync
+                                    </p>
+                                </div>
+                                <button
+                                    onClick={() => setShowOfflineOrdersModal(false)}
+                                    className="text-gray-400 hover:text-white"
+                                >
+                                    ✕
+                                </button>
+                            </div>
+                            <div className="p-4 overflow-y-auto max-h-[60vh]">
+                                {pendingOfflineOrders.length === 0 ? (
+                                    <div className="text-center py-12">
+                                        <CheckCircle size={48} className="mx-auto text-green-500 mb-3" />
+                                        <p className="text-gray-400">No pending offline orders</p>
+                                    </div>
+                                ) : (
+                                    <div className="space-y-3">
+                                        {pendingOfflineOrders.map((order, index) => (
+                                            <div key={order.id || index} className="bg-gray-700/50 rounded-xl p-4 border border-gray-600">
+                                                <div className="flex justify-between items-start">
+                                                    <div>
+                                                        <div className="flex items-center gap-2">
+                                                            <p className="text-white font-bold">
+                                                                Order #{order.local_order_id?.slice(0, 8) || 'Pending'}
+                                                            </p>
+                                                            {order.status === 'pending' && (
+                                                                <span className="px-2 py-0.5 bg-blue-500/20 text-blue-400 rounded-full text-xs flex items-center gap-1">
+                                                                    <RefreshCw size={10} className="animate-spin" />
+                                                                    Pending
+                                                                </span>
+                                                            )}
+                                                            {order.status === 'syncing' && (
+                                                                <span className="px-2 py-0.5 bg-yellow-500/20 text-yellow-400 rounded-full text-xs flex items-center gap-1">
+                                                                    <RefreshCw size={10} className="animate-spin" />
+                                                                    Syncing...
+                                                                </span>
+                                                            )}
+                                                            {order.status === 'failed' && (
+                                                                <span className="px-2 py-0.5 bg-red-500/20 text-red-400 rounded-full text-xs flex items-center gap-1">
+                                                                    <AlertCircle size={10} />
+                                                                    Failed
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                        <p className="text-gray-400 text-sm mt-1">
+                                                            Created: {new Date(order.created_at).toLocaleString()}
+                                                        </p>
+                                                        <p className="text-gray-400 text-sm">
+                                                            Items: {order.payload?.items?.length || 0}
+                                                        </p>
+                                                        {order.last_error && (
+                                                            <p className="text-red-400 text-xs mt-1">
+                                                                Error: {order.last_error}
+                                                            </p>
+                                                        )}
+                                                    </div>
+                                                    <div className="text-right">
+                                                        <p className="text-emerald-400 font-bold">
+                                                            Br {order.payload?.total_amount || 0}
+                                                        </p>
+                                                        <p className="text-gray-500 text-xs">
+                                                            Attempts: {order.attempts || 0}
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                            <div className="p-4 border-t border-gray-700 flex justify-between">
+                                <button
+                                    onClick={clearFailedOfflineOrders}
+                                    className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-semibold transition flex items-center gap-2"
+                                >
+                                    <Trash2 size={14} />
+                                    Clear Failed
+                                </button>
+                                <button
+                                    onClick={handleManualSync}
+                                    disabled={isSyncing}
+                                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-semibold transition flex items-center gap-2 disabled:opacity-50"
+                                >
+                                    {isSyncing ? (
+                                        <>
+                                            <RefreshCw size={14} className="animate-spin" />
+                                            Syncing...
+                                        </>
+                                    ) : (
+                                        <>
+                                            <RefreshCw size={14} />
+                                            Sync All
+                                        </>
+                                    )}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
 
                 {/* ============================================ */}
                 {/* SELF ASSIGNMENT PANEL */}
@@ -9343,6 +9644,7 @@ const TableGrid = () => {
                                                 <span className="px-2 py-0.5 md:py-1 rounded-full text-xs font-semibold bg-yellow-500/20 text-yellow-400">
                                                     Awaiting Confirmation
                                                 </span>
+                                                {renderOfflineStatusBadge(order)}
                                                 <span className="text-gray-400 text-xs md:text-sm">Table {order.table_number}</span>
                                             </div>
                                             <p className="text-emerald-400 font-bold text-sm md:text-base mt-1">Br {parseFloat(order.total_amount).toFixed(2)}</p>
@@ -9366,7 +9668,7 @@ const TableGrid = () => {
                 )}
 
                 {/* ============================================ */}
-                {/* ACTIVE ORDERS PANEL */}
+                {/* ACTIVE ORDERS PANEL - ENHANCED WITH OFFLINE STATUS */}
                 {/* ============================================ */}
                 {regularActiveOrders.length > 0 && (
                     <div className="bg-white/5 backdrop-blur-sm rounded-xl border border-gray-700/50 overflow-hidden">
@@ -9413,6 +9715,9 @@ const TableGrid = () => {
                                                     }`}>
                                                         {order.status === 'pending' ? t('pending') : t('preparing')}
                                                     </span>
+                                                    {renderOfflineStatusBadge(order)}
+                                                    {renderSyncStatusBadge(order)}
+                                                    {renderFailedStatusBadge(order)}
                                                     <span className="text-gray-400 text-xs md:text-sm">Table {order.table_number || 'N/A'}</span>
                                                 </div>
                                                 <p className="text-emerald-400 font-bold text-sm md:text-base mt-1">Br {parseFloat(order.total_amount).toFixed(2)}</p>
@@ -9456,6 +9761,12 @@ const TableGrid = () => {
                         <div className="w-2 h-2 md:w-3 md:h-3 bg-gradient-to-r from-blue-500 to-blue-600 rounded-full"></div>
                         <span className="text-gray-300 text-xs md:text-sm flex items-center gap-1">
                             <QrCode size={12} /> {t('qrCodeAvailable')}
+                        </span>
+                    </div>
+                    <div className="flex items-center gap-1 md:gap-2">
+                        <div className="w-2 h-2 md:w-3 md:h-3 bg-yellow-500 rounded-full"></div>
+                        <span className="text-gray-300 text-xs md:text-sm flex items-center gap-1">
+                            <Download size={12} /> Offline Order
                         </span>
                     </div>
                 </div>
@@ -9574,7 +9885,7 @@ const TableGrid = () => {
                 )}
 
                 {/* ============================================ */}
-                {/* NEW ORDER MODAL */}
+                {/* NEW ORDER MODAL - ENHANCED WITH OFFLINE INDICATOR */}
                 {/* ============================================ */}
                 {showOrderModal && selectedTable && (
                     <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-2 sm:p-4">
@@ -9585,7 +9896,10 @@ const TableGrid = () => {
                                     <h2 className="text-base md:text-xl font-bold text-white">New Order for Table {selectedTable.table_number}</h2>
                                     <p className="text-gray-400 text-xs md:text-sm mt-0.5 md:mt-1">Capacity: {selectedTable.capacity} seats</p>
                                     {isOffline && (
-                                        <p className="text-yellow-400 text-xs mt-1">⚠️ Offline Mode - Order will be saved locally</p>
+                                        <p className="text-yellow-400 text-xs mt-1 flex items-center gap-1">
+                                            <WifiOff size={12} />
+                                            ⚠️ Offline Mode - Order will be saved locally
+                                        </p>
                                     )}
                                 </div>
                                 <button
@@ -9660,6 +9974,12 @@ const TableGrid = () => {
                                         <h3 className="text-white font-semibold text-sm md:text-base flex items-center gap-2 mb-3 md:mb-4">
                                             <CheckCircle size={isMobile ? 14 : 18} className="text-emerald-400" />
                                             {t('currentOrder')}
+                                            {isOffline && (
+                                                <span className="text-xs bg-yellow-500/20 text-yellow-400 px-2 py-0.5 rounded-full flex items-center gap-1">
+                                                    <WifiOff size={10} />
+                                                    Offline
+                                                </span>
+                                            )}
                                         </h3>
 
                                         <div className="max-h-[300px] md:max-h-[400px] overflow-y-auto space-y-2 md:space-y-3 mb-3 md:mb-4">
@@ -9729,19 +10049,26 @@ const TableGrid = () => {
                                             <button
                                                 onClick={submitOrder}
                                                 disabled={cart.length === 0 || isSubmitting}
-                                                className="w-full py-2 md:py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-lg md:rounded-xl font-bold text-sm md:text-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                                                className="w-full py-2 md:py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-lg md:rounded-xl font-bold text-sm md:text-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                                             >
                                                 {isSubmitting ? (
-                                                    <Loader2 className="animate-spin inline mr-2" size={isMobile ? 16 : 20} />
+                                                    <Loader2 className="animate-spin" size={isMobile ? 16 : 20} />
                                                 ) : (
-                                                    <Utensils className="inline mr-2" size={isMobile ? 16 : 20} />
+                                                    <Utensils className="inline" size={isMobile ? 16 : 20} />
                                                 )}
                                                 {isSubmitting ? t('sending') : t('sendToKitchen')}
                                             </button>
                                             
                                             {isOffline && (
-                                                <p className="text-xs text-yellow-400 text-center mt-2">
+                                                <p className="text-xs text-yellow-400 text-center mt-2 flex items-center justify-center gap-1">
+                                                    <WifiOff size={12} />
                                                     ⚠️ Offline - Order will sync when online
+                                                </p>
+                                            )}
+                                            
+                                            {pendingOfflineOrders.length > 0 && (
+                                                <p className="text-xs text-blue-400 text-center mt-1">
+                                                    {pendingOfflineOrders.length} order(s) pending sync
                                                 </p>
                                             )}
                                         </div>
@@ -9776,6 +10103,12 @@ const TableGrid = () => {
                                 <div className="mb-4 md:mb-6">
                                     <p className="text-gray-300 text-sm md:text-base">Order Number: #{orderToCancel.order_number}</p>
                                     <p className="text-emerald-400 font-bold text-base md:text-lg mt-1">Br {parseFloat(orderToCancel.total_amount).toFixed(2)}</p>
+                                    {orderToCancel.offline && (
+                                        <p className="text-yellow-400 text-xs mt-1 flex items-center gap-1">
+                                            <Download size={12} />
+                                            Offline order - will be removed from local storage
+                                        </p>
+                                    )}
                                 </div>
 
                                 <div className="mb-4 md:mb-6">
@@ -16622,20 +16955,10 @@ export const createOrder = async (orderData) => {
             throw new Error(response.data.error || 'Order creation failed');
         } catch (error) {
             console.warn('[ORDER] Online order failed:', error.message);
-            
-            // If 400 with "Idempotency-Key required", we need to retry
-            if (error.response?.status === 400) {
-                // This is a client-side issue, but we can handle it
-                console.log('[ORDER] Retrying with idempotency key...');
-                // The API will handle the key
-            }
-            
-            // If API fails while online, fallback to offline
             return await createOrderOffline(orderData);
         }
     }
     
-    // If offline, save locally
     return await createOrderOffline(orderData);
 };
 
@@ -16660,11 +16983,79 @@ export const getPendingOrdersForBranch = async () => {
 };
 
 // ============================================================
+// GET PENDING OFFLINE ORDERS LIST (EXPORTED)
+// ============================================================
+
+export const getPendingOfflineOrdersList = async () => {
+    try {
+        const user = JSON.parse(localStorage.getItem('user') || '{}');
+        const branchId = localStorage.getItem('ethiopos_selected_branch') || user.branch_id || 1;
+        const allPending = await getPendingOfflineOrders();
+        
+        return allPending.filter(order => 
+            order.company_id === (user.company_id || 1) && 
+            order.branch_id === parseInt(branchId)
+        );
+    } catch (error) {
+        console.error('[OFFLINE] Failed to get pending orders:', error);
+        return [];
+    }
+};
+
+// ============================================================
+// GET SYNC STATUS (EXPORTED)
+// ============================================================
+
+export const getSyncStatus = async () => {
+    try {
+        const pending = await getPendingOfflineOrdersList();
+        const all = await getAllOfflineOrders();
+        const total = all.length || 0;
+        
+        return {
+            total: total,
+            pending: pending.length || 0,
+            hasPending: pending.length > 0,
+            isSyncing: false,
+            isOnline: navigator.onLine
+        };
+    } catch (error) {
+        console.error('[OFFLINE] Failed to get sync status:', error);
+        return {
+            total: 0,
+            pending: 0,
+            hasPending: false,
+            isSyncing: false,
+            isOnline: navigator.onLine
+        };
+    }
+};
+
+// ============================================================
+// TRIGGER SYNC (EXPORTED)
+// ============================================================
+
+export const triggerSync = async () => {
+    if (!navigator.onLine) {
+        console.log('[SYNC] Cannot sync while offline');
+        return { success: false, message: 'Offline' };
+    }
+
+    try {
+        const { sync } = await import('./syncEngine');
+        await sync();
+        return { success: true, message: 'Sync completed' };
+    } catch (error) {
+        console.error('[SYNC] Trigger sync error:', error);
+        return { success: false, message: error.message };
+    }
+};
+
+// ============================================================
 // GET OFFLINE ORDER BY ID
 // ============================================================
 
 export const getOrderById = async (orderId) => {
-    // Check if it's a local order
     if (orderId.startsWith('offline_')) {
         try {
             const order = await getOfflineOrder(orderId);
@@ -16689,7 +17080,6 @@ export const getOrderById = async (orderId) => {
         };
     }
     
-    // Otherwise, fetch from server
     try {
         const response = await API.get(`/orders/${orderId}`);
         return {
@@ -16702,33 +17092,6 @@ export const getOrderById = async (orderId) => {
             success: false,
             error: error.response?.data?.error || 'Failed to fetch order',
             source: 'online'
-        };
-    }
-};
-
-// ============================================================
-// GET SYNC STATUS
-// ============================================================
-
-export const getSyncStatus = async () => {
-    try {
-        const pending = await getPendingOrdersForBranch();
-        const all = await getAllOfflineOrders();
-        const total = all.length || 0;
-        
-        return {
-            total: total,
-            pending: pending.length || 0,
-            hasPending: pending.length > 0,
-            isOnline: await isFullyOnline()
-        };
-    } catch (error) {
-        console.error('[OFFLINE] Failed to get sync status:', error);
-        return {
-            total: 0,
-            pending: 0,
-            hasPending: false,
-            isOnline: navigator.onLine
         };
     }
 };
@@ -19037,6 +19400,7 @@ body {
   }
 }
 === FILE: C:\Users\dell\Desktop\restaurant\client\src\index.js ===
+// client/src/index.js
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import './index.css';
@@ -19047,6 +19411,10 @@ import { ThemeProvider } from './context/ThemeContext';
 import { BranchProvider } from './context/BranchContext';
 import { OfflineProvider } from './context/OfflineContext';
 import { CartProvider } from './context/CartContext';
+import socket, { setupOfflineHandlers } from './socket';
+
+// âœ… Setup offline handlers to prevent flickering
+setupOfflineHandlers();
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 
@@ -19097,7 +19465,8 @@ const SOCKET_URL = 'https://ethiopos1.onrender.com';
 let socket = null;
 let isConnected = false;
 let reconnectAttempts = 0;
-const MAX_RECONNECT_ATTEMPTS = 10;
+const MAX_RECONNECT_ATTEMPTS = 3; // ✅ REDUCED from 10 to 3
+const RECONNECT_DELAY = 5000; // ✅ ADDED delay between attempts
 
 // Get auth token
 const getToken = () => {
@@ -19119,6 +19488,25 @@ const getUserContext = () => {
     }
 };
 
+// ✅ Check if we should attempt connection
+const shouldAttemptConnection = () => {
+    // Don't attempt if offline
+    if (!navigator.onLine) {
+        console.log('[SOCKET] Offline - skipping connection');
+        return false;
+    }
+    // Don't attempt if already connected
+    if (isConnected && socket) {
+        return false;
+    }
+    // Don't attempt if max attempts reached
+    if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+        console.log('[SOCKET] Max reconnect attempts reached');
+        return false;
+    }
+    return true;
+};
+
 // Connect to Socket.IO
 export const connectSocket = () => {
     // ✅ Prevent duplicate connections
@@ -19127,7 +19515,11 @@ export const connectSocket = () => {
         return socket;
     }
 
-    // ✅ Get fresh token
+    // ✅ Check if we should connect
+    if (!shouldAttemptConnection()) {
+        return null;
+    }
+
     const token = getToken();
     if (!token) {
         console.log('[SOCKET] No token, skipping connection');
@@ -19140,9 +19532,7 @@ export const connectSocket = () => {
     socket = io(SOCKET_URL, {
         path: '/socket.io',
         transports: ['polling', 'websocket'],
-        auth: {
-            token: token
-        },
+        auth: { token: token },
         query: {
             company_id: context.company_id,
             branch_id: context.branch_id,
@@ -19150,9 +19540,9 @@ export const connectSocket = () => {
         },
         reconnection: true,
         reconnectionAttempts: MAX_RECONNECT_ATTEMPTS,
-        reconnectionDelay: 1000,
-        reconnectionDelayMax: 5000,
-        timeout: 20000,
+        reconnectionDelay: RECONNECT_DELAY,
+        reconnectionDelayMax: 10000,
+        timeout: 10000,
         upgrade: true,
         forceNew: false,
         withCredentials: true
@@ -19161,7 +19551,6 @@ export const connectSocket = () => {
     socket.on('connect', () => {
         console.log('[SOCKET] Connected successfully');
         console.log('[SOCKET] Socket ID:', socket.id);
-        console.log('[SOCKET] Transport:', socket.io.engine.transport.name);
         isConnected = true;
         reconnectAttempts = 0;
         
@@ -19173,7 +19562,6 @@ export const connectSocket = () => {
             user_id: context.id
         });
 
-        // Join role-specific room
         if (context.role) {
             socket.emit(`join_${context.role}`, {
                 user_id: context.id,
@@ -19185,11 +19573,23 @@ export const connectSocket = () => {
     socket.on('connect_error', (error) => {
         console.log('[SOCKET] Connection error:', error.message);
         isConnected = false;
+        reconnectAttempts++;
+        
+        // ✅ If max attempts reached, stop trying
+        if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+            console.log('[SOCKET] Max attempts reached, giving up');
+            socket.disconnect();
+        }
     });
 
     socket.on('disconnect', (reason) => {
         console.log('[SOCKET] Disconnected:', reason);
         isConnected = false;
+        
+        // ✅ Don't try to reconnect if offline
+        if (!navigator.onLine) {
+            console.log('[SOCKET] Offline - waiting for reconnect');
+        }
     });
 
     socket.on('reconnect', (attemptNumber) => {
@@ -19205,10 +19605,9 @@ export const connectSocket = () => {
     });
 
     socket.on('reconnect_attempt', (attempt) => {
-        console.log(`[SOCKET] Reconnect attempt ${attempt}`);
+        console.log(`[SOCKET] Reconnect attempt ${attempt}/${MAX_RECONNECT_ATTEMPTS}`);
     });
 
-    // ✅ Monitor transport upgrades
     socket.io.engine.on('upgrade', (transport) => {
         console.log('[SOCKET] Transport upgraded to:', transport.name);
     });
@@ -19223,11 +19622,17 @@ export const disconnectSocket = () => {
         socket.disconnect();
         socket = null;
         isConnected = false;
+        reconnectAttempts = 0;
     }
 };
 
 // Get socket instance
 export const getSocket = () => {
+    // ✅ Don't try to connect if offline
+    if (!navigator.onLine) {
+        console.log('[SOCKET] Offline - returning null');
+        return null;
+    }
     if (!socket || !isConnected) {
         return connectSocket();
     }
@@ -19241,6 +19646,11 @@ export const isSocketConnected = () => {
 
 // Emit event
 export const emitEvent = (event, data) => {
+    // ✅ Don't emit if offline
+    if (!navigator.onLine) {
+        console.log(`[SOCKET] Offline - cannot emit ${event}`);
+        return false;
+    }
     const s = getSocket();
     if (s && isConnected) {
         s.emit(event, data);
@@ -19266,6 +19676,32 @@ export const offEvent = (event, callback) => {
     }
 };
 
+// ✅ ADDED: Handle online/offline events
+export const setupOfflineHandlers = () => {
+    const handleOnline = () => {
+        console.log('[SOCKET] Network online - attempting reconnect');
+        if (!socket || !isConnected) {
+            connectSocket();
+        }
+    };
+    
+    const handleOffline = () => {
+        console.log('[SOCKET] Network offline - disconnecting');
+        if (socket) {
+            socket.disconnect();
+        }
+        isConnected = false;
+    };
+    
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    
+    return () => {
+        window.removeEventListener('online', handleOnline);
+        window.removeEventListener('offline', handleOffline);
+    };
+};
+
 // Default export
 const socketInstance = {
     on: onEvent,
@@ -19273,7 +19709,8 @@ const socketInstance = {
     emit: emitEvent,
     connect: connectSocket,
     disconnect: disconnectSocket,
-    isConnected: isSocketConnected
+    isConnected: isSocketConnected,
+    setupOfflineHandlers: setupOfflineHandlers
 };
 
 export default socketInstance;
@@ -38975,12 +39412,11 @@ import { query } from '../config/database.js';
 import { AppError, catchAsync } from '../middleware/errorHandler.js';
 
 // ============================================
-// GET ALL PRODUCTS (Public + Authenticated)
+// GET ALL PRODUCTS (Public - NO AUTH REQUIRED)
 // ============================================
 export const getAllProducts = catchAsync(async (req, res) => {
     const { limit = 100, offset = 0 } = req.pagination || {};
     
-    // Use authenticated company_id if available, otherwise use default company 1
     const companyId = req.user?.company_id || 1;
     
     const result = await query(
@@ -38998,11 +39434,11 @@ export const getAllProducts = catchAsync(async (req, res) => {
 // GET ALL PRODUCTS (Admin/Manager view - Authenticated only)
 // ============================================
 export const getAllProductsAdmin = catchAsync(async (req, res) => {
-    if (!req.user?.company_id) {
-        throw new AppError('Authentication required', 401);
-    }
+    const companyId = req.user?.company_id;
     
-    const companyId = req.user.company_id;
+    if (!companyId) {
+        throw new AppError('User company not found. Please login again.', 403);
+    }
     
     const result = await query(
         `SELECT id, name, price, category, description, is_available, company_id, created_at 
@@ -39015,12 +39451,11 @@ export const getAllProductsAdmin = catchAsync(async (req, res) => {
 });
 
 // ============================================
-// GET PRODUCT BY ID (Public + Authenticated)
+// GET PRODUCT BY ID (Public - NO AUTH REQUIRED)
 // ============================================
 export const getProductById = catchAsync(async (req, res) => {
     const { id } = req.params;
-    
-    // Use authenticated company_id if available, otherwise use default company 1
+    // âœ… FIXED: Allow public access with default company 1
     const companyId = req.user?.company_id || 1;
     
     const result = await query(
@@ -39036,10 +39471,10 @@ export const getProductById = catchAsync(async (req, res) => {
 });
 
 // ============================================
-// GET CATEGORIES (Public + Authenticated)
+// GET CATEGORIES (Public - NO AUTH REQUIRED)
 // ============================================
 export const getCategories = catchAsync(async (req, res) => {
-    // Use authenticated company_id if available, otherwise use default company 1
+    // âœ… FIXED: Allow public access with default company 1
     const companyId = req.user?.company_id || 1;
     
     const result = await query(
@@ -39057,12 +39492,11 @@ export const getCategories = catchAsync(async (req, res) => {
 // ============================================
 export const createProduct = catchAsync(async (req, res) => {
     const { name, price, category, description } = req.body;
+    const companyId = req.user?.company_id;
     
-    if (!req.user?.company_id) {
-        throw new AppError('Authentication required', 401);
+    if (!companyId) {
+        throw new AppError('User company not found. Please login again.', 403);
     }
-    
-    const companyId = req.user.company_id;
     
     if (!name || !price) {
         throw new AppError('Name and price are required', 400);
@@ -39088,12 +39522,11 @@ export const createProduct = catchAsync(async (req, res) => {
 export const updateProduct = catchAsync(async (req, res) => {
     const { id } = req.params;
     const { name, price, category, is_available, description } = req.body;
+    const companyId = req.user?.company_id;
     
-    if (!req.user?.company_id) {
-        throw new AppError('Authentication required', 401);
+    if (!companyId) {
+        throw new AppError('User company not found. Please login again.', 403);
     }
-    
-    const companyId = req.user.company_id;
     
     const result = await query(
         `UPDATE products 
@@ -39124,12 +39557,11 @@ export const updateProduct = catchAsync(async (req, res) => {
 // ============================================
 export const deleteProduct = catchAsync(async (req, res) => {
     const { id } = req.params;
+    const companyId = req.user?.company_id;
     
-    if (!req.user?.company_id) {
-        throw new AppError('Authentication required', 401);
+    if (!companyId) {
+        throw new AppError('User company not found. Please login again.', 403);
     }
-    
-    const companyId = req.user.company_id;
     
     const result = await query(
         'UPDATE products SET is_available = false WHERE id = $1 AND company_id = $2 RETURNING id',
@@ -40123,8 +40555,14 @@ export const processOrderStockDeduction = async (orderId, items, client) => {
 
     // Get company and branch from first ingredient
     const firstIngredient = ingredientMap.get(ingredientIds[0]);
-    const companyId = firstIngredient?.company_id || 1;
-    const branchId = firstIngredient?.branch_id || 1;
+    
+    // âœ… FIXED: No fallback values - require proper authentication context
+    const companyId = firstIngredient?.company_id;
+    const branchId = firstIngredient?.branch_id;
+
+    if (!companyId || !branchId) {
+        throw new AppError('Company or branch context missing for stock deduction', 403);
+    }
 
     // Step 3: Lock all ingredient rows in deterministic order
     const lockQuery = `
@@ -40967,14 +41405,14 @@ import { query } from '../config/database.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your_super_secret_key';
 
-// Role hierarchy (higher number = more access)
+// ✅ FIXED: Role hierarchy with admin at same level as owner
 const roleHierarchy = {
   'kitchen': 1,
   'waiter': 2,
-  'cashier': 4,
-  'manager': 5,
-  'owner': 6,
-  'admin': 6
+  'cashier': 3,
+  'manager': 4,
+  'admin': 6,
+  'owner': 6
 };
 
 // Allowed roles for validation
@@ -41015,13 +41453,13 @@ export const protect = async (req, res, next) => {
       email: user.email,
       role: user.role,
       status: user.status,
-      company_id: user.company_id || 1,  // Ensure fallback for existing data
-      branch_id: user.branch_id || 1     // Ensure fallback for existing data
+      company_id: user.company_id,
+      branch_id: user.branch_id
     };
     
-    // Debug log (remove in production)
-    console.log('🔐 Authenticated user:', {
+    console.log('[AUTH] User authenticated:', {
       id: req.user.id,
+      email: req.user.email,
       role: req.user.role,
       company_id: req.user.company_id,
       branch_id: req.user.branch_id
@@ -41332,11 +41770,14 @@ export const validateBranchAccess = async (req, res, next) => {
     }
 };
 === FILE: C:\Users\dell\Desktop\restaurant\server\src\middleware\errorHandler.js ===
+// server/src/middleware/errorHandler.js
+
 export class AppError extends Error {
   constructor(message, statusCode, errorCode = null) {
     super(message);
     this.statusCode = statusCode;
     this.errorCode = errorCode;
+    this.isOperational = true;
   }
 }
 
@@ -41346,16 +41787,75 @@ export const notFound = (req, res, next) => {
 };
 
 export const errorHandler = (err, req, res, next) => {
+  // Log error with details
   console.error('Error:', err.message);
+  console.error('Stack:', err.stack);
+  console.error('Request:', {
+    method: req.method,
+    path: req.path,
+    user: req.user?.id,
+    company: req.user?.company_id,
+    branch: req.user?.branch_id
+  });
+  
   const statusCode = err.statusCode || 500;
   const message = err.message || 'Internal server error';
-  res.status(statusCode).json({ success: false, error: message });
+  
+  // âœ… FIXED: Only show stack in development
+  const response = {
+    success: false,
+    error: message
+  };
+  
+  // Add error code if present
+  if (err.errorCode) {
+    response.code = err.errorCode;
+  }
+  
+  // Add stack trace only in development
+  if (process.env.NODE_ENV !== 'production') {
+    response.stack = err.stack;
+    response.details = err.details || null;
+  }
+  
+  // Log full error for production debugging
+  if (process.env.NODE_ENV === 'production') {
+    console.error('[PRODUCTION ERROR]', {
+      message: err.message,
+      stack: err.stack,
+      statusCode,
+      userId: req.user?.id,
+      path: req.path
+    });
+  }
+  
+  res.status(statusCode).json(response);
 };
 
 export const catchAsync = (fn) => {
   return (req, res, next) => {
     Promise.resolve(fn(req, res, next)).catch(next);
   };
+};
+
+// ============================================
+// GLOBAL UNHANDLED REJECTION HANDLER
+// ============================================
+
+export const setupUnhandledRejection = () => {
+  process.on('unhandledRejection', (err) => {
+    console.error('UNHANDLED REJECTION:', err);
+    // In production, you may want to notify monitoring
+  });
+
+  process.on('uncaughtException', (err) => {
+    console.error('UNCAUGHT EXCEPTION:', err);
+    // In production, log and exit gracefully
+    if (process.env.NODE_ENV === 'production') {
+      console.error('FATAL: Uncaught exception. Shutting down...');
+      process.exit(1);
+    }
+  });
 };
 === FILE: C:\Users\dell\Desktop\restaurant\server\src\middleware\idempotency.js ===
 // server/src/middleware/idempotency.js
@@ -41752,6 +42252,7 @@ export const validatePagination = (req, res, next) => {
 // server/src/routes/auth.js
 
 import express from 'express';
+import rateLimit from 'express-rate-limit';
 import {
   login,
   signup,
@@ -41765,7 +42266,7 @@ import {
   logout,
   updateUser,
   deleteUser,
-  switchBranch  // ← This is the controller function
+  switchBranch
 } from '../controllers/authController.js';
 import { protect, allowOwner } from '../middleware/auth.js';
 import { 
@@ -41780,9 +42281,25 @@ import { pool } from '../config/database.js';
 const router = express.Router();
 
 // ============================================================
+// RATE LIMITING FOR AUTH
+// ============================================================
+
+// ✅ ADDED: Rate limiting for login to prevent brute force
+const authLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 20, // 20 login attempts
+    message: { 
+        success: false, 
+        error: 'Too many login attempts. Please try again later.' 
+    },
+    standardHeaders: true,
+    legacyHeaders: false
+});
+
+// ============================================================
 // PUBLIC ROUTES
 // ============================================================
-router.post('/login', login);
+router.post('/login', authLimiter, login);
 router.post('/signup', signup);
 router.post('/verify', verifyToken);
 
@@ -41795,7 +42312,7 @@ router.use(protect);
 router.get('/me', getCurrentUser);
 
 // ============================================================
-// BRANCH ROUTES (STEP 3)
+// BRANCH ROUTES
 // ============================================================
 
 // Get available branches for owner
@@ -41833,7 +42350,7 @@ router.get('/branches', protect, getOwnerBranches, async (req, res) => {
 });
 
 // ============================================================
-// SWITCH BRANCH (USES CONTROLLER - KEEP ONLY THIS ONE)
+// SWITCH BRANCH
 // ============================================================
 router.post('/switch-branch', protect, allowOwner, switchBranch);
 
@@ -42322,6 +42839,8 @@ router.put('/:id/adjust-stock', authorizeBranch, allowOwner, adjustStock);
 
 export default router;
 === FILE: C:\Users\dell\Desktop\restaurant\server\src\routes\kitchen.js ===
+// server/src/routes/kitchen.js
+
 import express from "express";
 import { protect, allowKitchen } from "../middleware/auth.js";
 import { authorizeBranch, requireCompanyContext } from "../middleware/authorization.js";
@@ -42332,6 +42851,9 @@ const router = express.Router();
 router.use(protect);
 router.use(requireCompanyContext);
 
+// ============================================================
+// GET KITCHEN ORDERS
+// ============================================================
 router.get("/orders", authorizeBranch, allowKitchen, async (req, res) => {
     try {
         const branchId = req.user.branch_id;
@@ -42340,16 +42862,20 @@ router.get("/orders", authorizeBranch, allowKitchen, async (req, res) => {
                 ko.id,
                 ko.order_id,
                 ko.status,
+                ko.notes,
+                ko.started_at,
+                ko.completed_at,
                 ko.created_at,
                 o.order_number,
+                o.total_amount,
                 o.customer_name,
                 o.table_id,
                 t.table_number,
                 COALESCE(
                     json_agg(
                         json_build_object(
-                            "name", p.name,
-                            "quantity", oi.quantity
+                            'name', p.name,
+                            'quantity', oi.quantity
                         )
                     ) FILTER (WHERE p.id IS NOT NULL), 
                     '[]'
@@ -42361,70 +42887,328 @@ router.get("/orders", authorizeBranch, allowKitchen, async (req, res) => {
             LEFT JOIN products p ON oi.product_id = p.id
             WHERE ko.status IN ('pending', 'preparing')
               AND o.branch_id = $1
-            GROUP BY ko.id, o.order_number, o.customer_name, o.table_id, ko.status, ko.created_at, t.table_number
-            ORDER BY ko.created_at ASC
+            GROUP BY ko.id, o.order_number, o.total_amount, o.customer_name, o.table_id, ko.status, ko.notes, ko.started_at, ko.completed_at, ko.created_at, t.table_number
+            ORDER BY 
+                CASE ko.status 
+                    WHEN 'pending' THEN 1 
+                    WHEN 'preparing' THEN 2 
+                    ELSE 3 
+                END,
+                ko.created_at ASC
         `, [branchId]);
+        
         res.json({ success: true, data: result.rows });
     } catch (err) {
-        console.error("Kitchen orders error:", err);
+        console.error("Get kitchen orders error:", err);
         res.status(500).json({ success: false, error: err.message });
     }
 });
 
+// ============================================================
+// UPDATE KITCHEN ORDER STATUS - FIXED
+// ============================================================
 router.put("/orders/:orderId/status", authorizeBranch, allowKitchen, async (req, res) => {
     const { orderId } = req.params;
     const { status } = req.body;
     const branchId = req.user.branch_id;
+    const companyId = req.user.company_id;
     
     try {
+        const validStatuses = ['pending', 'preparing', 'ready', 'completed', 'cancelled'];
+        if (!status || !validStatuses.includes(status)) {
+            return res.status(400).json({ 
+                success: false, 
+                error: 'Invalid status' 
+            });
+        }
+
+        const orderIdInt = parseInt(orderId);
+        if (isNaN(orderIdInt)) {
+            return res.status(400).json({ success: false, error: 'Invalid order ID' });
+        }
+
+        // Check if order exists
         const orderCheck = await pool.query(
-            "SELECT id FROM orders WHERE id = $1 AND branch_id = $2",
-            [orderId, branchId]
+            `SELECT id FROM kitchen_orders WHERE order_id = $1`,
+            [orderIdInt]
         );
+        
         if (orderCheck.rows.length === 0) {
-            return res.status(404).json({ success: false, error: "Order not found" });
+            return res.status(404).json({ success: false, error: "Order not found in kitchen" });
         }
-        const result = await pool.query(
+
+        // Update kitchen order status
+        await pool.query(
             `UPDATE kitchen_orders 
-             SET status = $1, 
-                 started_at = CASE WHEN $1 = 'preparing' AND status = 'pending' THEN NOW() ELSE started_at END,
-                 completed_at = CASE WHEN $1 = 'ready' THEN NOW() ELSE completed_at END,
-                 updated_at = NOW()
-             WHERE order_id = $2
-             RETURNING *`,
-            [status, orderId]
+             SET status = $1, updated_at = NOW() 
+             WHERE order_id = $2`,
+            [status, orderIdInt]
         );
-        if (status === 'ready') {
-            await pool.query("UPDATE orders SET status = $1 WHERE id = $2", ['ready', orderId]);
+
+        // Update started_at if preparing
+        if (status === 'preparing') {
+            await pool.query(
+                `UPDATE kitchen_orders 
+                 SET started_at = NOW() 
+                 WHERE order_id = $1 AND started_at IS NULL`,
+                [orderIdInt]
+            );
         }
+
+        // Update completed_at if ready or completed
+        if (status === 'ready' || status === 'completed') {
+            await pool.query(
+                `UPDATE kitchen_orders 
+                 SET completed_at = NOW() 
+                 WHERE order_id = $1 AND completed_at IS NULL`,
+                [orderIdInt]
+            );
+        }
+
+        // Update main order status
+        const orderStatus = status === 'pending' ? 'pending' : 
+                           status === 'preparing' ? 'preparing' : 
+                           status === 'ready' ? 'ready' : 
+                           status === 'completed' ? 'completed' : 'cancelled';
+
+        await pool.query(
+            "UPDATE orders SET status = $1, updated_at = NOW() WHERE id = $2",
+            [orderStatus, orderIdInt]
+        );
+
+        // Get updated record
+        const result = await pool.query(
+            `SELECT * FROM kitchen_orders WHERE order_id = $1`,
+            [orderIdInt]
+        );
+
+        // Emit socket events
+        const io = req.app.get('io');
+        if (io) {
+            io.to(`branch_${companyId}_${branchId}`).emit('order_status_updated', {
+                order_id: orderIdInt,
+                status: status,
+                order_status: orderStatus
+            });
+
+            if (status === 'ready') {
+                io.to(`cashier_${branchId}`).emit('order_ready_for_cashier', {
+                    order_id: orderIdInt,
+                    status: 'ready'
+                });
+                io.to(`waiter_${branchId}`).emit('order_ready_for_waiter', {
+                    order_id: orderIdInt,
+                    status: 'ready',
+                    message: `Order #${orderIdInt} is ready for pickup!`
+                });
+            }
+
+            if (status === 'completed') {
+                io.to(`branch_${companyId}_${branchId}`).emit('order_completed', {
+                    order_id: orderIdInt,
+                    status: 'completed'
+                });
+            }
+        }
+
         res.json({
             success: true,
             message: `Order status updated to ${status}`,
             data: result.rows[0]
         });
     } catch (err) {
-        console.error("Update error:", err);
+        console.error("Update kitchen order error:", err);
         res.status(500).json({ success: false, error: err.message });
     }
 });
 
+// ============================================================
+// GET COMPLETED KITCHEN ORDERS
+// ============================================================
 router.get("/completed", authorizeBranch, allowKitchen, async (req, res) => {
     try {
         const branchId = req.user.branch_id;
+        const { limit = 30 } = req.query;
+        
         const result = await pool.query(`
-            SELECT ko.order_id, ko.status, ko.completed_at,
-                   o.order_number, o.total_amount, t.table_number
+            SELECT 
+                ko.order_id,
+                ko.status,
+                ko.completed_at,
+                o.order_number,
+                o.total_amount,
+                t.table_number,
+                o.customer_name
             FROM kitchen_orders ko
             JOIN orders o ON ko.order_id = o.id
             LEFT JOIN tables t ON o.table_id = t.id
             WHERE ko.status IN ('ready', 'completed')
               AND o.branch_id = $1
-            ORDER BY ko.completed_at DESC
-            LIMIT 30
-        `, [branchId]);
+            ORDER BY ko.completed_at DESC NULLS LAST, ko.updated_at DESC
+            LIMIT $2
+        `, [branchId, parseInt(limit)]);
+        
         res.json({ success: true, data: result.rows });
     } catch (err) {
-        console.error("Completed orders error:", err);
+        console.error("Get completed orders error:", err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// ============================================================
+// GET KITCHEN ORDER DETAILS
+// ============================================================
+router.get("/orders/:orderId", authorizeBranch, allowKitchen, async (req, res) => {
+    const { orderId } = req.params;
+    const branchId = req.user.branch_id;
+    
+    try {
+        const result = await pool.query(`
+            SELECT 
+                ko.*,
+                o.order_number,
+                o.total_amount,
+                o.customer_name,
+                o.customer_phone,
+                o.notes as order_notes,
+                o.table_id,
+                t.table_number,
+                COALESCE(
+                    json_agg(
+                        json_build_object(
+                            'id', oi.id,
+                            'product_id', oi.product_id,
+                            'name', p.name,
+                            'quantity', oi.quantity,
+                            'unit_price', oi.unit_price,
+                            'total_price', oi.total_price
+                        )
+                    ) FILTER (WHERE p.id IS NOT NULL), 
+                    '[]'
+                ) as items
+            FROM kitchen_orders ko
+            JOIN orders o ON ko.order_id = o.id
+            LEFT JOIN tables t ON o.table_id = t.id
+            LEFT JOIN order_items oi ON o.id = oi.order_id
+            LEFT JOIN products p ON oi.product_id = p.id
+            WHERE ko.order_id = $1 AND o.branch_id = $2
+            GROUP BY ko.id, o.order_number, o.total_amount, o.customer_name, o.customer_phone, o.notes, o.table_id, t.table_number
+        `, [parseInt(orderId), branchId]);
+        
+        if (result.rows.length === 0) {
+            return res.status(404).json({ success: false, error: "Order not found" });
+        }
+        
+        res.json({ success: true, data: result.rows[0] });
+    } catch (err) {
+        console.error("Get kitchen order details error:", err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// ============================================================
+// BULK UPDATE ORDER STATUS
+// ============================================================
+router.put("/orders/bulk-status", authorizeBranch, allowKitchen, async (req, res) => {
+    const { orderIds, status } = req.body;
+    const branchId = req.user.branch_id;
+    
+    if (!orderIds || !Array.isArray(orderIds) || orderIds.length === 0) {
+        return res.status(400).json({ 
+            success: false, 
+            error: "orderIds array is required" 
+        });
+    }
+
+    const validStatuses = ['pending', 'preparing', 'ready', 'completed', 'cancelled'];
+    if (!status || !validStatuses.includes(status)) {
+        return res.status(400).json({ 
+            success: false, 
+            error: 'Invalid status' 
+        });
+    }
+
+    try {
+        const results = [];
+        for (const orderId of orderIds) {
+            const orderIdInt = parseInt(orderId);
+            if (isNaN(orderIdInt)) continue;
+            
+            await pool.query(
+                `UPDATE kitchen_orders 
+                 SET status = $1, updated_at = NOW() 
+                 WHERE order_id = $2`,
+                [status, orderIdInt]
+            );
+
+            if (status === 'preparing') {
+                await pool.query(
+                    `UPDATE kitchen_orders 
+                     SET started_at = NOW() 
+                     WHERE order_id = $1 AND started_at IS NULL`,
+                    [orderIdInt]
+                );
+            }
+
+            if (status === 'ready' || status === 'completed') {
+                await pool.query(
+                    `UPDATE kitchen_orders 
+                     SET completed_at = NOW() 
+                     WHERE order_id = $1 AND completed_at IS NULL`,
+                    [orderIdInt]
+                );
+            }
+
+            const orderStatus = status === 'pending' ? 'pending' : 
+                               status === 'preparing' ? 'preparing' : 
+                               status === 'ready' ? 'ready' : 
+                               status === 'completed' ? 'completed' : 'cancelled';
+
+            await pool.query(
+                "UPDATE orders SET status = $1, updated_at = NOW() WHERE id = $2",
+                [orderStatus, orderIdInt]
+            );
+
+            results.push({ order_id: orderIdInt, status: status });
+        }
+
+        res.json({
+            success: true,
+            message: `Updated ${results.length} orders to ${status}`,
+            data: results
+        });
+    } catch (err) {
+        console.error("Bulk update error:", err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// ============================================================
+// GET KITCHEN STATS
+// ============================================================
+router.get("/stats", authorizeBranch, allowKitchen, async (req, res) => {
+    try {
+        const branchId = req.user.branch_id;
+        
+        const result = await pool.query(`
+            SELECT 
+                COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending_count,
+                COUNT(CASE WHEN status = 'preparing' THEN 1 END) as preparing_count,
+                COUNT(CASE WHEN status = 'ready' THEN 1 END) as ready_count,
+                COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed_count,
+                COUNT(*) as total_count,
+                AVG(EXTRACT(EPOCH FROM (completed_at - started_at))) as avg_prep_time_seconds,
+                MAX(EXTRACT(EPOCH FROM (completed_at - started_at))) as max_prep_time_seconds,
+                MIN(EXTRACT(EPOCH FROM (completed_at - started_at))) as min_prep_time_seconds
+            FROM kitchen_orders ko
+            JOIN orders o ON ko.order_id = o.id
+            WHERE o.branch_id = $1
+              AND ko.created_at >= NOW() - INTERVAL '24 hours'
+        `, [branchId]);
+        
+        res.json({ success: true, data: result.rows[0] });
+    } catch (err) {
+        console.error("Get kitchen stats error:", err);
         res.status(500).json({ success: false, error: err.message });
     }
 });
@@ -42434,8 +43218,8 @@ export default router;
 // server/src/routes/orders.js
 
 import express from "express";
-import { protect, allowWaiter, allowCashier, allowKitchen, allowManager, allowOwner } from "../middleware/auth.js";
-import { authorizeCompany, authorizeBranch, requireCompanyContext } from "../middleware/authorization.js";
+import { protect, allowWaiter, allowCashier } from "../middleware/auth.js";
+import { authorizeBranch } from "../middleware/authorization.js";
 import { idempotent, requireIdempotency } from "../middleware/idempotency.js";
 import { pool } from "../config/database.js";
 import rateLimit from "express-rate-limit";
@@ -42443,7 +43227,6 @@ import { processOrderStockDeduction } from "../controllers/recipeController.js";
 
 const router = express.Router();
 
-// Rate limiter for public tracking endpoint
 const trackLimiter = rateLimit({
     windowMs: 60 * 1000,
     max: 30,
@@ -42468,7 +43251,6 @@ const generateOrderNumber = () => {
 // PUBLIC ROUTES
 // ============================================================
 
-// Track order - public
 router.get("/track/:orderNumber", trackLimiter, async (req, res) => {
     const { orderNumber } = req.params;
     try {
@@ -42503,7 +43285,6 @@ router.get("/track/:orderNumber", trackLimiter, async (req, res) => {
     }
 });
 
-// QR order - public (assigns branch from table)
 router.post("/qr-order", requireIdempotency, idempotent, async (req, res) => {
     try {
         const { items, table_id, customer_name, customer_phone, notes } = req.body;
@@ -42591,10 +43372,9 @@ router.post("/qr-order", requireIdempotency, idempotent, async (req, res) => {
 // PROTECTED ROUTES
 // ============================================================
 router.use(protect);
-router.use(requireCompanyContext);
 
 // ============================================================
-// WAITER ROUTES (Branch-level)
+// WAITER ROUTES
 // ============================================================
 
 router.get("/", authorizeBranch, allowWaiter, async (req, res) => {
@@ -42723,9 +43503,7 @@ router.post("/", authorizeBranch, allowWaiter, requireIdempotency, idempotent, a
                     created_by: userId
                 };
                 
-                // Emit to kitchen
                 io.to(`kitchen_${branchId}`).emit('new_order', orderData);
-                // Emit to branch room
                 io.to(`branch_${companyId}_${branchId}`).emit('new_order_branch', orderData);
             }
             
@@ -42751,6 +43529,98 @@ router.post("/", authorizeBranch, allowWaiter, requireIdempotency, idempotent, a
         res.status(500).json({ success: false, error: err.message });
     }
 });
+
+// ============================================================
+// CASHIER ROUTES - MUST BE BEFORE /:orderId
+// ============================================================
+
+// GET READY ORDERS - MUST BE BEFORE ANY /:orderId ROUTE
+router.get("/ready", protect, async (req, res) => {
+    try {
+        const branchId = req.user?.branch_id || 1;
+        const companyId = req.user?.company_id || 1;
+        
+        const result = await pool.query(`
+            SELECT 
+                id, 
+                order_number, 
+                total_amount, 
+                customer_name, 
+                table_id,
+                created_at,
+                status,
+                payment_status
+            FROM orders 
+            WHERE payment_status = 'pending'
+                AND status = 'pending'
+                AND branch_id = $1
+                AND company_id = $2
+            ORDER BY created_at ASC
+        `, [branchId, companyId]);
+        
+        res.json({ success: true, data: result.rows });
+    } catch (err) {
+        console.error("[READY] Error:", err.message);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+router.post("/:orderId/pay", authorizeBranch, allowCashier, requireIdempotency, idempotent, async (req, res) => {
+    const { orderId } = req.params;
+    const { payment_method } = req.body;
+    const branchId = req.user.branch_id;
+    const companyId = req.user.company_id;
+    
+    const client = await pool.connect();
+    try {
+        await client.query("BEGIN");
+        const orderResult = await client.query(`
+            SELECT o.*, ko.status as kitchen_status 
+            FROM orders o
+            JOIN kitchen_orders ko ON o.id = ko.order_id
+            WHERE o.id = $1 AND o.branch_id = $2 AND o.company_id = $3
+        `, [orderId, branchId, companyId]);
+        if (orderResult.rows.length === 0) {
+            throw new Error("Order not found");
+        }
+        const order = orderResult.rows[0];
+        if (order.kitchen_status !== 'ready') {
+            throw new Error("Order is not ready for payment");
+        }
+        if (order.payment_status === 'paid') {
+            throw new Error("Order already paid");
+        }
+        await client.query(`
+            UPDATE orders 
+            SET payment_status = 'paid', payment_method = $1, status = 'completed', updated_at = NOW()
+            WHERE id = $2
+        `, [payment_method, orderId]);
+        if (order.table_id) {
+            await client.query(`
+                UPDATE tables 
+                SET status = 'available', current_order_id = NULL, updated_at = NOW()
+                WHERE id = $1
+            `, [order.table_id]);
+        }
+        const saleNumber = generateSaleNumber();
+        await client.query(`
+            INSERT INTO sales (sale_number, order_id, total_amount, payment_method, status, branch_id, company_id, created_at)
+            VALUES ($1, $2, $3, $4, 'completed', $5, $6, NOW())
+        `, [saleNumber, orderId, order.total_amount, payment_method, branchId, companyId]);
+        await client.query("COMMIT");
+        res.json({ success: true, message: "Payment processed successfully", data: { sale_number: saleNumber, order_id: orderId, total_amount: order.total_amount } });
+    } catch (err) {
+        await client.query("ROLLBACK");
+        console.error("Payment error:", err);
+        res.status(500).json({ success: false, error: err.message });
+    } finally {
+        client.release();
+    }
+});
+
+// ============================================================
+// WAITER ROUTES - WITH :orderId PARAM (MUST BE AFTER /ready)
+// ============================================================
 
 router.get("/:orderId", authorizeBranch, allowWaiter, async (req, res) => {
     const { orderId } = req.params;
@@ -43040,89 +43910,6 @@ router.get("/my-orders", authorizeBranch, allowWaiter, async (req, res) => {
     } catch (err) {
         console.error("Get waiter orders error:", err);
         res.status(500).json({ success: false, error: err.message });
-    }
-});
-
-// ============================================================
-// CASHIER ROUTES (Branch-level)
-// ============================================================
-
-router.get("/ready", authorizeBranch, allowCashier, async (req, res) => {
-    try {
-        const branchId = req.user.branch_id;
-        const companyId = req.user.company_id;
-        const result = await pool.query(`
-            SELECT o.id, o.order_number, o.total_amount, o.customer_name, o.table_id,
-                   t.table_number, o.created_at,
-                   ko.status as kitchen_status
-            FROM orders o
-            LEFT JOIN tables t ON o.table_id = t.id
-            LEFT JOIN kitchen_orders ko ON o.id = ko.order_id
-            WHERE o.payment_status = 'pending'
-                AND o.status != 'completed'
-                AND o.status != 'cancelled'
-                AND o.branch_id = $1
-                AND o.company_id = $2
-                AND (ko.status = 'ready' OR ko.status IS NULL)
-            ORDER BY o.created_at ASC
-        `, [branchId, companyId]);
-        res.json({ success: true, data: result.rows });
-    } catch (err) {
-        console.error("Ready orders error:", err);
-        res.status(500).json({ success: false, error: err.message });
-    }
-});
-
-router.post("/:orderId/pay", authorizeBranch, allowCashier, requireIdempotency, idempotent, async (req, res) => {
-    const { orderId } = req.params;
-    const { payment_method } = req.body;
-    const branchId = req.user.branch_id;
-    const companyId = req.user.company_id;
-    
-    const client = await pool.connect();
-    try {
-        await client.query("BEGIN");
-        const orderResult = await client.query(`
-            SELECT o.*, ko.status as kitchen_status 
-            FROM orders o
-            JOIN kitchen_orders ko ON o.id = ko.order_id
-            WHERE o.id = $1 AND o.branch_id = $2 AND o.company_id = $3
-        `, [orderId, branchId, companyId]);
-        if (orderResult.rows.length === 0) {
-            throw new Error("Order not found");
-        }
-        const order = orderResult.rows[0];
-        if (order.kitchen_status !== 'ready') {
-            throw new Error("Order is not ready for payment");
-        }
-        if (order.payment_status === 'paid') {
-            throw new Error("Order already paid");
-        }
-        await client.query(`
-            UPDATE orders 
-            SET payment_status = 'paid', payment_method = $1, status = 'completed', updated_at = NOW()
-            WHERE id = $2
-        `, [payment_method, orderId]);
-        if (order.table_id) {
-            await client.query(`
-                UPDATE tables 
-                SET status = 'available', current_order_id = NULL, updated_at = NOW()
-                WHERE id = $1
-            `, [order.table_id]);
-        }
-        const saleNumber = generateSaleNumber();
-        await client.query(`
-            INSERT INTO sales (sale_number, order_id, total_amount, payment_method, status, branch_id, company_id, created_at)
-            VALUES ($1, $2, $3, $4, 'completed', $5, $6, NOW())
-        `, [saleNumber, orderId, order.total_amount, payment_method, branchId, companyId]);
-        await client.query("COMMIT");
-        res.json({ success: true, message: "Payment processed successfully", data: { sale_number: saleNumber, order_id: orderId, total_amount: order.total_amount } });
-    } catch (err) {
-        await client.query("ROLLBACK");
-        console.error("Payment error:", err);
-        res.status(500).json({ success: false, error: err.message });
-    } finally {
-        client.release();
     }
 });
 
@@ -44335,6 +45122,158 @@ server.listen(PORT, async () => {
 });
 
 export { app, server, io };
+=== FILE: C:\Users\dell\Desktop\restaurant\server\tests\api.test.js ===
+// server/tests/api.test.js
+import { describe, it, before, after } from 'node:test';
+import assert from 'node:assert';
+import axios from 'axios';
+
+const BASE_URL = process.env.TEST_API_URL || 'https://ethiopos1.onrender.com/api';
+let authToken = null;
+let testOrderId = null;
+let testProductId = null;
+
+const api = axios.create({
+    baseURL: BASE_URL,
+    headers: {
+        'Content-Type': 'application/json'
+    }
+});
+
+api.interceptors.request.use(config => {
+    if (authToken) {
+        config.headers.Authorization = `Bearer ${authToken}`;
+    }
+    return config;
+});
+
+describe('EthioPOS API Tests', () => {
+    
+    describe('Authentication', () => {
+        
+        it('should login as admin', async () => {
+            const res = await api.post('/auth/login', {
+                email: 'admin@example.com',
+                password: 'admin123'
+            });
+            assert.strictEqual(res.status, 200);
+            assert(res.data.success === true);
+            assert(res.data.token);
+            authToken = res.data.token;
+            console.log('âœ… Login successful');
+        });
+
+        it('should reject invalid credentials', async () => {
+            try {
+                await api.post('/auth/login', {
+                    email: 'wrong@example.com',
+                    password: 'wrong123'
+                });
+                assert.fail('Should have thrown error');
+            } catch (err) {
+                assert.strictEqual(err.response.status, 401);
+                console.log('âœ… Invalid credentials rejected');
+            }
+        });
+    });
+
+    describe('Products', () => {
+        
+        it('should get products', async () => {
+            const res = await api.get('/products');
+            assert.strictEqual(res.status, 200);
+            assert(res.data.success === true);
+            console.log(`âœ… Got ${res.data.data.length} products`);
+        });
+
+        it('should create a product', async () => {
+            const res = await api.post('/products', {
+                name: 'Test Product',
+                price: 99.99,
+                category: 'Test'
+            });
+            assert.strictEqual(res.status, 201);
+            assert(res.data.success === true);
+            testProductId = res.data.data.id;
+            console.log(`âœ… Product created: ${testProductId}`);
+        });
+    });
+
+    describe('Orders', () => {
+        
+        it('should get orders', async () => {
+            const res = await api.get('/orders');
+            assert.strictEqual(res.status, 200);
+            assert(res.data.success === true);
+            console.log('âœ… Got orders');
+        });
+
+        it('should create an order', async () => {
+            const res = await api.post('/orders', {
+                items: [{ product_id: testProductId, quantity: 2 }],
+                order_type: 'dine_in'
+            }, {
+                headers: {
+                    'Idempotency-Key': `test_${Date.now()}`
+                }
+            });
+            assert.strictEqual(res.status, 201);
+            assert(res.data.success === true);
+            testOrderId = res.data.data.order_id;
+            console.log(`âœ… Order created: ${testOrderId}`);
+        });
+    });
+
+    describe('Idempotency', () => {
+        
+        it('should handle duplicate with same key', async () => {
+            const idempotencyKey = `duplicate_${Date.now()}`;
+            
+            const res1 = await api.post('/orders', {
+                items: [{ product_id: testProductId, quantity: 1 }]
+            }, {
+                headers: {
+                    'Idempotency-Key': idempotencyKey
+                }
+            });
+            assert.strictEqual(res1.status, 201);
+            
+            const res2 = await api.post('/orders', {
+                items: [{ product_id: testProductId, quantity: 1 }]
+            }, {
+                headers: {
+                    'Idempotency-Key': idempotencyKey
+                }
+            });
+            assert.strictEqual(res2.status, 200);
+            console.log('âœ… Idempotency working');
+        });
+    });
+
+    describe('Tables', () => {
+        
+        it('should get tables', async () => {
+            const res = await api.get('/tables');
+            assert.strictEqual(res.status, 200);
+            assert(res.data.success === true);
+            console.log(`âœ… Got ${res.data.data.length} tables`);
+        });
+    });
+
+    describe('Dashboard', () => {
+        
+        it('should get dashboard data', async () => {
+            const res = await api.get('/dashboard');
+            assert.strictEqual(res.status, 200);
+            assert(res.data.success === true);
+            console.log('âœ… Dashboard data retrieved');
+        });
+    });
+});
+
+console.log('\n========================================');
+console.log('âœ… All tests completed');
+console.log('========================================');
 === FILE: C:\Users\dell\Desktop\restaurant\server\hash.js ===
 import bcrypt from 'bcrypt';
 const pw = process.argv[2];
@@ -44366,6 +45305,7 @@ console.log(bcrypt.hashSync(pw, 10));
         "socket.io": "^4.8.3"
       },
       "devDependencies": {
+        "axios": "^1.20.0",
         "nodemon": "^3.0.1"
       }
     },
@@ -44415,6 +45355,44 @@ console.log(bcrypt.hashSync(pw, 10));
         "node": ">= 0.6"
       }
     },
+    "node_modules/agent-base": {
+      "version": "6.0.2",
+      "resolved": "https://registry.npmjs.org/agent-base/-/agent-base-6.0.2.tgz",
+      "integrity": "sha512-RZNwNclF7+MS/8bDg70amg32dyeZGZxiDuQmZxKLAlQjr3jGyLx+4Kkk58UO7D2QdgFIQCovuSuZESne6RG6XQ==",
+      "dev": true,
+      "license": "MIT",
+      "dependencies": {
+        "debug": "4"
+      },
+      "engines": {
+        "node": ">= 6.0.0"
+      }
+    },
+    "node_modules/agent-base/node_modules/debug": {
+      "version": "4.4.3",
+      "resolved": "https://registry.npmjs.org/debug/-/debug-4.4.3.tgz",
+      "integrity": "sha512-RGwwWnwQvkVfavKVt22FGLw+xYSdzARwm0ru6DhTVA3umU5hZc28V3kO4stgYryrTlLpuvgI9GiijltAjNbcqA==",
+      "dev": true,
+      "license": "MIT",
+      "dependencies": {
+        "ms": "^2.1.3"
+      },
+      "engines": {
+        "node": ">=6.0"
+      },
+      "peerDependenciesMeta": {
+        "supports-color": {
+          "optional": true
+        }
+      }
+    },
+    "node_modules/agent-base/node_modules/ms": {
+      "version": "2.1.3",
+      "resolved": "https://registry.npmjs.org/ms/-/ms-2.1.3.tgz",
+      "integrity": "sha512-6FlzubTLZG3J2a/NVCAleEhjzq5oxgHyaCU9yYXvcLsvoVaHJq/s5xXI6/XXP6tz7R9xAOtHnSO/tXtF3WRTlA==",
+      "dev": true,
+      "license": "MIT"
+    },
     "node_modules/anymatch": {
       "version": "3.1.3",
       "resolved": "https://registry.npmjs.org/anymatch/-/anymatch-3.1.3.tgz",
@@ -44440,6 +45418,26 @@ console.log(bcrypt.hashSync(pw, 10));
       "resolved": "https://registry.npmjs.org/array-flatten/-/array-flatten-1.1.1.tgz",
       "integrity": "sha512-PCVAQswWemu6UdxsDFFX/+gVeYqKAod3D3UVm91jHwynguOwAvYPhx8nNlM++NqRcK6CxxpUafjmhIdKiHibqg==",
       "license": "MIT"
+    },
+    "node_modules/asynckit": {
+      "version": "0.4.0",
+      "resolved": "https://registry.npmjs.org/asynckit/-/asynckit-0.4.0.tgz",
+      "integrity": "sha512-Oei9OH4tRh0YqU3GxhX79dM/mwVgvbZJaSNaRk+bshkj0S5cfHcgYakreBjrHwatXKbz+IoIdYLxrKim2MjW0Q==",
+      "dev": true,
+      "license": "MIT"
+    },
+    "node_modules/axios": {
+      "version": "1.20.0",
+      "resolved": "https://registry.npmjs.org/axios/-/axios-1.20.0.tgz",
+      "integrity": "sha512-r8aOh8j9cGKpgQAqpzrUHnSIc6a59Y3Xf/cv8sy1DrHCkZHzQGEuoq1tARk6qSyDdtQGSDgpb9kFlruzPvrgwg==",
+      "dev": true,
+      "license": "MIT",
+      "dependencies": {
+        "follow-redirects": "^1.16.0",
+        "form-data": "^4.0.6",
+        "https-proxy-agent": "^5.0.1",
+        "proxy-from-env": "^2.1.0"
+      }
     },
     "node_modules/balanced-match": {
       "version": "4.0.4",
@@ -44659,6 +45657,19 @@ console.log(bcrypt.hashSync(pw, 10));
         "node": ">=9"
       }
     },
+    "node_modules/combined-stream": {
+      "version": "1.0.8",
+      "resolved": "https://registry.npmjs.org/combined-stream/-/combined-stream-1.0.8.tgz",
+      "integrity": "sha512-FQN4MRfuJeHf7cBbBMJFXhKSDq+2kAArBlmRBvcvFE5BB1HZKXtSFASDhdlz9zOYwxh8lDdnvmMOe/+5cdoEdg==",
+      "dev": true,
+      "license": "MIT",
+      "dependencies": {
+        "delayed-stream": "~1.0.0"
+      },
+      "engines": {
+        "node": ">= 0.8"
+      }
+    },
     "node_modules/concat-stream": {
       "version": "2.0.0",
       "resolved": "https://registry.npmjs.org/concat-stream/-/concat-stream-2.0.0.tgz",
@@ -44734,6 +45745,16 @@ console.log(bcrypt.hashSync(pw, 10));
       "license": "MIT",
       "dependencies": {
         "ms": "2.0.0"
+      }
+    },
+    "node_modules/delayed-stream": {
+      "version": "1.0.0",
+      "resolved": "https://registry.npmjs.org/delayed-stream/-/delayed-stream-1.0.0.tgz",
+      "integrity": "sha512-ZySD7Nf91aLB0RxL4KGrKHBXl7Eds1DAmEdcoVawXnLD7SDhpNgtuII2aAkg7a7QS41jxPSZ17p4VdGnMHk3MQ==",
+      "dev": true,
+      "license": "MIT",
+      "engines": {
+        "node": ">=0.4.0"
       }
     },
     "node_modules/depd": {
@@ -44888,6 +45909,22 @@ console.log(bcrypt.hashSync(pw, 10));
         "node": ">= 0.4"
       }
     },
+    "node_modules/es-set-tostringtag": {
+      "version": "2.1.0",
+      "resolved": "https://registry.npmjs.org/es-set-tostringtag/-/es-set-tostringtag-2.1.0.tgz",
+      "integrity": "sha512-j6vWzfrGVfyXxge+O0x5sh6cvxAog0a/4Rdd2K36zCMV5eJ+/+tOAngRO8cODMNWbVRdVlmGZQL2YS3yR8bIUA==",
+      "dev": true,
+      "license": "MIT",
+      "dependencies": {
+        "es-errors": "^1.3.0",
+        "get-intrinsic": "^1.2.6",
+        "has-tostringtag": "^1.0.2",
+        "hasown": "^2.0.2"
+      },
+      "engines": {
+        "node": ">= 0.4"
+      }
+    },
     "node_modules/escape-html": {
       "version": "1.0.3",
       "resolved": "https://registry.npmjs.org/escape-html/-/escape-html-1.0.3.tgz",
@@ -44993,6 +46030,44 @@ console.log(bcrypt.hashSync(pw, 10));
       },
       "engines": {
         "node": ">= 0.8"
+      }
+    },
+    "node_modules/follow-redirects": {
+      "version": "1.16.0",
+      "resolved": "https://registry.npmjs.org/follow-redirects/-/follow-redirects-1.16.0.tgz",
+      "integrity": "sha512-y5rN/uOsadFT/JfYwhxRS5R7Qce+g3zG97+JrtFZlC9klX/W5hD7iiLzScI4nZqUS7DNUdhPgw4xI8W2LuXlUw==",
+      "dev": true,
+      "funding": [
+        {
+          "type": "individual",
+          "url": "https://github.com/sponsors/RubenVerborgh"
+        }
+      ],
+      "license": "MIT",
+      "engines": {
+        "node": ">=4.0"
+      },
+      "peerDependenciesMeta": {
+        "debug": {
+          "optional": true
+        }
+      }
+    },
+    "node_modules/form-data": {
+      "version": "4.0.6",
+      "resolved": "https://registry.npmjs.org/form-data/-/form-data-4.0.6.tgz",
+      "integrity": "sha512-vKatAh4SlVfgbv+YtmhiRjhEMJsYpsG1Y2rMQtR+SVSbytsSD1YGzDIcrAJmdFec88u/+VoGmxnl+80gL1tRCQ==",
+      "dev": true,
+      "license": "MIT",
+      "dependencies": {
+        "asynckit": "^0.4.0",
+        "combined-stream": "^1.0.8",
+        "es-set-tostringtag": "^2.1.0",
+        "hasown": "^2.0.4",
+        "mime-types": "^2.1.35"
+      },
+      "engines": {
+        "node": ">= 6"
       }
     },
     "node_modules/forwarded": {
@@ -45121,10 +46196,26 @@ console.log(bcrypt.hashSync(pw, 10));
         "url": "https://github.com/sponsors/ljharb"
       }
     },
+    "node_modules/has-tostringtag": {
+      "version": "1.0.2",
+      "resolved": "https://registry.npmjs.org/has-tostringtag/-/has-tostringtag-1.0.2.tgz",
+      "integrity": "sha512-NqADB8VjPFLM2V0VvHUewwwsw0ZWBaIdgo+ieHtK3hasLz4qeCRjYcqfB6AQrBggRKppKF8L52/VqdVsO47Dlw==",
+      "dev": true,
+      "license": "MIT",
+      "dependencies": {
+        "has-symbols": "^1.0.3"
+      },
+      "engines": {
+        "node": ">= 0.4"
+      },
+      "funding": {
+        "url": "https://github.com/sponsors/ljharb"
+      }
+    },
     "node_modules/hasown": {
-      "version": "2.0.3",
-      "resolved": "https://registry.npmjs.org/hasown/-/hasown-2.0.3.tgz",
-      "integrity": "sha512-ej4AhfhfL2Q2zpMmLo7U1Uv9+PyhIZpgQLGT1F9miIGmiCJIoCgSmczFdrc97mWT4kVY72KA+WnnhJ5pghSvSg==",
+      "version": "2.0.4",
+      "resolved": "https://registry.npmjs.org/hasown/-/hasown-2.0.4.tgz",
+      "integrity": "sha512-T2UbfbBEF32wiepXIsMlTW9+dDYC6wMh/t/vYA4tuOMKqWz/n3vr1NFSxQiyP+zk2mXsoMA/i/7qV6LKut1t1A==",
       "license": "MIT",
       "dependencies": {
         "function-bind": "^1.1.2"
@@ -45161,6 +46252,45 @@ console.log(bcrypt.hashSync(pw, 10));
         "type": "opencollective",
         "url": "https://opencollective.com/express"
       }
+    },
+    "node_modules/https-proxy-agent": {
+      "version": "5.0.1",
+      "resolved": "https://registry.npmjs.org/https-proxy-agent/-/https-proxy-agent-5.0.1.tgz",
+      "integrity": "sha512-dFcAjpTQFgoLMzC2VwU+C/CbS7uRL0lWmxDITmqm7C+7F0Odmj6s9l6alZc6AELXhrnggM2CeWSXHGOdX2YtwA==",
+      "dev": true,
+      "license": "MIT",
+      "dependencies": {
+        "agent-base": "6",
+        "debug": "4"
+      },
+      "engines": {
+        "node": ">= 6"
+      }
+    },
+    "node_modules/https-proxy-agent/node_modules/debug": {
+      "version": "4.4.3",
+      "resolved": "https://registry.npmjs.org/debug/-/debug-4.4.3.tgz",
+      "integrity": "sha512-RGwwWnwQvkVfavKVt22FGLw+xYSdzARwm0ru6DhTVA3umU5hZc28V3kO4stgYryrTlLpuvgI9GiijltAjNbcqA==",
+      "dev": true,
+      "license": "MIT",
+      "dependencies": {
+        "ms": "^2.1.3"
+      },
+      "engines": {
+        "node": ">=6.0"
+      },
+      "peerDependenciesMeta": {
+        "supports-color": {
+          "optional": true
+        }
+      }
+    },
+    "node_modules/https-proxy-agent/node_modules/ms": {
+      "version": "2.1.3",
+      "resolved": "https://registry.npmjs.org/ms/-/ms-2.1.3.tgz",
+      "integrity": "sha512-6FlzubTLZG3J2a/NVCAleEhjzq5oxgHyaCU9yYXvcLsvoVaHJq/s5xXI6/XXP6tz7R9xAOtHnSO/tXtF3WRTlA==",
+      "dev": true,
+      "license": "MIT"
     },
     "node_modules/iconv-lite": {
       "version": "0.4.24",
@@ -45781,6 +46911,16 @@ console.log(bcrypt.hashSync(pw, 10));
         "node": ">= 0.10"
       }
     },
+    "node_modules/proxy-from-env": {
+      "version": "2.1.0",
+      "resolved": "https://registry.npmjs.org/proxy-from-env/-/proxy-from-env-2.1.0.tgz",
+      "integrity": "sha512-cJ+oHTW1VAEa8cJslgmUZrc+sjRKgAKl3Zyse6+PV38hZe/V6Z14TbCuXcan9F9ghlz4QrFr2c92TNF82UkYHA==",
+      "dev": true,
+      "license": "MIT",
+      "engines": {
+        "node": ">=10"
+      }
+    },
     "node_modules/pstree.remy": {
       "version": "1.1.8",
       "resolved": "https://registry.npmjs.org/pstree.remy/-/pstree.remy-1.1.8.tgz",
@@ -46319,7 +47459,7 @@ console.log(bcrypt.hashSync(pw, 10));
 {
   "name": "restaurant-pos-backend",
   "version": "1.0.0",
-"description": "Restaurant POS System Backend",
+  "description": "Restaurant POS System Backend",
   "type": "module",
   "main": "src/server.js",
   "scripts": {
@@ -46342,6 +47482,7 @@ console.log(bcrypt.hashSync(pw, 10));
     "socket.io": "^4.8.3"
   },
   "devDependencies": {
+    "axios": "^1.20.0",
     "nodemon": "^3.0.1"
   }
 }

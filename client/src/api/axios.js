@@ -14,6 +14,9 @@ const API = axios.create({
 
 console.log('API Base URL:', API_URL);
 
+// ✅ FIX: Prevent redirect loops
+let isRedirecting = false;
+
 // Request interceptor - add token and branch for owner
 API.interceptors.request.use(
   (config) => {
@@ -54,7 +57,6 @@ API.interceptors.request.use(
             '/auth/me'
           ];
           
-          // Check if this endpoint should get branch param
           const shouldAddBranch = branchEndpoints.some(endpoint => 
             config.url?.includes(endpoint) || config.url?.startsWith(endpoint)
           );
@@ -105,15 +107,37 @@ API.interceptors.response.use(
       return API(config);
     }
     
+    // ✅ FIX: Prevent redirect loops
     if (error.response?.status === 401) {
       const isPublicRoute = error.config?.url?.includes('/qr-order') || 
                            error.config?.url?.includes('/track') ||
                            error.config?.url?.includes('/products');
-      if (!isPublicRoute) {
+      
+      if (!isPublicRoute && !isRedirecting) {
+        isRedirecting = true;
+        
+        // Clear auth data
         localStorage.removeItem('token');
         localStorage.removeItem('user');
         localStorage.removeItem('ethiopos_selected_branch');
-        window.location.href = '/login';
+        
+        // Use React Router navigation if available, otherwise fallback to window.location
+        try {
+          // Check if we're in a React Router context
+          const navigate = window.__reactRouterNavigate;
+          if (navigate) {
+            navigate('/login');
+          } else {
+            window.location.href = '/login';
+          }
+        } catch (e) {
+          window.location.href = '/login';
+        }
+        
+        // Reset redirect flag after a delay
+        setTimeout(() => {
+          isRedirecting = false;
+        }, 1000);
       }
     }
     
