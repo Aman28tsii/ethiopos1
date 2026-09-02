@@ -1,5 +1,4 @@
 ﻿// server/src/server.js
-
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
@@ -32,54 +31,55 @@ const server = createServer(app);
 const JWT_SECRET = process.env.JWT_SECRET || 'your_super_secret_key';
 const PORT = process.env.PORT || 5000;
 
-// ✅ FIX: Allow multiple origins
-const allowedOrigins = [
-    'https://ethiopos1.onrender.com',
-    'https://ethiopos1-1.onrender.com',
-    'https://ethiopos-offline-pos.onrender.com',
-    'http://localhost:3000',
-    'http://localhost:3001'
-];
+// ✅ FIX: Allow ALL origins for development, restrict in production
+const allowedOrigins = (process.env.CORS_ORIGIN || '').split(',').map(o => o.trim()).filter(Boolean);
 
-// ✅ FIX: CORS middleware with dynamic origin
-app.use(cors({
+// If no origins specified, allow all (development mode)
+const corsOptions = {
     origin: function (origin, callback) {
         // Allow requests with no origin (like mobile apps or curl)
         if (!origin) return callback(null, true);
+        
+        // If no allowed origins configured, allow all (development)
+        if (allowedOrigins.length === 0) {
+            return callback(null, true);
+        }
         
         if (allowedOrigins.indexOf(origin) !== -1) {
             callback(null, true);
         } else {
             console.log(`[CORS] Blocked origin: ${origin}`);
-            callback(new Error('Not allowed by CORS'));
-        }
-    },
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "Idempotency-Key"]
-}));
-
-// ✅ FIX: Socket.IO with dynamic CORS
-const io = new SocketServer(server, {
-    cors: {
-        origin: function (origin, callback) {
-            if (!origin) return callback(null, true);
-            if (allowedOrigins.indexOf(origin) !== -1) {
+            // In development, allow all
+            if (process.env.NODE_ENV !== 'production') {
                 callback(null, true);
             } else {
                 callback(new Error('Not allowed by CORS'));
             }
-        },
-        methods: ["GET", "POST", "PUT", "DELETE"],
-        credentials: true,
-        allowedHeaders: ["Content-Type", "Authorization", "Idempotency-Key"]
+        }
     },
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization", "Idempotency-Key", "X-Requested-With"]
+};
+
+// ✅ Apply CORS middleware
+app.use(cors(corsOptions));
+
+// ✅ Handle preflight requests
+app.options('*', cors(corsOptions));
+
+// ✅ Socket.IO with same CORS
+const io = new SocketServer(server, {
+    cors: corsOptions,
     path: "/socket.io",
     transports: ['polling', 'websocket'],
     allowEIO3: true,
     pingTimeout: 60000,
     pingInterval: 25000,
-    cookie: false
+    cookie: false,
+    // ✅ FIX: Don't upgrade immediately, let polling work first
+    upgrade: true,
+    allowUpgrades: true
 });
 
 // Socket.IO authentication middleware
@@ -110,20 +110,7 @@ io.use((socket, next) => {
 
 app.set("io", io);
 
-// ✅ FIX: Health check with CORS headers
-app.get("/health", (req, res) => {
-    const origin = req.headers.origin;
-    if (origin && allowedOrigins.includes(origin)) {
-        res.setHeader('Access-Control-Allow-Origin', origin);
-    }
-    res.setHeader('Access-Control-Allow-Credentials', 'true');
-    res.json({ status: "ok", timestamp: new Date().toISOString() });
-});
-
-// ✅ FIX: Preflight for all routes
-app.options('*', cors());
-
-// Middleware
+// ✅ Other middleware
 app.use(helmet({
     crossOriginResourcePolicy: { policy: "cross-origin" },
     contentSecurityPolicy: false
@@ -132,7 +119,10 @@ app.use(helmet({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Routes
+// ============================================================
+// ROUTES
+// ============================================================
+
 app.use("/api/auth", authRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/expenses", expenseRoutes);
@@ -148,22 +138,51 @@ app.use("/api/waiter", waiterRoutes);
 app.use("/api/categories", categoryRoutes);
 app.use("/api/customers", customerRoutes);
 
+// ============================================================
+// HEALTH CHECK - With CORS headers
+// ============================================================
+
+app.get("/health", (req, res) => {
+    const origin = req.headers.origin;
+    if (origin) {
+        res.setHeader('Access-Control-Allow-Origin', origin);
+    } else {
+        res.setHeader('Access-Control-Allow-Origin', '*');
+    }
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.json({ status: "ok", timestamp: new Date().toISOString() });
+});
+
 app.get("/", (req, res) => {
     res.json({
         name: "EthioPOS API",
         version: "1.0.0",
         status: "running",
-        endpoints: "/api/*"
+        endpoints: "/api/*",
+        cors_origins: allowedOrigins.length > 0 ? allowedOrigins : 'all'
     });
 });
+
+// ============================================================
+// ERROR HANDLING
+// ============================================================
 
 app.use(notFound);
 app.use(errorHandler);
 
-// Socket.IO events
+// ============================================================
+// SOCKET.IO EVENTS
+// ============================================================
+
 io.on("connection", (socket) => {
     const user = socket.user;
     console.log(`[SOCKET] Client connected: ${socket.id} (${user?.email || 'unknown'})`);
+    console.log(`[SOCKET] Transport: ${socket.conn.transport.name}`);
+
+    // ✅ Keep connection alive with ping
+    socket.on('ping', () => {
+        socket.emit('pong');
+    });
 
     socket.on('join_branch', (data) => {
         try {
@@ -224,10 +243,15 @@ io.on("connection", (socket) => {
     });
 });
 
+// ============================================================
+// START SERVER
+// ============================================================
+
 server.listen(PORT, async () => {
     console.log(`🚀 Server running on port ${PORT}`);
     console.log(`🔗 API: http://localhost:${PORT}/api`);
     console.log(`🔌 WebSocket: ws://localhost:${PORT}/socket.io`);
+    console.log(`📡 CORS origins: ${allowedOrigins.length > 0 ? allowedOrigins.join(', ') : 'ALL'}`);
     
     const dbConnected = await testConnection();
     if (dbConnected) {

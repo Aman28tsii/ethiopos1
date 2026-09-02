@@ -1,7 +1,7 @@
 ﻿// client/src/socket.js
 import io from 'socket.io-client';
 
-// ✅ FIX: Use environment variable or relative URL
+// ✅ FIX: Use the same URL as the API
 const SOCKET_URL = process.env.REACT_APP_SOCKET_URL || window.location.origin;
 
 let socket = null;
@@ -10,6 +10,7 @@ let reconnectAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = 3;
 const RECONNECT_DELAY = 5000;
 let connectionTimeout = null;
+let reconnectTimer = null;
 
 // Get auth token
 const getToken = () => {
@@ -37,7 +38,7 @@ const shouldAttemptConnection = () => {
         console.log('[SOCKET] Offline - skipping connection');
         return false;
     }
-    if (isConnected && socket) {
+    if (isConnected && socket && socket.connected) {
         return false;
     }
     if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
@@ -49,13 +50,13 @@ const shouldAttemptConnection = () => {
 
 // Connect to Socket.IO
 export const connectSocket = () => {
-    // Prevent multiple connection attempts
-    if (connectionTimeout) {
-        clearTimeout(connectionTimeout);
-        connectionTimeout = null;
+    // Clear any pending reconnect attempts
+    if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
     }
 
-    if (socket && isConnected) {
+    if (socket && isConnected && socket.connected) {
         console.log('[SOCKET] Already connected');
         return socket;
     }
@@ -74,6 +75,12 @@ export const connectSocket = () => {
     console.log('[SOCKET] Connecting to:', SOCKET_URL);
 
     try {
+        // ✅ FIX: Close existing socket if any
+        if (socket) {
+            socket.disconnect();
+            socket = null;
+        }
+
         socket = io(SOCKET_URL, {
             path: '/socket.io',
             transports: ['polling', 'websocket'],
@@ -89,7 +96,7 @@ export const connectSocket = () => {
             reconnectionDelayMax: 10000,
             timeout: 10000,
             upgrade: true,
-            forceNew: false,
+            forceNew: true,
             withCredentials: true
         });
 
@@ -122,7 +129,9 @@ export const connectSocket = () => {
             
             if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
                 console.log('[SOCKET] Max attempts reached, giving up');
-                socket.disconnect();
+                if (socket) {
+                    socket.disconnect();
+                }
             }
         });
 
@@ -173,9 +182,9 @@ export const connectSocket = () => {
 
 // Disconnect Socket.IO
 export const disconnectSocket = () => {
-    if (connectionTimeout) {
-        clearTimeout(connectionTimeout);
-        connectionTimeout = null;
+    if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
     }
     if (socket) {
         console.log('[SOCKET] Disconnecting...');
@@ -186,14 +195,15 @@ export const disconnectSocket = () => {
     }
 };
 
-// Get socket instance
+// Get socket instance - ✅ FIX: Don't auto-connect
 export const getSocket = () => {
     if (!navigator.onLine) {
         console.log('[SOCKET] Offline - returning null');
         return null;
     }
     if (!socket || !isConnected) {
-        return connectSocket();
+        console.log('[SOCKET] Socket not connected, call connectSocket() first');
+        return null;
     }
     return socket;
 };
@@ -209,28 +219,25 @@ export const emitEvent = (event, data) => {
         console.log(`[SOCKET] Offline - cannot emit ${event}`);
         return false;
     }
-    const s = getSocket();
-    if (s && isConnected) {
-        s.emit(event, data);
-        return true;
+    if (!socket || !isConnected) {
+        console.log(`[SOCKET] Cannot emit ${event} - not connected`);
+        return false;
     }
-    console.log(`[SOCKET] Cannot emit ${event} - not connected`);
-    return false;
+    socket.emit(event, data);
+    return true;
 };
 
 // Listen for event
 export const onEvent = (event, callback) => {
-    const s = getSocket();
-    if (s) {
-        s.on(event, callback);
+    if (socket) {
+        socket.on(event, callback);
     }
 };
 
 // Off event
 export const offEvent = (event, callback) => {
-    const s = getSocket();
-    if (s) {
-        s.off(event, callback);
+    if (socket) {
+        socket.off(event, callback);
     }
 };
 
@@ -238,21 +245,13 @@ export const offEvent = (event, callback) => {
 export const setupOfflineHandlers = () => {
     const handleOnline = () => {
         console.log('[SOCKET] Network online - attempting reconnect');
-        if (!socket || !isConnected) {
-            // Add a small delay to prevent race conditions
-            connectionTimeout = setTimeout(() => {
-                connectSocket();
-                connectionTimeout = null;
-            }, 1000);
-        }
+        // ✅ FIX: Don't auto-connect, let the app decide
+        // Just reset the reconnect attempts
+        reconnectAttempts = 0;
     };
     
     const handleOffline = () => {
         console.log('[SOCKET] Network offline - disconnecting');
-        if (connectionTimeout) {
-            clearTimeout(connectionTimeout);
-            connectionTimeout = null;
-        }
         if (socket) {
             socket.disconnect();
         }
@@ -265,10 +264,6 @@ export const setupOfflineHandlers = () => {
     return () => {
         window.removeEventListener('online', handleOnline);
         window.removeEventListener('offline', handleOffline);
-        if (connectionTimeout) {
-            clearTimeout(connectionTimeout);
-            connectionTimeout = null;
-        }
     };
 };
 
