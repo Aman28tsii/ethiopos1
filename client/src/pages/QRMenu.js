@@ -1,4 +1,5 @@
-﻿import React, { useState, useEffect } from 'react';
+﻿// client/src/pages/QRMenu.js
+import React, { useState, useEffect } from 'react';
 import API from '../api/axios';
 import { 
   ShoppingCart, Plus, Minus, X, Utensils, Phone, MapPin, Clock, 
@@ -7,6 +8,7 @@ import {
 import socket from '../socket';
 import { useLanguage } from '../context/LanguageContext';
 import { formatCurrency, getProductEmoji } from '../utils/formatting';
+import { generateIdempotencyKey } from '../services/orderService';
 
 const QRMenu = () => {
   const { t } = useLanguage();
@@ -78,34 +80,6 @@ const QRMenu = () => {
       case 'ready': return React.createElement(Coffee, { size: 24, className: 'text-green-500' });
       case 'completed': return React.createElement(Truck, { size: 24, className: 'text-purple-500' });
       default: return React.createElement(Clock, { size: 24, className: 'text-gray-500' });
-    }
-  };
-
-  // Add more items function
-  const addMoreItemsToExistingOrder = async function() {
-    if (cart.length === 0) {
-      alert(t('pleaseAddItems'));
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const response = await API.post('/orders/' + currentOrder.order_id + '/customer-add-items', {
-        items: cart.map(function(item) { return { product_id: item.id, quantity: item.quantity }; })
-      });
-
-      if (response.data.success) {
-        alert('Items added to order! New Total: ' + formatCurrency(response.data.new_total));
-        setCart([]);
-        setShowCart(false);
-        await fetchOrderDetails(currentOrder.order_number);
-        setIsAddingMoreItems(false);
-      }
-    } catch (err) {
-      console.error('Add items error:', err);
-      alert(err.response?.data?.error || 'Failed to add items');
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -241,6 +215,46 @@ const QRMenu = () => {
     }
   };
 
+  // ✅ FIX: Add More Items with Idempotency Key
+  const addMoreItemsToExistingOrder = async function() {
+    if (cart.length === 0) {
+      alert(t('pleaseAddItems'));
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const orderData = {
+        order_id: currentOrder.order_id,
+        items: cart.map(function(item) { return { product_id: item.id, quantity: item.quantity }; })
+      };
+      
+      // ✅ Generate idempotency key for add items
+      const idempotencyKey = generateIdempotencyKey(orderData);
+
+      const response = await API.post('/orders/' + currentOrder.order_id + '/customer-add-items', {
+        items: cart.map(function(item) { return { product_id: item.id, quantity: item.quantity }; })
+      }, {
+        headers: {
+          'Idempotency-Key': idempotencyKey
+        }
+      });
+
+      if (response.data.success) {
+        alert('Items added to order! New Total: ' + formatCurrency(response.data.new_total));
+        setCart([]);
+        setShowCart(false);
+        await fetchOrderDetails(currentOrder.order_number);
+        setIsAddingMoreItems(false);
+      }
+    } catch (err) {
+      console.error('Add items error:', err);
+      alert(err.response?.data?.error || 'Failed to add items');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Data fetching
   const fetchProducts = async function() {
     setLoading(true);
@@ -309,7 +323,7 @@ const QRMenu = () => {
     setCart(function(prev) { return prev.filter(function(item) { return item.id !== productId; }); });
   };
 
-  // Order placement
+  // ✅ FIX: Place Order with Idempotency Key
   const placeOrder = async function() {
     if (cart.length === 0) {
       alert(t('pleaseAddItems'));
@@ -328,7 +342,14 @@ const QRMenu = () => {
         source: 'qr_menu'
       };
 
-      const response = await API.post('/orders/qr-order', orderData);
+      // ✅ Generate unique idempotency key
+      const idempotencyKey = generateIdempotencyKey(orderData);
+
+      const response = await API.post('/orders/qr-order', orderData, {
+        headers: {
+          'Idempotency-Key': idempotencyKey
+        }
+      });
       
       if (response.data.success) {
         const data = response.data.data;
@@ -681,8 +702,7 @@ const QRMenu = () => {
                     {loading ? 'Adding...' : 'Add to Order'}
                   </button>
                   <button
-                    onClick={function() { setShowCart(false); }}
-                    className="flex-1 py-3 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-xl font-semibold"
+                    onClick={function() { setShowCart(false); }} className="flex-1 py-3 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-xl font-semibold"
                   >
                     Continue Shopping
                   </button>
@@ -861,7 +881,7 @@ const QRMenu = () => {
     );
   }
 
-  // Main Menu Screen - simplified (this is the main render)
+  // Main Menu Screen
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
       <header className="bg-gradient-to-r from-blue-600 to-purple-600 text-white sticky top-0 z-30 shadow-lg">
@@ -1020,7 +1040,11 @@ const QRMenu = () => {
               <input type="text" placeholder="Your name (optional)" value={customerName} onChange={function(e) { setCustomerName(e.target.value); }} className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg mb-2 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500" />
               <input type="tel" placeholder="Your phone (optional)" value={customerPhone} onChange={function(e) { setCustomerPhone(e.target.value); }} className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg mb-2 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500" />
               <textarea placeholder="Special instructions" value={specialInstructions} onChange={function(e) { setSpecialInstructions(e.target.value); }} className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg mb-4 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500" rows={2} />
-              <button onClick={placeOrder} disabled={cart.length === 0 || loading} className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold transition">{loading ? 'Placing Order...' : 'Place Order'}</button>
+              
+              {/* ✅ FIX: placeOrder now includes idempotency key */}
+              <button onClick={placeOrder} disabled={cart.length === 0 || loading} className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold transition">
+                {loading ? 'Placing Order...' : 'Place Order'}
+              </button>
               <p className="text-xs text-gray-500 dark:text-gray-400 text-center mt-3">Waiter will confirm your order</p>
             </div>
           </div>
