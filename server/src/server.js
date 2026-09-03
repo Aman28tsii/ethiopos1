@@ -31,24 +31,62 @@ const server = createServer(app);
 const JWT_SECRET = process.env.JWT_SECRET || 'your_super_secret_key';
 const PORT = process.env.PORT || 5000;
 
-// ✅ CORS - Allow all origins
-app.use(cors({
-    origin: '*',
+// ============================================================
+// ALLOWED ORIGINS
+// ============================================================
+
+const allowedOrigins = [
+    'https://ethiopos1-1.onrender.com',
+    'https://ethiopos1.onrender.com',
+    'http://localhost:3000',
+    'http://localhost:3001',
+    'https://ethiopos-offline-pos.onrender.com'
+];
+
+// ============================================================
+// ✅ CORS CONFIGURATION - FIXED
+// ============================================================
+
+const corsOptions = {
+    origin: function (origin, callback) {
+        // Allow requests with no origin (like mobile apps or curl)
+        if (!origin) return callback(null, true);
+        
+        if (allowedOrigins.indexOf(origin) !== -1) {
+            callback(null, true);
+        } else {
+            // Allow all in development, restrict in production
+            if (process.env.NODE_ENV !== 'production') {
+                callback(null, true);
+            } else {
+                console.log(`[CORS] Blocked origin: ${origin}`);
+                callback(new Error('Not allowed by CORS'));
+            }
+        }
+    },
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "Idempotency-Key"]
-}));
+    allowedHeaders: [
+        "Content-Type",
+        "Authorization",
+        "Idempotency-Key",
+        "cache-control",      // ✅ FIXED - Added cache-control
+        "X-Requested-With",
+        "Accept",
+        "Origin"
+    ]
+};
 
-app.options('*', cors());
+// Apply CORS middleware
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
 
-// ✅ Socket.IO
+// ============================================================
+// Socket.IO with CORS
+// ============================================================
+
 const io = new SocketServer(server, {
-    cors: {
-        origin: '*',
-        methods: ["GET", "POST", "PUT", "DELETE"],
-        credentials: true,
-        allowedHeaders: ["Content-Type", "Authorization", "Idempotency-Key"]
-    },
+    cors: corsOptions,
     path: "/socket.io",
     transports: ['polling', 'websocket'],
     allowEIO3: true,
@@ -57,7 +95,7 @@ const io = new SocketServer(server, {
     cookie: false
 });
 
-// Socket.IO auth
+// Socket.IO authentication middleware
 io.use((socket, next) => {
     const token = socket.handshake.auth.token || socket.handshake.query.token;
     if (!token) {
@@ -81,7 +119,10 @@ io.use((socket, next) => {
 
 app.set("io", io);
 
+// ============================================================
 // Middleware
+// ============================================================
+
 app.use(helmet({
     crossOriginResourcePolicy: { policy: "cross-origin" },
     contentSecurityPolicy: false
@@ -91,7 +132,7 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // ============================================================
-// ROUTES
+// Routes
 // ============================================================
 
 app.use("/api/auth", authRoutes);
@@ -110,11 +151,19 @@ app.use("/api/categories", categoryRoutes);
 app.use("/api/customers", customerRoutes);
 
 // ============================================================
-// HEALTH CHECK
+// Health Check - With explicit CORS headers
 // ============================================================
 
 app.get("/health", (req, res) => {
-    res.setHeader('Access-Control-Allow-Origin', '*');
+    const origin = req.headers.origin;
+    if (origin && allowedOrigins.includes(origin)) {
+        res.setHeader('Access-Control-Allow-Origin', origin);
+    } else {
+        res.setHeader('Access-Control-Allow-Origin', '*');
+    }
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, cache-control');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
     res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
@@ -128,14 +177,14 @@ app.get("/", (req, res) => {
 });
 
 // ============================================================
-// ERROR HANDLING
+// Error Handling
 // ============================================================
 
 app.use(notFound);
 app.use(errorHandler);
 
 // ============================================================
-// SOCKET.IO EVENTS
+// Socket.IO Events
 // ============================================================
 
 io.on("connection", (socket) => {
@@ -187,17 +236,19 @@ io.on("connection", (socket) => {
 });
 
 // ============================================================
-// START SERVER
+// Start Server
 // ============================================================
 
 server.listen(PORT, async () => {
     console.log(`🚀 Server running on port ${PORT}`);
     console.log(`🔗 API: http://localhost:${PORT}/api`);
     console.log(`🔌 WebSocket: ws://localhost:${PORT}/socket.io`);
+    console.log(`📡 CORS allowed origins: ${allowedOrigins.join(', ')}`);
+    console.log(`📡 CORS allowed headers: Content-Type, Authorization, cache-control`);
     
     const dbConnected = await testConnection();
     if (dbConnected) {
-        console.log("✅ Database connected");
+        console.log("✅ Database connected successfully");
     } else {
         console.log("❌ Database connection failed");
     }
