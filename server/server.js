@@ -70,7 +70,7 @@ const corsOptions = {
         "Content-Type",
         "Authorization",
         "Idempotency-Key",
-        "cache-control",      // ✅ CRITICAL FIX - THIS WAS MISSING
+        "cache-control",      // ✅ FIXED - Added cache-control
         "X-Requested-With",
         "Accept",
         "Origin"
