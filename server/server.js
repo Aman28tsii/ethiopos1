@@ -1,4 +1,4 @@
-// server/src/server.js
+// server/server.js
 
 import express from "express";
 import cors from "cors";
@@ -32,16 +32,19 @@ const server = createServer(app);
 const JWT_SECRET = process.env.JWT_SECRET || 'your_super_secret_key';
 const PORT = process.env.PORT || 5000;
 
-// ✅ FIX: Allow all headers including cache-control
+// ============================================================
+// ✅ CORS FIX - Allow cache-control header
+// ============================================================
+
 const corsOptions = {
-    origin: '*',
+    origin: '*', // Allow all origins for now
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: [
-        "Content-Type", 
-        "Authorization", 
-        "Idempotency-Key", 
-        "cache-control",
+        "Content-Type",
+        "Authorization",
+        "Idempotency-Key",
+        "cache-control",      // ✅ CRITICAL FIX
         "X-Requested-With",
         "Accept",
         "Origin"
@@ -51,7 +54,10 @@ const corsOptions = {
 app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
 
+// ============================================================
 // Socket.IO
+// ============================================================
+
 const io = new SocketServer(server, {
     cors: corsOptions,
     path: "/socket.io",
@@ -86,7 +92,10 @@ io.use((socket, next) => {
 
 app.set("io", io);
 
+// ============================================================
 // Middleware
+// ============================================================
+
 app.use(helmet({
     crossOriginResourcePolicy: { policy: "cross-origin" },
     contentSecurityPolicy: false
@@ -95,7 +104,10 @@ app.use(helmet({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// ============================================================
 // Routes
+// ============================================================
+
 app.use("/api/auth", authRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/expenses", expenseRoutes);
@@ -111,7 +123,10 @@ app.use("/api/waiter", waiterRoutes);
 app.use("/api/categories", categoryRoutes);
 app.use("/api/customers", customerRoutes);
 
-// ✅ FIX: Health check with proper CORS headers
+// ============================================================
+// Health Check - With proper CORS headers
+// ============================================================
+
 app.get("/health", (req, res) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -128,11 +143,17 @@ app.get("/", (req, res) => {
     });
 });
 
-// Error handling
+// ============================================================
+// Error Handling
+// ============================================================
+
 app.use(notFound);
 app.use(errorHandler);
 
-// Socket events
+// ============================================================
+// Socket Events
+// ============================================================
+
 io.on("connection", (socket) => {
     console.log(`[SOCKET] Connected: ${socket.id}`);
     
@@ -180,6 +201,10 @@ io.on("connection", (socket) => {
         console.log(`[SOCKET] Disconnected: ${socket.id} (${reason})`);
     });
 });
+
+// ============================================================
+// Start Server
+// ============================================================
 
 server.listen(PORT, async () => {
     console.log(`🚀 Server running on port ${PORT}`);
