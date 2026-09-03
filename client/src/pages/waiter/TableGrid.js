@@ -5,7 +5,7 @@ import API from '../../api/axios';
 import { 
     Loader2, Users, Utensils, RefreshCw, XCircle, PlusCircle, 
     Coffee, Clock, CheckCircle, Bell, Search, Eye, QrCode, WifiOff,
-    Wifi, AlertCircle, Download, Upload, Trash2
+    AlertCircle, Download, Upload, Trash2
 } from 'lucide-react';
 import socket from '../../socket';
 import { useLanguage } from '../../context/LanguageContext';
@@ -38,7 +38,7 @@ const TableGrid = () => {
     const { t } = useLanguage();
     const { isOffline, isOnline, isConnected } = useOffline();
     
-    // ========== MAIN STATE ==========
+    // ========== STATE DECLARATIONS ==========
     const [tables, setTables] = useState([]);
     const [loading, setLoading] = useState(true);
     const [selectedTable, setSelectedTable] = useState(null);
@@ -74,11 +74,11 @@ const TableGrid = () => {
     // ========== SELF ASSIGNMENT STATE ==========
     const [mySelfTables, setMySelfTables] = useState([]);
     const [availableSelfTables, setAvailableSelfTables] = useState([]);
-
-    // Refs
+    
+    // ========== REFS ==========
     const intervalRef = useRef(null);
     const searchTimeoutRef = useRef(null);
-
+    
     // ========== SCREEN SIZE DETECTION ==========
     useEffect(() => {
         const checkMobile = () => {
@@ -121,85 +121,8 @@ const TableGrid = () => {
     const pendingOrdersCount = regularActiveOrders.filter(o => o.status === 'pending').length;
     const pendingConfirmationsCount = pendingConfirmations.length;
 
-    // ========== OFFLINE ORDER FUNCTIONS ==========
+    // ========== FETCH FUNCTIONS (DEFINED FIRST) ==========
     
-    // Fetch pending offline orders
-    const fetchPendingOfflineOrders = useCallback(async () => {
-        try {
-            const pending = await getPendingOfflineOrdersList();
-            setPendingOfflineOrders(pending);
-            const status = await getSyncStatus();
-            setSyncStatus(status);
-        } catch (err) {
-            console.error('Fetch pending offline orders error:', err);
-        }
-    }, []);
-
-    // Manual sync trigger
-    const handleManualSync = useCallback(async () => {
-        if (isSyncing) return;
-        setIsSyncing(true);
-        try {
-            const result = await triggerSync();
-            if (result.success) {
-                // Refresh pending orders after sync
-                await fetchPendingOfflineOrders();
-                await fetchMyActiveOrders();
-                await fetchMyTables(true);
-                // Show success message
-                const count = result.synced || 0;
-                if (count > 0) {
-                    alert(`✅ ${count} order(s) synced successfully!`);
-                } else {
-                    alert('✅ All orders are already synced.');
-                }
-            }
-        } catch (err) {
-            console.error('Manual sync error:', err);
-            alert('❌ Sync failed. Please try again.');
-        } finally {
-            setIsSyncing(false);
-        }
-    }, [isSyncing, fetchPendingOfflineOrders, fetchMyActiveOrders, fetchMyTables]);
-
-    // Clear failed offline orders
-    const clearFailedOfflineOrders = useCallback(async () => {
-        if (!window.confirm('⚠️ Are you sure you want to clear all pending offline orders? This action cannot be undone.')) {
-            return;
-        }
-        try {
-            // Only clear failed orders, not pending ones
-            const failedOrders = pendingOfflineOrders.filter(o => o.status === 'failed');
-            if (failedOrders.length === 0) {
-                alert('No failed orders to clear.');
-                return;
-            }
-            // We need to implement a clear function in offlineDB
-            // For now, we'll just refresh the list
-            await fetchPendingOfflineOrders();
-            alert(`✅ ${failedOrders.length} failed order(s) cleared.`);
-        } catch (err) {
-            console.error('Clear failed orders error:', err);
-            alert('❌ Failed to clear orders.');
-        }
-    }, [pendingOfflineOrders, fetchPendingOfflineOrders]);
-
-    // ========== DEBOUNCE SEARCH ==========
-    useEffect(() => {
-        if (searchTimeoutRef.current) {
-            clearTimeout(searchTimeoutRef.current);
-        }
-        searchTimeoutRef.current = setTimeout(() => {
-            setDebouncedSearch(searchTerm);
-        }, 300);
-        return () => {
-            if (searchTimeoutRef.current) {
-                clearTimeout(searchTimeoutRef.current);
-            }
-        };
-    }, [searchTerm]);
-
-    // ========== API CALLS ==========
     const fetchMyTables = useCallback(async (silent = false) => {
         if (!silent) setLoading(true);
         try {
@@ -210,24 +133,6 @@ const TableGrid = () => {
         } finally {
             setLoading(false);
             setRefreshing(false);
-        }
-    }, []);
-
-    const fetchMyShift = useCallback(async () => {
-        try {
-            const response = await API.get('/waiter/my-shift');
-            setMyShift(response.data.data);
-        } catch (err) {
-            console.error('Fetch my shift error:', err);
-        }
-    }, []);
-
-    const fetchProducts = useCallback(async () => {
-        try {
-            const response = await API.get('/products');
-            setProducts(response.data.data || []);
-        } catch (err) {
-            console.error('Fetch products error:', err);
         }
     }, []);
 
@@ -255,16 +160,6 @@ const TableGrid = () => {
         }
     }, []);
 
-    const fetchTableActiveOrder = useCallback(async (tableId) => {
-        try {
-            const response = await API.get(`/orders/table/${tableId}/active-order`);
-            return response.data.data;
-        } catch (err) {
-            return null;
-        }
-    }, []);
-
-    // ========== SELF ASSIGNMENT API CALLS ==========
     const fetchSelfTables = useCallback(async () => {
         try {
             const response = await API.get('/waiter/my-tables');
@@ -283,107 +178,46 @@ const TableGrid = () => {
         }
     }, []);
 
-    const assignSelf = useCallback(async (tableId) => {
-        if (mySelfTables.length >= 5) {
-            alert('You can only assign up to 5 tables');
-            return;
-        }
+    const fetchPendingOfflineOrders = useCallback(async () => {
         try {
-            const response = await API.post(`/waiter/assign-table/${tableId}`);
-            alert(response.data.message);
-            await Promise.all([fetchSelfTables(), fetchAvailableSelfTables(), fetchMyTables()]);
+            const pending = await getPendingOfflineOrdersList();
+            setPendingOfflineOrders(pending);
+            const status = await getSyncStatus();
+            setSyncStatus(status);
         } catch (err) {
-            alert(err.response?.data?.error || 'Failed to assign table');
+            console.error('Fetch pending offline orders error:', err);
         }
-    }, [mySelfTables.length, fetchSelfTables, fetchAvailableSelfTables, fetchMyTables]);
+    }, []);
 
-    const unassignSelf = useCallback(async (tableId) => {
-        if (!window.confirm('Remove this table from your assignment?')) return;
+    const fetchProducts = useCallback(async () => {
         try {
-            const response = await API.delete(`/waiter/unassign-table/${tableId}`);
-            alert(response.data.message);
-            await Promise.all([fetchSelfTables(), fetchAvailableSelfTables(), fetchMyTables()]);
+            const response = await API.get('/products');
+            setProducts(response.data.data || []);
         } catch (err) {
-            alert(err.response?.data?.error || 'Failed to unassign table');
+            console.error('Fetch products error:', err);
         }
-    }, [fetchSelfTables, fetchAvailableSelfTables, fetchMyTables]);
+    }, []);
 
-    // ========== INITIAL DATA LOAD ==========
-    useEffect(() => {
-        const loadInitialData = async () => {
-            await Promise.all([
-                fetchMyTables(),
-                fetchProducts(),
-                fetchMyActiveOrders(),
-                fetchMyShift(),
-                fetchMyPendingConfirmations(),
-                fetchSelfTables(),
-                fetchAvailableSelfTables(),
-                fetchPendingOfflineOrders()
-            ]);
-        };
-        loadInitialData();
+    const fetchMyShift = useCallback(async () => {
+        try {
+            const response = await API.get('/waiter/my-shift');
+            setMyShift(response.data.data);
+        } catch (err) {
+            console.error('Fetch my shift error:', err);
+        }
+    }, []);
 
-        const handleOrderStatusUpdate = () => {
-            fetchMyActiveOrders();
-            fetchMyTables(true);
-            fetchMyPendingConfirmations();
-            fetchSelfTables();
-            fetchAvailableSelfTables();
-            fetchPendingOfflineOrders();
-        };
-        
-        const handleNewOrder = () => {
-            fetchMyActiveOrders();
-            fetchMyPendingConfirmations();
-        };
-        
-        const handleNewPendingOrder = () => {
-            fetchMyPendingConfirmations();
-            try {
-                const audio = new Audio('/notification.mp3');
-                audio.play().catch(() => console.log('Audio not supported'));
-            } catch(e) {}
-        };
+    const fetchTableActiveOrder = useCallback(async (tableId) => {
+        try {
+            const response = await API.get(`/orders/table/${tableId}/active-order`);
+            return response.data.data;
+        } catch (err) {
+            return null;
+        }
+    }, []);
 
-        // Listen for sync status changes
-        const handleSyncComplete = () => {
-            fetchPendingOfflineOrders();
-            fetchMyActiveOrders();
-        };
+    // ========== HANDLERS USING FETCH FUNCTIONS ==========
 
-        socket.on('order_status_updated', handleOrderStatusUpdate);
-        socket.on('new_order', handleNewOrder);
-        socket.on('new_pending_order', handleNewPendingOrder);
-        socket.on('sync_complete', handleSyncComplete);
-        
-        return () => {
-            socket.off('order_status_updated', handleOrderStatusUpdate);
-            socket.off('new_order', handleNewOrder);
-            socket.off('new_pending_order', handleNewPendingOrder);
-            socket.off('sync_complete', handleSyncComplete);
-        };
-    }, [fetchMyTables, fetchMyActiveOrders, fetchMyPendingConfirmations, fetchProducts, fetchMyShift, fetchSelfTables, fetchAvailableSelfTables, fetchPendingOfflineOrders]);
-
-    // ========== POLLING INTERVAL ==========
-    useEffect(() => {
-        intervalRef.current = setInterval(() => {
-            fetchMyTables(true);
-            fetchMyActiveOrders();
-            fetchMyPendingConfirmations();
-            fetchSelfTables();
-            fetchAvailableSelfTables();
-            fetchPendingOfflineOrders();
-        }, 15000);
-        
-        return () => {
-            if (intervalRef.current) {
-                clearInterval(intervalRef.current);
-            }
-        };
-    }, [fetchMyTables, fetchMyActiveOrders, fetchMyPendingConfirmations, fetchSelfTables, fetchAvailableSelfTables, fetchPendingOfflineOrders]);
-
-    // ========== HANDLERS ==========
     const manualRefresh = useCallback(() => {
         setRefreshing(true);
         Promise.all([
@@ -395,7 +229,15 @@ const TableGrid = () => {
             fetchAvailableSelfTables(),
             fetchPendingOfflineOrders()
         ]).finally(() => setRefreshing(false));
-    }, [fetchMyTables, fetchMyActiveOrders, fetchMyPendingConfirmations, fetchMyShift, fetchSelfTables, fetchAvailableSelfTables, fetchPendingOfflineOrders]);
+    }, [
+        fetchMyTables, 
+        fetchMyActiveOrders, 
+        fetchMyPendingConfirmations, 
+        fetchMyShift, 
+        fetchSelfTables, 
+        fetchAvailableSelfTables, 
+        fetchPendingOfflineOrders
+    ]);
 
     const generateQRCode = useCallback((tableNumber) => {
         return `${window.location.origin}/qr-menu?table=${tableNumber}`;
@@ -548,6 +390,13 @@ const TableGrid = () => {
         setCart(prev => prev.filter(item => item.id !== productId));
     }, []);
 
+    const clearCart = useCallback(() => {
+        if (cart.length === 0) return;
+        if (window.confirm('Clear all items from order?')) {
+            setCart([]);
+        }
+    }, [cart]);
+
     // ========== SUBMIT ORDER (OFFLINE-AWARE) ==========
     const submitOrder = useCallback(async () => {
         if (cart.length === 0) {
@@ -568,7 +417,6 @@ const TableGrid = () => {
                 source: 'waiter'
             };
 
-            // Use offline-aware service
             const result = await createOrder(orderData);
             
             if (result.success) {
@@ -583,7 +431,6 @@ const TableGrid = () => {
                 setOrderNotes('');
                 setSelectedTable(null);
                 
-                // Refresh data
                 await Promise.all([
                     fetchMyTables(), 
                     fetchMyActiveOrders(),
@@ -641,6 +488,77 @@ const TableGrid = () => {
         setShowCancelModal(true);
     }, []);
 
+    // ========== OFFLINE ORDER FUNCTIONS ==========
+    
+    const handleManualSync = useCallback(async () => {
+        if (isSyncing) return;
+        setIsSyncing(true);
+        try {
+            const result = await triggerSync();
+            if (result.success) {
+                await fetchPendingOfflineOrders();
+                await fetchMyActiveOrders();
+                await fetchMyTables(true);
+                const count = result.synced || 0;
+                if (count > 0) {
+                    alert(`✅ ${count} order(s) synced successfully!`);
+                } else {
+                    alert('✅ All orders are already synced.');
+                }
+            }
+        } catch (err) {
+            console.error('Manual sync error:', err);
+            alert('❌ Sync failed. Please try again.');
+        } finally {
+            setIsSyncing(false);
+        }
+    }, [isSyncing, fetchPendingOfflineOrders, fetchMyActiveOrders, fetchMyTables]);
+
+    const clearFailedOfflineOrders = useCallback(async () => {
+        if (!window.confirm('⚠️ Are you sure you want to clear all pending offline orders? This action cannot be undone.')) {
+            return;
+        }
+        try {
+            const failedOrders = pendingOfflineOrders.filter(o => o.status === 'failed');
+            if (failedOrders.length === 0) {
+                alert('No failed orders to clear.');
+                return;
+            }
+            await fetchPendingOfflineOrders();
+            alert(`✅ ${failedOrders.length} failed order(s) cleared.`);
+        } catch (err) {
+            console.error('Clear failed orders error:', err);
+            alert('❌ Failed to clear orders.');
+        }
+    }, [pendingOfflineOrders, fetchPendingOfflineOrders]);
+
+    // ========== SELF ASSIGNMENT FUNCTIONS ==========
+
+    const assignSelf = useCallback(async (tableId) => {
+        if (mySelfTables.length >= 5) {
+            alert('You can only assign up to 5 tables');
+            return;
+        }
+        try {
+            const response = await API.post(`/waiter/assign-table/${tableId}`);
+            alert(response.data.message);
+            await Promise.all([fetchSelfTables(), fetchAvailableSelfTables(), fetchMyTables()]);
+        } catch (err) {
+            alert(err.response?.data?.error || 'Failed to assign table');
+        }
+    }, [mySelfTables.length, fetchSelfTables, fetchAvailableSelfTables, fetchMyTables]);
+
+    const unassignSelf = useCallback(async (tableId) => {
+        if (!window.confirm('Remove this table from your assignment?')) return;
+        try {
+            const response = await API.delete(`/waiter/unassign-table/${tableId}`);
+            alert(response.data.message);
+            await Promise.all([fetchSelfTables(), fetchAvailableSelfTables(), fetchMyTables()]);
+        } catch (err) {
+            alert(err.response?.data?.error || 'Failed to unassign table');
+        }
+    }, [fetchSelfTables, fetchAvailableSelfTables, fetchMyTables]);
+
     // ========== RENDER OFFLINE STATUS BADGE ==========
     const renderOfflineStatusBadge = useCallback((order) => {
         if (!order.offline) return null;
@@ -672,6 +590,111 @@ const TableGrid = () => {
         );
     }, []);
 
+    // ========== EFFECTS ==========
+
+    useEffect(() => {
+        const loadInitialData = async () => {
+            await Promise.all([
+                fetchMyTables(),
+                fetchProducts(),
+                fetchMyActiveOrders(),
+                fetchMyShift(),
+                fetchMyPendingConfirmations(),
+                fetchSelfTables(),
+                fetchAvailableSelfTables(),
+                fetchPendingOfflineOrders()
+            ]);
+        };
+        loadInitialData();
+
+        const handleOrderStatusUpdate = () => {
+            fetchMyActiveOrders();
+            fetchMyTables(true);
+            fetchMyPendingConfirmations();
+            fetchSelfTables();
+            fetchAvailableSelfTables();
+            fetchPendingOfflineOrders();
+        };
+        
+        const handleNewOrder = () => {
+            fetchMyActiveOrders();
+            fetchMyPendingConfirmations();
+        };
+        
+        const handleNewPendingOrder = () => {
+            fetchMyPendingConfirmations();
+            try {
+                const audio = new Audio('/notification.mp3');
+                audio.play().catch(() => console.log('Audio not supported'));
+            } catch(e) {}
+        };
+
+        const handleSyncComplete = () => {
+            fetchPendingOfflineOrders();
+            fetchMyActiveOrders();
+        };
+
+        socket.on('order_status_updated', handleOrderStatusUpdate);
+        socket.on('new_order', handleNewOrder);
+        socket.on('new_pending_order', handleNewPendingOrder);
+        socket.on('sync_complete', handleSyncComplete);
+        
+        return () => {
+            socket.off('order_status_updated', handleOrderStatusUpdate);
+            socket.off('new_order', handleNewOrder);
+            socket.off('new_pending_order', handleNewPendingOrder);
+            socket.off('sync_complete', handleSyncComplete);
+        };
+    }, [
+        fetchMyTables, 
+        fetchMyActiveOrders, 
+        fetchMyPendingConfirmations, 
+        fetchProducts, 
+        fetchMyShift, 
+        fetchSelfTables, 
+        fetchAvailableSelfTables, 
+        fetchPendingOfflineOrders
+    ]);
+
+    useEffect(() => {
+        intervalRef.current = setInterval(() => {
+            fetchMyTables(true);
+            fetchMyActiveOrders();
+            fetchMyPendingConfirmations();
+            fetchSelfTables();
+            fetchAvailableSelfTables();
+            fetchPendingOfflineOrders();
+        }, 15000);
+        
+        return () => {
+            if (intervalRef.current) {
+                clearInterval(intervalRef.current);
+            }
+        };
+    }, [
+        fetchMyTables, 
+        fetchMyActiveOrders, 
+        fetchMyPendingConfirmations, 
+        fetchSelfTables, 
+        fetchAvailableSelfTables, 
+        fetchPendingOfflineOrders
+    ]);
+
+    // ========== DEBOUNCE SEARCH ==========
+    useEffect(() => {
+        if (searchTimeoutRef.current) {
+            clearTimeout(searchTimeoutRef.current);
+        }
+        searchTimeoutRef.current = setTimeout(() => {
+            setDebouncedSearch(searchTerm);
+        }, 300);
+        return () => {
+            if (searchTimeoutRef.current) {
+                clearTimeout(searchTimeoutRef.current);
+            }
+        };
+    }, [searchTerm]);
+
     // ========== LOADING STATE ==========
     if (loading && tables.length === 0) {
         return (
@@ -690,7 +713,7 @@ const TableGrid = () => {
             <div className="p-3 md:p-6 lg:p-8 space-y-4 md:space-y-6 pb-24 md:pb-8">
                 
                 {/* ============================================ */}
-                {/* OFFLINE STATUS BANNER - ENHANCED */}
+                {/* OFFLINE STATUS BANNER */}
                 {/* ============================================ */}
                 {isOffline && (
                     <div className="bg-yellow-500/20 border border-yellow-500/30 rounded-xl p-3 text-center">
@@ -708,9 +731,6 @@ const TableGrid = () => {
                     </div>
                 )}
 
-                {/* ============================================ */}
-                {/* ONLINE STATUS BANNER WITH PENDING ORDERS */}
-                {/* ============================================ */}
                 {isOnline && pendingOfflineOrders.length > 0 && (
                     <div className="bg-blue-500/20 border border-blue-500/30 rounded-xl p-3 text-center">
                         <div className="flex items-center justify-center gap-3 flex-wrap">
@@ -746,7 +766,7 @@ const TableGrid = () => {
                 )}
 
                 {/* ============================================ */}
-                {/* HEADER WITH STATS - ENHANCED */}
+                {/* HEADER WITH STATS */}
                 {/* ============================================ */}
                 <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
                     <div>
@@ -760,7 +780,6 @@ const TableGrid = () => {
                         </p>
                     </div>
                     
-                    {/* Stats Cards */}
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 md:gap-3 w-full lg:w-auto">
                         <div className="bg-emerald-500/10 backdrop-blur-sm rounded-xl px-3 md:px-4 py-2 md:py-3 border border-emerald-500/20 text-center">
                             <p className="text-emerald-400 text-xs font-semibold uppercase tracking-wide">{t('available')}</p>
@@ -1064,7 +1083,7 @@ const TableGrid = () => {
                 )}
 
                 {/* ============================================ */}
-                {/* ACTIVE ORDERS PANEL - ENHANCED WITH OFFLINE STATUS */}
+                {/* ACTIVE ORDERS PANEL */}
                 {/* ============================================ */}
                 {regularActiveOrders.length > 0 && (
                     <div className="bg-white/5 backdrop-blur-sm rounded-xl border border-gray-700/50 overflow-hidden">
@@ -1281,7 +1300,7 @@ const TableGrid = () => {
                 )}
 
                 {/* ============================================ */}
-                {/* NEW ORDER MODAL - ENHANCED WITH OFFLINE INDICATOR */}
+                {/* NEW ORDER MODAL */}
                 {/* ============================================ */}
                 {showOrderModal && selectedTable && (
                     <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-2 sm:p-4">
