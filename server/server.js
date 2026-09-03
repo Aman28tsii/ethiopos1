@@ -1,5 +1,4 @@
-// server/server.js
-
+// server/src/server.js
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
@@ -33,29 +32,30 @@ const JWT_SECRET = process.env.JWT_SECRET || 'your_super_secret_key';
 const PORT = process.env.PORT || 5000;
 
 // ============================================================
-// ✅ CORS FIX - Allow cache-control header
+// ✅ CORS FIX - Allow all headers including cache-control
 // ============================================================
 
 const corsOptions = {
-    origin: '*', // Allow all origins for now
+    origin: '*',
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: [
         "Content-Type",
         "Authorization",
         "Idempotency-Key",
-        "cache-control",      // ✅ CRITICAL FIX
+        "cache-control",
         "X-Requested-With",
         "Accept",
         "Origin"
     ]
 };
 
+// Apply CORS middleware
 app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
 
 // ============================================================
-// Socket.IO
+// Socket.IO with CORS
 // ============================================================
 
 const io = new SocketServer(server, {
@@ -68,7 +68,7 @@ const io = new SocketServer(server, {
     cookie: false
 });
 
-// Socket.IO auth
+// Socket.IO authentication middleware
 io.use((socket, next) => {
     const token = socket.handshake.auth.token || socket.handshake.query.token;
     if (!token) {
@@ -151,7 +151,7 @@ app.use(notFound);
 app.use(errorHandler);
 
 // ============================================================
-// Socket Events
+// Socket.IO Events
 // ============================================================
 
 io.on("connection", (socket) => {
@@ -210,10 +210,11 @@ server.listen(PORT, async () => {
     console.log(`🚀 Server running on port ${PORT}`);
     console.log(`🔗 API: http://localhost:${PORT}/api`);
     console.log(`🔌 WebSocket: ws://localhost:${PORT}/socket.io`);
+    console.log(`📡 CORS: All origins allowed with cache-control header`);
     
     const dbConnected = await testConnection();
     if (dbConnected) {
-        console.log("✅ Database connected");
+        console.log("✅ Database connected successfully");
     } else {
         console.log("❌ Database connection failed");
     }
