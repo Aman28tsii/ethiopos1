@@ -68,7 +68,11 @@ router.get("/track/:orderNumber", trackLimiter, async (req, res) => {
     }
 });
 
-router.post("/qr-order", requireIdempotency, idempotent, async (req, res) => {
+// ============================================================
+// ✅ FIX: QR Order — Skip idempotency (public endpoint)
+// ============================================================
+
+router.post("/qr-order", async (req, res) => {
     try {
         const { items, table_id, customer_name, customer_phone, notes } = req.body;
         if (!items || items.length === 0) {
@@ -154,6 +158,7 @@ router.post("/qr-order", requireIdempotency, idempotent, async (req, res) => {
 // ============================================================
 // PROTECTED ROUTES
 // ============================================================
+
 router.use(protect);
 
 // ============================================================
@@ -314,10 +319,9 @@ router.post("/", authorizeBranch, allowWaiter, requireIdempotency, idempotent, a
 });
 
 // ============================================================
-// CASHIER ROUTES - MUST BE BEFORE /:orderId
+// CASHIER ROUTES
 // ============================================================
 
-// GET READY ORDERS - MUST BE BEFORE ANY /:orderId ROUTE
 router.get("/ready", protect, async (req, res) => {
     try {
         const branchId = req.user?.branch_id || 1;
@@ -402,7 +406,7 @@ router.post("/:orderId/pay", authorizeBranch, allowCashier, requireIdempotency, 
 });
 
 // ============================================================
-// WAITER ROUTES - WITH :orderId PARAM (MUST BE AFTER /ready)
+// WAITER ROUTES - WITH :orderId PARAM
 // ============================================================
 
 router.get("/:orderId", authorizeBranch, allowWaiter, async (req, res) => {
