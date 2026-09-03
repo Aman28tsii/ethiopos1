@@ -1,4 +1,4 @@
-// server/src/server.js
+// server/server.js
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
@@ -32,15 +32,20 @@ const JWT_SECRET = process.env.JWT_SECRET || 'your_super_secret_key';
 const PORT = process.env.PORT || 5000;
 
 // ============================================================
-// ✅ CORS FIX - Allow all headers including cache-control
+// ALLOWED ORIGINS
 // ============================================================
 
 const allowedOrigins = [
     'https://ethiopos1-1.onrender.com',
     'https://ethiopos1.onrender.com',
     'http://localhost:3000',
-    'http://localhost:3001'
+    'http://localhost:3001',
+    'https://ethiopos-offline-pos.onrender.com'
 ];
+
+// ============================================================
+// ✅ CORS CONFIGURATION - FIXED
+// ============================================================
 
 const corsOptions = {
     origin: function (origin, callback) {
@@ -50,7 +55,7 @@ const corsOptions = {
         if (allowedOrigins.indexOf(origin) !== -1) {
             callback(null, true);
         } else {
-            // Allow all in development
+            // Allow all in development, restrict in production
             if (process.env.NODE_ENV !== 'production') {
                 callback(null, true);
             } else {
@@ -65,13 +70,14 @@ const corsOptions = {
         "Content-Type",
         "Authorization",
         "Idempotency-Key",
-        "cache-control",      // ✅ CRITICAL FIX
+        "cache-control",      // ✅ CRITICAL FIX - THIS WAS MISSING
         "X-Requested-With",
         "Accept",
         "Origin"
     ]
 };
 
+// Apply CORS middleware
 app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
 
@@ -145,7 +151,7 @@ app.use("/api/categories", categoryRoutes);
 app.use("/api/customers", customerRoutes);
 
 // ============================================================
-// Health Check - With proper CORS headers
+// Health Check - With explicit CORS headers
 // ============================================================
 
 app.get("/health", (req, res) => {
@@ -157,6 +163,7 @@ app.get("/health", (req, res) => {
     }
     res.setHeader('Access-Control-Allow-Credentials', 'true');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, cache-control');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
     res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
@@ -237,6 +244,7 @@ server.listen(PORT, async () => {
     console.log(`🔗 API: http://localhost:${PORT}/api`);
     console.log(`🔌 WebSocket: ws://localhost:${PORT}/socket.io`);
     console.log(`📡 CORS allowed origins: ${allowedOrigins.join(', ')}`);
+    console.log(`📡 CORS allowed headers: Content-Type, Authorization, cache-control`);
     
     const dbConnected = await testConnection();
     if (dbConnected) {
