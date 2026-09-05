@@ -10,9 +10,10 @@ const generateSaleNumber = () => {
     return `SALE-${timestamp}${random}`;
 };
 
+// ✅ FIXED: calculateProductCost now includes wastage_percentage and cooking_loss_percentage
 const calculateProductCost = async (productId, quantity, client) => {
     const recipeResult = await client.query(
-        `SELECT ri.quantity_required, i.unit_cost
+        `SELECT ri.quantity_required, i.unit_cost, ri.wastage_percentage, ri.cooking_loss_percentage
          FROM recipe_ingredients ri
          JOIN ingredients i ON ri.ingredient_id = i.id
          WHERE ri.recipe_id IN (SELECT id FROM recipes WHERE product_id = $1)`,
@@ -21,14 +22,23 @@ const calculateProductCost = async (productId, quantity, client) => {
     
     let totalCost = 0;
     for (const item of recipeResult.rows) {
-        totalCost += parseFloat(item.quantity_required) * parseFloat(item.unit_cost) * quantity;
+        const qtyRequired = parseFloat(item.quantity_required) || 0;
+        const wastagePct = parseFloat(item.wastage_percentage) || 0;
+        const cookingLossPct = parseFloat(item.cooking_loss_percentage) || 0;
+        const unitCost = parseFloat(item.unit_cost) || 0;
+        
+        // Include wastage and cooking loss - matches stock deduction logic
+        const effectiveQty = qtyRequired * (1 + wastagePct / 100) * (1 + cookingLossPct / 100);
+        totalCost += effectiveQty * unitCost * quantity;
     }
     return totalCost;
 };
 
+// ✅ FIXED: deductIngredients now includes wastage and cooking loss in stock deduction
 const deductIngredients = async (productId, quantity, client) => {
     const recipeResult = await client.query(
-        `SELECT ri.ingredient_id, ri.quantity_required, i.quantity as current_stock, i.name
+        `SELECT ri.ingredient_id, ri.quantity_required, i.quantity as current_stock, i.name,
+                ri.wastage_percentage, ri.cooking_loss_percentage
          FROM recipe_ingredients ri
          JOIN ingredients i ON ri.ingredient_id = i.id
          WHERE ri.recipe_id IN (SELECT id FROM recipes WHERE product_id = $1)`,
@@ -36,11 +46,17 @@ const deductIngredients = async (productId, quantity, client) => {
     );
     
     for (const item of recipeResult.rows) {
-        const requiredAmount = parseFloat(item.quantity_required) * quantity;
+        const qtyRequired = parseFloat(item.quantity_required) || 0;
+        const wastagePct = parseFloat(item.wastage_percentage) || 0;
+        const cookingLossPct = parseFloat(item.cooking_loss_percentage) || 0;
         
-        if (parseFloat(item.current_stock) < requiredAmount) {
+        // Calculate required amount including wastage and cooking loss
+        const requiredAmount = qtyRequired * quantity * (1 + wastagePct / 100) * (1 + cookingLossPct / 100);
+        const currentStock = parseFloat(item.current_stock);
+        
+        if (currentStock < requiredAmount) {
             throw new AppError(
-                `Insufficient stock for ingredient: ${item.name}. Required: ${requiredAmount}, Available: ${item.current_stock}`,
+                `Insufficient stock for ingredient: ${item.name}. Required: ${requiredAmount.toFixed(2)}, Available: ${currentStock.toFixed(2)}`,
                 400,
                 'INSUFFICIENT_STOCK'
             );
@@ -56,7 +72,7 @@ const deductIngredients = async (productId, quantity, client) => {
 };
 
 // ============================================
-// GET ALL SALES (Branch-isolated) - ✅ FIXED
+// GET ALL SALES (Branch-isolated)
 // ============================================
 export const getSales = catchAsync(async (req, res) => {
     const { startDate, endDate, page = 1, limit = 20 } = req.query;
@@ -156,7 +172,7 @@ export const getSaleById = catchAsync(async (req, res) => {
 });
 
 // ============================================
-// CREATE SALE (Cashier+)
+// CREATE SALE (Cashier+) - ✅ FIXED with wastage
 // ============================================
 export const createSale = catchAsync(async (req, res) => {
     const { items, payment_method, customer_name, customer_phone } = req.body;
@@ -196,6 +212,8 @@ export const createSale = catchAsync(async (req, res) => {
             const quantity = item.quantity;
             const unitPrice = parseFloat(product.price);
             const itemTotal = unitPrice * quantity;
+            
+            // ✅ FIXED: calculateProductCost now includes wastage and cooking loss
             const itemCost = await calculateProductCost(item.product_id, quantity, client);
             
             totalAmount += itemTotal;
@@ -210,10 +228,12 @@ export const createSale = catchAsync(async (req, res) => {
                 cost: itemCost
             });
             
+            // ✅ FIXED: deductIngredients now includes wastage and cooking loss
             await deductIngredients(item.product_id, quantity, client);
         }
         
         const profit = totalAmount - totalCost;
+        const profitMargin = totalAmount > 0 ? (profit / totalAmount) * 100 : 0;
         const saleNumber = generateSaleNumber();
         
         const saleResult = await client.query(
@@ -244,7 +264,7 @@ export const createSale = catchAsync(async (req, res) => {
                 total_amount: totalAmount,
                 total_cost: totalCost,
                 profit: profit,
-                profit_margin: totalAmount > 0 ? (profit / totalAmount * 100).toFixed(2) : 0,
+                profit_margin: profitMargin.toFixed(2),
                 payment_method: payment_method,
                 items: saleItems
             }
@@ -275,7 +295,12 @@ export const getTodaySales = catchAsync(async (req, res) => {
            COUNT(*) as total_orders,
            COALESCE(SUM(total_amount), 0) as total_revenue,
            COALESCE(SUM(profit), 0) as total_profit,
-           COALESCE(AVG(total_amount), 0) as average_order
+           COALESCE(AVG(total_amount), 0) as average_order,
+           CASE 
+               WHEN SUM(total_amount) > 0 
+               THEN ROUND((SUM(profit) / SUM(total_amount)) * 100, 2)
+               ELSE 0 
+           END as profit_margin
          FROM sales
          WHERE DATE(created_at) = $1 
            AND status = 'completed'
