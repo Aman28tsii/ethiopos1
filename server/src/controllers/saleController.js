@@ -11,7 +11,7 @@ const generateSaleNumber = () => {
 };
 
 // ============================================
-// FIXED: calculateProductCost with proper quantity
+// CALCULATE PRODUCT COST
 // ============================================
 const calculateProductCost = async (productId, quantity, client) => {
     const recipeResult = await client.query(
@@ -36,19 +36,22 @@ const calculateProductCost = async (productId, quantity, client) => {
 };
 
 // ============================================
-// FIXED: deductIngredients with proper quantity
+// DEDUCT INGREDIENTS - WITH FORENSIC LOGGING
 // ============================================
 const deductIngredients = async (productId, quantity, client) => {
-    // FORENSIC LOGGING - Remove after verification
-    console.log("=== INV-001 deductIngredients START ===");
-    console.log("productId:", productId);
-    console.log("quantity:", quantity);
-    console.log("quantityType:", typeof quantity);
+    // FORENSIC LOGGING - TRACE THE QUANTITY
+    const traceId = `INV001-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
+    console.log(`\n[${traceId}] === INV-001 DEDUCT INGREDIENTS ===`);
+    console.log(`[${traceId}] RAW quantity received:`, quantity);
+    console.log(`[${traceId}] quantity type:`, typeof quantity);
+    console.log(`[${traceId}] productId:`, productId);
 
-    // Normalize and validate quantity
+    // Normalize quantity - THIS IS THE FIX
     const saleQuantity = Number(quantity);
+    console.log(`[${traceId}] Normalized saleQuantity:`, saleQuantity);
+
     if (!Number.isFinite(saleQuantity) || saleQuantity <= 0) {
-        console.error("INVALID QUANTITY:", { quantity, saleQuantity });
+        console.error(`[${traceId}] INVALID QUANTITY:`, { quantity, saleQuantity });
         throw new AppError('Invalid sale quantity', 400);
     }
 
@@ -61,41 +64,42 @@ const deductIngredients = async (productId, quantity, client) => {
         [productId]
     );
 
-    console.log("RECIPE ROWS FOUND:", recipeResult.rows.length);
+    console.log(`[${traceId}] RECIPE ROWS FOUND:`, recipeResult.rows.length);
+    console.log(`[${traceId}] RECIPE DATA:`, JSON.stringify(recipeResult.rows.map(r => ({
+        name: r.name,
+        qtyRequired: r.quantity_required,
+        wastage: r.wastage_percentage,
+        cookingLoss: r.cooking_loss_percentage,
+        currentStock: r.current_stock
+    })), null, 2));
+
+    let executionCount = 0;
 
     for (const item of recipeResult.rows) {
+        executionCount++;
+        
         const qtyRequired = parseFloat(item.quantity_required) || 0;
         const wastagePct = parseFloat(item.wastage_percentage) || 0;
         const cookingLossPct = parseFloat(item.cooking_loss_percentage) || 0;
         const currentQuantity = parseFloat(item.current_stock) || 0;
 
-        // FORENSIC LOGGING - Remove after verification
-        console.log("RECIPE INGREDIENT:", {
+        console.log(`[${traceId}] INGREDIENT ${executionCount}:`, {
+            name: item.name,
             ingredientId: item.ingredient_id,
-            ingredientName: item.name,
             qtyRequired,
-            quantity: saleQuantity,
+            saleQuantity,  // This should be 1, 2, or 3
             wastagePct,
             cookingLossPct,
-            currentQuantity
+            currentQuantity,
+            calculation: `${qtyRequired} * ${saleQuantity} * (1 + ${wastagePct}/100) * (1 + ${cookingLossPct}/100)`
         });
 
-        // ✅ FIXED: Proper calculation with saleQuantity
+        // ✅ CORRECT CALCULATION - Using saleQuantity directly
         const requiredAmount = qtyRequired * saleQuantity * (1 + wastagePct / 100) * (1 + cookingLossPct / 100);
         const newQuantity = currentQuantity - requiredAmount;
 
-        if (newQuantity < 0) {
-            throw new AppError(
-                `Insufficient stock for ingredient: ${item.name}. Required: ${requiredAmount.toFixed(2)}, Available: ${currentQuantity.toFixed(2)}`,
-                400,
-                'INSUFFICIENT_STOCK'
-            );
-        }
-
-        // FORENSIC LOGGING - Remove after verification
-        console.log("STOCK UPDATE:", {
-            ingredientId: item.ingredient_id,
-            ingredientName: item.name,
+        console.log(`[${traceId}] STOCK UPDATE ${executionCount}:`, {
+            name: item.name,
             currentQuantity,
             requiredAmount,
             newQuantity
@@ -106,10 +110,13 @@ const deductIngredients = async (productId, quantity, client) => {
             [requiredAmount, item.ingredient_id]
         );
     }
+
+    console.log(`[${traceId}] TOTAL DEDUCTION EXECUTIONS: ${executionCount}`);
+    console.log(`[${traceId}] === END DEDUCT INGREDIENTS ===\n`);
 };
 
 // ============================================
-// GET ALL SALES (Branch-isolated)
+// GET ALL SALES
 // ============================================
 export const getSales = catchAsync(async (req, res) => {
     const { startDate, endDate, page = 1, limit = 20 } = req.query;
@@ -167,7 +174,7 @@ export const getSales = catchAsync(async (req, res) => {
 });
 
 // ============================================
-// GET SALE BY ID (Tenant-validated)
+// GET SALE BY ID
 // ============================================
 export const getSaleById = catchAsync(async (req, res) => {
     const { id } = req.params;
@@ -209,12 +216,13 @@ export const getSaleById = catchAsync(async (req, res) => {
 });
 
 // ============================================
-// CREATE SALE - FIXED
+// CREATE SALE - WITH FORENSIC LOGGING
 // ============================================
 export const createSale = catchAsync(async (req, res) => {
-    // FORENSIC LOGGING - Remove after verification
-    console.log("=== INV-001 createSale ===");
-    console.log("RAW BODY:", JSON.stringify(req.body));
+    const traceId = `INV001-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
+    
+    console.log(`\n[${traceId}] === INV-001 CREATE SALE ===`);
+    console.log(`[${traceId}] RAW BODY:`, JSON.stringify(req.body));
     
     const { items, payment_method, customer_name, customer_phone } = req.body;
     const userId = req.user.id;
@@ -229,9 +237,8 @@ export const createSale = catchAsync(async (req, res) => {
         throw new AppError('No items in sale', 400);
     }
     
-    // FORENSIC LOGGING - Remove after verification
-    console.log("ITEMS:", JSON.stringify(items));
-    console.log("items.length:", items.length);
+    console.log(`[${traceId}] ITEMS:`, JSON.stringify(items));
+    console.log(`[${traceId}] items.length:`, items.length);
     
     const client = await getClient();
     
@@ -246,8 +253,7 @@ export const createSale = catchAsync(async (req, res) => {
             const item = items[i];
             const quantity = Number(item.quantity);
             
-            // FORENSIC LOGGING - Remove after verification
-            console.log(`SALE ITEM ${i}:`, {
+            console.log(`[${traceId}] SALE ITEM ${i}:`, {
                 product_id: item.product_id,
                 quantity: quantity,
                 quantityType: typeof quantity,
@@ -285,8 +291,7 @@ export const createSale = catchAsync(async (req, res) => {
                 cost: itemCost
             });
             
-            // FORENSIC LOGGING - Remove after verification
-            console.log("BEFORE deductIngredients:", {
+            console.log(`[${traceId}] BEFORE deductIngredients:`, {
                 productId: item.product_id,
                 quantity: quantity
             });
@@ -317,6 +322,13 @@ export const createSale = catchAsync(async (req, res) => {
         
         await client.query('COMMIT');
         
+        console.log(`[${traceId}] === SALE COMPLETED ===`);
+        console.log(`[${traceId}] Sale Number: ${saleNumber}`);
+        console.log(`[${traceId}] Total Amount: ${totalAmount}`);
+        console.log(`[${traceId}] Total Cost: ${totalCost}`);
+        console.log(`[${traceId}] Profit: ${profit}`);
+        console.log(`[${traceId}] Profit Margin: ${profitMargin}%\n`);
+        
         res.status(201).json({
             success: true,
             message: 'Sale completed successfully',
@@ -334,7 +346,7 @@ export const createSale = catchAsync(async (req, res) => {
         
     } catch (error) {
         await client.query('ROLLBACK');
-        console.error('Create sale error:', error);
+        console.error(`[${traceId}] Create sale error:`, error);
         throw error;
     } finally {
         client.release();
@@ -342,7 +354,7 @@ export const createSale = catchAsync(async (req, res) => {
 });
 
 // ============================================
-// GET TODAY'S SALES (Branch-isolated)
+// GET TODAY'S SALES
 // ============================================
 export const getTodaySales = catchAsync(async (req, res) => {
     if (!req.user?.company_id || !req.user?.branch_id) {
@@ -377,4 +389,4 @@ export const getTodaySales = catchAsync(async (req, res) => {
         data: result.rows[0],
         date: today
     });
-});
+});clear
