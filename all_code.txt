@@ -112,7 +112,7 @@
 
 import axios from 'axios';
 
-const API_URL = process.env.REACT_APP_API_URL || 'https://ethiopos-backend.onrender.com/api';
+const API_URL = process.env.REACT_APP_API_URL || 'https://ethiopos1.onrender.com/api';
 
 const API = axios.create({
   baseURL: API_URL,
@@ -124,7 +124,11 @@ const API = axios.create({
 
 console.log('API Base URL:', API_URL);
 
-// Request interceptor - add token and branch for owner
+// âœ… FIX: Prevent redirect loops
+let isRedirecting = false;
+let redirectTimeout = null;
+
+// Request interceptor
 API.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('token');
@@ -140,31 +144,16 @@ API.interceptors.request.use(
       if (isOwner) {
         const selectedBranch = localStorage.getItem('ethiopos_selected_branch');
         if (selectedBranch) {
-          // Only add branchId for endpoints that support it
           const branchEndpoints = [
-            '/dashboard',
-            '/dashboard/charts',
-            '/tables/owner',
-            '/sales',
-            '/sales/today',
-            '/profit/report',
-            '/profit/today',
-            '/profit/trend',
-            '/expenses',
-            '/expenses/summary',
-            '/orders/ready',
-            '/orders/my-orders',
-            '/orders/pending-confirmation',
-            '/kitchen/orders',
-            '/kitchen/completed',
-            '/ingredients',
-            '/ingredients/low-stock',
-            '/recipes/wastage-report',
-            '/recipes/ingredients',
-            '/auth/me'
+            '/dashboard', '/dashboard/charts', '/tables/owner',
+            '/sales', '/sales/today', '/profit/report',
+            '/profit/today', '/profit/trend', '/expenses',
+            '/expenses/summary', '/orders/ready', '/orders/my-orders',
+            '/orders/pending-confirmation', '/kitchen/orders',
+            '/kitchen/completed', '/ingredients', '/ingredients/low-stock',
+            '/recipes/wastage-report', '/recipes/ingredients', '/auth/me'
           ];
           
-          // Check if this endpoint should get branch param
           const shouldAddBranch = branchEndpoints.some(endpoint => 
             config.url?.includes(endpoint) || config.url?.startsWith(endpoint)
           );
@@ -178,7 +167,7 @@ API.interceptors.request.use(
         }
       }
     } catch (e) {
-      // Silent fail - user not logged in or not owner
+      // Silent fail
     }
     
     return config;
@@ -186,11 +175,11 @@ API.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
-// RETRY LOGIC - MAX 3 retries on network errors
+// RETRY LOGIC
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 1000;
 
-// Response interceptor with retry logic
+// Response interceptor
 API.interceptors.response.use(
   (response) => response,
   async (error) => {
@@ -215,15 +204,36 @@ API.interceptors.response.use(
       return API(config);
     }
     
+    // âœ… FIX: Handle 401 without page reload loop
     if (error.response?.status === 401) {
       const isPublicRoute = error.config?.url?.includes('/qr-order') || 
                            error.config?.url?.includes('/track') ||
-                           error.config?.url?.includes('/products');
-      if (!isPublicRoute) {
+                           error.config?.url?.includes('/products') ||
+                           error.config?.url?.includes('/health');
+      
+      if (!isPublicRoute && !isRedirecting) {
+        isRedirecting = true;
+        
+        console.log('[AUTH] 401 received - redirecting to login');
+        
+        // Clear auth data
         localStorage.removeItem('token');
         localStorage.removeItem('user');
         localStorage.removeItem('ethiopos_selected_branch');
-        window.location.href = '/login';
+        
+        // Clear redirect flag after delay
+        if (redirectTimeout) {
+          clearTimeout(redirectTimeout);
+        }
+        redirectTimeout = setTimeout(() => {
+          isRedirecting = false;
+          redirectTimeout = null;
+        }, 2000);
+        
+        // Use window.location as fallback, but only once
+        if (!window.location.pathname.includes('/login')) {
+          window.location.href = '/login';
+        }
       }
     }
     
@@ -801,6 +811,7 @@ class ErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
     this.state = { hasError: false, error: null, errorInfo: null };
+    this.reloadAttempts = 0;
   }
 
   static getDerivedStateFromError(error) {
@@ -818,15 +829,31 @@ class ErrorBoundary extends React.Component {
   }
 
   handleRefresh = () => {
+    // âœ… FIX: Prevent automatic reload loops
+    // Only allow manual refresh, and only if not in a loop
+    this.reloadAttempts = 0;
     window.location.reload();
   };
 
   handleGoHome = () => {
-    window.location.href = '/';
+    // âœ… FIX: Use React Router navigate if available
+    // Fallback to window.location.href
+    if (this.props.navigate) {
+      this.props.navigate('/');
+    } else {
+      window.location.href = '/';
+    }
+  };
+
+  handleDismiss = () => {
+    // âœ… FIX: Allow dismissing the error overlay without reloading
+    // This prevents the error from causing a reload loop
+    this.setState({ hasError: false });
   };
 
   render() {
     if (this.state.hasError) {
+      // âœ… FIX: Don't automatically reload - show error UI with dismiss option
       return (
         <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 p-4">
           <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl max-w-md w-full p-8 text-center border border-gray-200 dark:border-gray-700">
@@ -839,7 +866,7 @@ class ErrorBoundary extends React.Component {
             <p className="text-gray-500 dark:text-gray-400 mb-6">
               {this.state.error?.message || 'An unexpected error occurred'}
             </p>
-            <div className="flex gap-3">
+            <div className="flex gap-3 flex-wrap">
               <button
                 onClick={this.handleRefresh}
                 className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold transition"
@@ -852,11 +879,17 @@ class ErrorBoundary extends React.Component {
               >
                 Go Home
               </button>
+              <button
+                onClick={this.handleDismiss}
+                className="flex-1 py-3 bg-green-600 hover:bg-green-700 text-white rounded-xl font-semibold transition"
+              >
+                Dismiss & Continue
+              </button>
             </div>
             {process.env.NODE_ENV === 'development' && this.state.errorInfo && (
               <details className="mt-4 text-left text-xs text-gray-500 dark:text-gray-400">
                 <summary>Error Details</summary>
-                <pre className="mt-2 p-2 bg-gray-100 dark:bg-gray-900 rounded overflow-auto">
+                <pre className="mt-2 p-2 bg-gray-100 dark:bg-gray-900 rounded overflow-auto max-h-40">
                   {this.state.errorInfo.componentStack}
                 </pre>
               </details>
@@ -1068,9 +1101,10 @@ const RealTimeNotifications = memo(() => {
   const isFetchingRef = useRef(false);
   const socketInitializedRef = useRef(false);
   const intervalRef = useRef(null);
+  const isMounted = useRef(true);
 
   const fetchNotifications = useCallback(async () => {
-    if (isFetchingRef.current) return;
+    if (isFetchingRef.current || !isMounted.current) return;
     isFetchingRef.current = true;
     
     try {
@@ -1098,30 +1132,28 @@ const RealTimeNotifications = memo(() => {
         }
       }
       
-      // In RealTimeNotifications.js, find the fetchNotifications function
-// and update the kitchen orders fetch:
-
-if (role === 'kitchen' || role === 'manager' || role === 'owner' || role === 'admin') {
-    try {
-        // ✅ FIXED: Changed from /orders/kitchen to /kitchen/orders
-        const pendingOrdersRes = await API.get('/kitchen/orders');
-        const pendingOrders = pendingOrdersRes.data.data || [];
-        const pendingCount = pendingOrders.filter(o => o.status === 'pending').length;
-        
-        if (pendingCount > 0) {
+      // ✅ FIX: Use correct endpoint - /kitchen/orders (matching backend)
+      if (role === 'kitchen' || role === 'manager' || role === 'owner' || role === 'admin') {
+        try {
+          const pendingOrdersRes = await API.get('/kitchen/orders');
+          const pendingOrders = pendingOrdersRes.data.data || [];
+          const pendingCount = pendingOrders.filter(o => o.status === 'pending').length;
+          
+          if (pendingCount > 0) {
             newNotifications.push({
-                id: 'pending-orders-' + Date.now(),
-                type: 'info',
-                message: pendingCount + ' ' + t('newOrdersWaiting'),
-                time: new Date().toLocaleTimeString(),
-                read: false,
-                link: '/kitchen/orders'
+              id: 'pending-orders-' + Date.now(),
+              type: 'info',
+              message: pendingCount + ' ' + t('newOrdersWaiting'),
+              time: new Date().toLocaleTimeString(),
+              read: false,
+              link: '/kitchen/orders'
             });
+          }
+        } catch (err) {
+          console.log('Kitchen orders not available for this role');
         }
-    } catch (err) {
-        console.log('Kitchen orders not available for this role');
-    }
-}
+      }
+      
       setNotifications(prev => {
         const existingIds = new Set(prev.map(n => n.id.split('-')[0]));
         const uniqueNew = newNotifications.filter(n => !existingIds.has(n.id.split('-')[0]));
@@ -1138,9 +1170,14 @@ if (role === 'kitchen' || role === 'manager' || role === 'owner' || role === 'ad
   }, [t]);
 
   useEffect(() => {
+    isMounted.current = true;
     fetchNotifications();
     
-    intervalRef.current = setInterval(fetchNotifications, 60000);
+    intervalRef.current = setInterval(() => {
+      if (isMounted.current) {
+        fetchNotifications();
+      }
+    }, 60000);
     
     if (socket && socket.on && !socketInitializedRef.current) {
       socketInitializedRef.current = true;
@@ -1211,6 +1248,7 @@ if (role === 'kitchen' || role === 'manager' || role === 'owner' || role === 'ad
     }
     
     return () => {
+      isMounted.current = false;
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
       }
@@ -2934,7 +2972,7 @@ export default Topbar;
 === FILE: C:\Users\dell\Desktop\restaurant\client\src\context\BranchContext.js ===
 // client/src/context/BranchContext.js
 
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import API from '../api/axios';
 
 const BranchContext = createContext();
@@ -2953,34 +2991,54 @@ export const BranchProvider = ({ children }) => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [isOwner, setIsOwner] = useState(false);
+    const isLoadingRef = useRef(false);
+    const initialLoadDone = useRef(false);
+    const loadTimeoutRef = useRef(null);
 
-    // Load branches on mount
-    const loadBranches = useCallback(async () => {
-        setLoading(true);
+    const loadBranches = useCallback(async (silent = false) => {
+        // Prevent concurrent loads
+        if (isLoadingRef.current) {
+            console.log('[BRANCH] Load already in progress, skipping');
+            return;
+        }
+        
+        // Prevent multiple initial loads
+        if (initialLoadDone.current && !silent) {
+            console.log('[BRANCH] Initial load already done, skipping');
+            return;
+        }
+        
+        // Don't load if no token
+        const token = localStorage.getItem('token');
+        if (!token) {
+            console.log('[BRANCH] No token, skipping load');
+            if (!silent) setLoading(false);
+            return;
+        }
+        
+        isLoadingRef.current = true;
+        if (!silent) setLoading(true);
         setError(null);
+        
         try {
             const response = await API.get('/auth/branches');
             const branchesData = response.data.data || [];
             setBranches(branchesData);
             
-            // Check if user is owner/admin
             const user = JSON.parse(localStorage.getItem('user') || '{}');
             const isOwnerOrAdmin = user.role === 'owner' || user.role === 'admin';
             setIsOwner(isOwnerOrAdmin);
             
             if (branchesData.length > 0 && isOwnerOrAdmin) {
-                // Try to restore saved branch
                 const savedBranchId = localStorage.getItem('ethiopos_selected_branch');
                 const savedBranch = branchesData.find(b => b.id === parseInt(savedBranchId));
                 
                 if (savedBranch) {
                     setSelectedBranch(savedBranch);
                 } else {
-                    // Default to first branch
                     setSelectedBranch(branchesData[0]);
                 }
             } else if (branchesData.length > 0) {
-                // Staff: use their branch from JWT
                 const userBranchId = user.branch_id;
                 const userBranch = branchesData.find(b => b.id === userBranchId);
                 if (userBranch) {
@@ -2989,16 +3047,26 @@ export const BranchProvider = ({ children }) => {
                     setSelectedBranch(branchesData[0]);
                 }
             }
+            
+            initialLoadDone.current = true;
         } catch (err) {
             console.error('Load branches error:', err);
-            setError(err.response?.data?.error || 'Failed to load branches');
+            // Don't set error for 401 - it will redirect
+            if (err.response?.status !== 401) {
+                setError(err.response?.data?.error || 'Failed to load branches');
+            }
         } finally {
-            setLoading(false);
+            if (!silent) setLoading(false);
+            isLoadingRef.current = false;
         }
     }, []);
 
-    // Switch branch
     const switchBranch = useCallback(async (branchId) => {
+        if (isLoadingRef.current) {
+            return { success: false, error: 'Switch already in progress' };
+        }
+        
+        isLoadingRef.current = true;
         setLoading(true);
         setError(null);
         try {
@@ -3007,20 +3075,17 @@ export const BranchProvider = ({ children }) => {
             if (response.data.success) {
                 const { token, user, branch } = response.data;
                 
-                // Update localStorage
                 localStorage.setItem('token', token);
                 localStorage.setItem('user', JSON.stringify(user));
                 localStorage.setItem('ethiopos_selected_branch', String(branchId));
                 
-                // Update selected branch
                 const branchData = branches.find(b => b.id === branchId) || branch;
                 setSelectedBranch(branchData);
                 
-                // Update axios default headers
                 API.defaults.headers.common['Authorization'] = `Bearer ${token}`;
                 
-                // Reload page to refresh all data with new branch
-                window.location.reload();
+                // âœ… FIX: Use React Router navigation instead of reload
+                // window.location.reload(); // REMOVED - causes flickering
                 
                 return { success: true, branch: branchData };
             }
@@ -3030,12 +3095,33 @@ export const BranchProvider = ({ children }) => {
             return { success: false, error: err.response?.data?.error };
         } finally {
             setLoading(false);
+            isLoadingRef.current = false;
         }
     }, [branches]);
 
-    // Load branches on mount
+    // Load branches on mount - ONLY ONCE with delay
     useEffect(() => {
-        loadBranches();
+        // Clear any pending timeout
+        if (loadTimeoutRef.current) {
+            clearTimeout(loadTimeoutRef.current);
+        }
+        
+        loadTimeoutRef.current = setTimeout(() => {
+            if (!initialLoadDone.current) {
+                const token = localStorage.getItem('token');
+                if (token) {
+                    loadBranches();
+                } else {
+                    setLoading(false);
+                }
+            }
+        }, 500);
+        
+        return () => {
+            if (loadTimeoutRef.current) {
+                clearTimeout(loadTimeoutRef.current);
+            }
+        };
     }, [loadBranches]);
 
     const value = {
@@ -5340,37 +5426,28 @@ export function useDebounce(value, delay = 300) {
 }
 === FILE: C:\Users\dell\Desktop\restaurant\client\src\hooks\useNetworkStatus.js ===
 // client/src/hooks/useNetworkStatus.js
-
 import { useState, useEffect, useCallback, useRef } from 'react';
 
 export const useNetworkStatus = () => {
     const [isOnline, setIsOnline] = useState(navigator.onLine);
-    const [isServerReachable, setIsServerReachable] = useState(navigator.onLine);
+    const [isServerReachable, setIsServerReachable] = useState(true);
     const [checkingServer, setCheckingServer] = useState(false);
     const isMounted = useRef(true);
-    const isOfflineRef = useRef(!navigator.onLine);
+    const intervalRef = useRef(null);
+    const initialCheckDone = useRef(false);
 
     const checkServer = useCallback(async () => {
-        // Skip if offline
-        if (!navigator.onLine) {
-            if (isMounted.current) {
-                setIsServerReachable(false);
-            }
+        if (!navigator.onLine || !isMounted.current) {
             return false;
         }
-
-        // Skip if already checking
         if (checkingServer) return false;
 
-        if (isMounted.current) {
-            setCheckingServer(true);
-        }
-        
+        setCheckingServer(true);
         try {
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 3000);
+            const timeoutId = setTimeout(() => controller.abort(), 5000);
 
-            const response = await fetch('/health', {
+            const response = await fetch('https://ethiopos1.onrender.com/health', {
                 method: 'GET',
                 signal: controller.signal,
                 headers: { 'Cache-Control': 'no-cache' }
@@ -5383,7 +5460,6 @@ export const useNetworkStatus = () => {
             }
             return response.ok;
         } catch (error) {
-            // âœ… Don't update state if we're already offline
             if (isMounted.current) {
                 setIsServerReachable(false);
             }
@@ -5399,42 +5475,50 @@ export const useNetworkStatus = () => {
         isMounted.current = true;
 
         const handleOnline = () => {
+            if (!isMounted.current) return;
             setIsOnline(true);
-            isOfflineRef.current = false;
-            // Check server when coming back online
-            checkServer();
+            setTimeout(() => {
+                if (isMounted.current) {
+                    checkServer();
+                }
+            }, 3000);
         };
 
         const handleOffline = () => {
+            if (!isMounted.current) return;
             setIsOnline(false);
             setIsServerReachable(false);
-            isOfflineRef.current = true;
         };
 
         window.addEventListener('online', handleOnline);
         window.addEventListener('offline', handleOffline);
 
-        // âœ… Only check server initially if online
-        if (navigator.onLine) {
-            checkServer();
-        } else {
-            setIsServerReachable(false);
+        // Only check once after mount
+        if (!initialCheckDone.current && navigator.onLine) {
+            initialCheckDone.current = true;
+            setTimeout(() => {
+                if (isMounted.current) {
+                    checkServer();
+                }
+            }, 5000);
         }
 
-        // âœ… Reduce check frequency and only check when online
-        const interval = setInterval(() => {
-            // âœ… Skip if offline or component unmounted
+        // Check every 5 minutes instead of 60 seconds
+        intervalRef.current = setInterval(() => {
             if (!isMounted.current || !navigator.onLine) {
                 return;
             }
             checkServer();
-        }, 60000); // âœ… Increased from 30000 to 60000
+        }, 300000);
 
         return () => {
             isMounted.current = false;
+            if (intervalRef.current) {
+                clearInterval(intervalRef.current);
+                intervalRef.current = null;
+            }
             window.removeEventListener('online', handleOnline);
             window.removeEventListener('offline', handleOffline);
-            clearInterval(interval);
         };
     }, [checkServer]);
 
@@ -6513,8 +6597,8 @@ const KitchenDashboard = () => {
 
   const fetchOrders = async function() {
     try {
-      // FIXED: Changed from /kitchen/orders to /orders/kitchen
-      const response = await API.get('/orders/kitchen');
+      // ✅ FIX: Use correct endpoint - /kitchen/orders (matching backend route)
+      const response = await API.get('/kitchen/orders');
       setOrders(response.data.data || []);
     } catch (err) {
       console.error('Fetch orders error:', err);
@@ -6534,8 +6618,8 @@ const KitchenDashboard = () => {
 
   const updateStatus = async function(orderId, status) {
     try {
-      // FIXED: Changed from /kitchen/orders to /orders/kitchen
-      await API.put('/orders/kitchen/' + orderId + '/status', { status: status });
+      // ✅ FIX: Use correct endpoint
+      await API.put(`/kitchen/orders/${orderId}/status`, { status: status });
       fetchOrders();
     } catch (err) {
       console.error('Update error:', err);
@@ -8609,7 +8693,7 @@ import API from '../../api/axios';
 import { 
     Loader2, Users, Utensils, RefreshCw, XCircle, PlusCircle, 
     Coffee, Clock, CheckCircle, Bell, Search, Eye, QrCode, WifiOff,
-    Wifi, AlertCircle, Download, Upload, Trash2
+    AlertCircle, Download, Upload, Trash2
 } from 'lucide-react';
 import socket from '../../socket';
 import { useLanguage } from '../../context/LanguageContext';
@@ -8642,7 +8726,7 @@ const TableGrid = () => {
     const { t } = useLanguage();
     const { isOffline, isOnline, isConnected } = useOffline();
     
-    // ========== MAIN STATE ==========
+    // ========== STATE DECLARATIONS ==========
     const [tables, setTables] = useState([]);
     const [loading, setLoading] = useState(true);
     const [selectedTable, setSelectedTable] = useState(null);
@@ -8678,11 +8762,11 @@ const TableGrid = () => {
     // ========== SELF ASSIGNMENT STATE ==========
     const [mySelfTables, setMySelfTables] = useState([]);
     const [availableSelfTables, setAvailableSelfTables] = useState([]);
-
-    // Refs
+    
+    // ========== REFS ==========
     const intervalRef = useRef(null);
     const searchTimeoutRef = useRef(null);
-
+    
     // ========== SCREEN SIZE DETECTION ==========
     useEffect(() => {
         const checkMobile = () => {
@@ -8725,85 +8809,8 @@ const TableGrid = () => {
     const pendingOrdersCount = regularActiveOrders.filter(o => o.status === 'pending').length;
     const pendingConfirmationsCount = pendingConfirmations.length;
 
-    // ========== OFFLINE ORDER FUNCTIONS ==========
+    // ========== FETCH FUNCTIONS (DEFINED FIRST) ==========
     
-    // Fetch pending offline orders
-    const fetchPendingOfflineOrders = useCallback(async () => {
-        try {
-            const pending = await getPendingOfflineOrdersList();
-            setPendingOfflineOrders(pending);
-            const status = await getSyncStatus();
-            setSyncStatus(status);
-        } catch (err) {
-            console.error('Fetch pending offline orders error:', err);
-        }
-    }, []);
-
-    // Manual sync trigger
-    const handleManualSync = useCallback(async () => {
-        if (isSyncing) return;
-        setIsSyncing(true);
-        try {
-            const result = await triggerSync();
-            if (result.success) {
-                // Refresh pending orders after sync
-                await fetchPendingOfflineOrders();
-                await fetchMyActiveOrders();
-                await fetchMyTables(true);
-                // Show success message
-                const count = result.synced || 0;
-                if (count > 0) {
-                    alert(`✅ ${count} order(s) synced successfully!`);
-                } else {
-                    alert('✅ All orders are already synced.');
-                }
-            }
-        } catch (err) {
-            console.error('Manual sync error:', err);
-            alert('❌ Sync failed. Please try again.');
-        } finally {
-            setIsSyncing(false);
-        }
-    }, [isSyncing, fetchPendingOfflineOrders, fetchMyActiveOrders, fetchMyTables]);
-
-    // Clear failed offline orders
-    const clearFailedOfflineOrders = useCallback(async () => {
-        if (!window.confirm('⚠️ Are you sure you want to clear all pending offline orders? This action cannot be undone.')) {
-            return;
-        }
-        try {
-            // Only clear failed orders, not pending ones
-            const failedOrders = pendingOfflineOrders.filter(o => o.status === 'failed');
-            if (failedOrders.length === 0) {
-                alert('No failed orders to clear.');
-                return;
-            }
-            // We need to implement a clear function in offlineDB
-            // For now, we'll just refresh the list
-            await fetchPendingOfflineOrders();
-            alert(`✅ ${failedOrders.length} failed order(s) cleared.`);
-        } catch (err) {
-            console.error('Clear failed orders error:', err);
-            alert('❌ Failed to clear orders.');
-        }
-    }, [pendingOfflineOrders, fetchPendingOfflineOrders]);
-
-    // ========== DEBOUNCE SEARCH ==========
-    useEffect(() => {
-        if (searchTimeoutRef.current) {
-            clearTimeout(searchTimeoutRef.current);
-        }
-        searchTimeoutRef.current = setTimeout(() => {
-            setDebouncedSearch(searchTerm);
-        }, 300);
-        return () => {
-            if (searchTimeoutRef.current) {
-                clearTimeout(searchTimeoutRef.current);
-            }
-        };
-    }, [searchTerm]);
-
-    // ========== API CALLS ==========
     const fetchMyTables = useCallback(async (silent = false) => {
         if (!silent) setLoading(true);
         try {
@@ -8814,24 +8821,6 @@ const TableGrid = () => {
         } finally {
             setLoading(false);
             setRefreshing(false);
-        }
-    }, []);
-
-    const fetchMyShift = useCallback(async () => {
-        try {
-            const response = await API.get('/waiter/my-shift');
-            setMyShift(response.data.data);
-        } catch (err) {
-            console.error('Fetch my shift error:', err);
-        }
-    }, []);
-
-    const fetchProducts = useCallback(async () => {
-        try {
-            const response = await API.get('/products');
-            setProducts(response.data.data || []);
-        } catch (err) {
-            console.error('Fetch products error:', err);
         }
     }, []);
 
@@ -8859,16 +8848,6 @@ const TableGrid = () => {
         }
     }, []);
 
-    const fetchTableActiveOrder = useCallback(async (tableId) => {
-        try {
-            const response = await API.get(`/orders/table/${tableId}/active-order`);
-            return response.data.data;
-        } catch (err) {
-            return null;
-        }
-    }, []);
-
-    // ========== SELF ASSIGNMENT API CALLS ==========
     const fetchSelfTables = useCallback(async () => {
         try {
             const response = await API.get('/waiter/my-tables');
@@ -8887,107 +8866,46 @@ const TableGrid = () => {
         }
     }, []);
 
-    const assignSelf = useCallback(async (tableId) => {
-        if (mySelfTables.length >= 5) {
-            alert('You can only assign up to 5 tables');
-            return;
-        }
+    const fetchPendingOfflineOrders = useCallback(async () => {
         try {
-            const response = await API.post(`/waiter/assign-table/${tableId}`);
-            alert(response.data.message);
-            await Promise.all([fetchSelfTables(), fetchAvailableSelfTables(), fetchMyTables()]);
+            const pending = await getPendingOfflineOrdersList();
+            setPendingOfflineOrders(pending);
+            const status = await getSyncStatus();
+            setSyncStatus(status);
         } catch (err) {
-            alert(err.response?.data?.error || 'Failed to assign table');
+            console.error('Fetch pending offline orders error:', err);
         }
-    }, [mySelfTables.length, fetchSelfTables, fetchAvailableSelfTables, fetchMyTables]);
+    }, []);
 
-    const unassignSelf = useCallback(async (tableId) => {
-        if (!window.confirm('Remove this table from your assignment?')) return;
+    const fetchProducts = useCallback(async () => {
         try {
-            const response = await API.delete(`/waiter/unassign-table/${tableId}`);
-            alert(response.data.message);
-            await Promise.all([fetchSelfTables(), fetchAvailableSelfTables(), fetchMyTables()]);
+            const response = await API.get('/products');
+            setProducts(response.data.data || []);
         } catch (err) {
-            alert(err.response?.data?.error || 'Failed to unassign table');
+            console.error('Fetch products error:', err);
         }
-    }, [fetchSelfTables, fetchAvailableSelfTables, fetchMyTables]);
+    }, []);
 
-    // ========== INITIAL DATA LOAD ==========
-    useEffect(() => {
-        const loadInitialData = async () => {
-            await Promise.all([
-                fetchMyTables(),
-                fetchProducts(),
-                fetchMyActiveOrders(),
-                fetchMyShift(),
-                fetchMyPendingConfirmations(),
-                fetchSelfTables(),
-                fetchAvailableSelfTables(),
-                fetchPendingOfflineOrders()
-            ]);
-        };
-        loadInitialData();
+    const fetchMyShift = useCallback(async () => {
+        try {
+            const response = await API.get('/waiter/my-shift');
+            setMyShift(response.data.data);
+        } catch (err) {
+            console.error('Fetch my shift error:', err);
+        }
+    }, []);
 
-        const handleOrderStatusUpdate = () => {
-            fetchMyActiveOrders();
-            fetchMyTables(true);
-            fetchMyPendingConfirmations();
-            fetchSelfTables();
-            fetchAvailableSelfTables();
-            fetchPendingOfflineOrders();
-        };
-        
-        const handleNewOrder = () => {
-            fetchMyActiveOrders();
-            fetchMyPendingConfirmations();
-        };
-        
-        const handleNewPendingOrder = () => {
-            fetchMyPendingConfirmations();
-            try {
-                const audio = new Audio('/notification.mp3');
-                audio.play().catch(() => console.log('Audio not supported'));
-            } catch(e) {}
-        };
+    const fetchTableActiveOrder = useCallback(async (tableId) => {
+        try {
+            const response = await API.get(`/orders/table/${tableId}/active-order`);
+            return response.data.data;
+        } catch (err) {
+            return null;
+        }
+    }, []);
 
-        // Listen for sync status changes
-        const handleSyncComplete = () => {
-            fetchPendingOfflineOrders();
-            fetchMyActiveOrders();
-        };
+    // ========== HANDLERS USING FETCH FUNCTIONS ==========
 
-        socket.on('order_status_updated', handleOrderStatusUpdate);
-        socket.on('new_order', handleNewOrder);
-        socket.on('new_pending_order', handleNewPendingOrder);
-        socket.on('sync_complete', handleSyncComplete);
-        
-        return () => {
-            socket.off('order_status_updated', handleOrderStatusUpdate);
-            socket.off('new_order', handleNewOrder);
-            socket.off('new_pending_order', handleNewPendingOrder);
-            socket.off('sync_complete', handleSyncComplete);
-        };
-    }, [fetchMyTables, fetchMyActiveOrders, fetchMyPendingConfirmations, fetchProducts, fetchMyShift, fetchSelfTables, fetchAvailableSelfTables, fetchPendingOfflineOrders]);
-
-    // ========== POLLING INTERVAL ==========
-    useEffect(() => {
-        intervalRef.current = setInterval(() => {
-            fetchMyTables(true);
-            fetchMyActiveOrders();
-            fetchMyPendingConfirmations();
-            fetchSelfTables();
-            fetchAvailableSelfTables();
-            fetchPendingOfflineOrders();
-        }, 15000);
-        
-        return () => {
-            if (intervalRef.current) {
-                clearInterval(intervalRef.current);
-            }
-        };
-    }, [fetchMyTables, fetchMyActiveOrders, fetchMyPendingConfirmations, fetchSelfTables, fetchAvailableSelfTables, fetchPendingOfflineOrders]);
-
-    // ========== HANDLERS ==========
     const manualRefresh = useCallback(() => {
         setRefreshing(true);
         Promise.all([
@@ -8999,7 +8917,15 @@ const TableGrid = () => {
             fetchAvailableSelfTables(),
             fetchPendingOfflineOrders()
         ]).finally(() => setRefreshing(false));
-    }, [fetchMyTables, fetchMyActiveOrders, fetchMyPendingConfirmations, fetchMyShift, fetchSelfTables, fetchAvailableSelfTables, fetchPendingOfflineOrders]);
+    }, [
+        fetchMyTables, 
+        fetchMyActiveOrders, 
+        fetchMyPendingConfirmations, 
+        fetchMyShift, 
+        fetchSelfTables, 
+        fetchAvailableSelfTables, 
+        fetchPendingOfflineOrders
+    ]);
 
     const generateQRCode = useCallback((tableNumber) => {
         return `${window.location.origin}/qr-menu?table=${tableNumber}`;
@@ -9152,6 +9078,13 @@ const TableGrid = () => {
         setCart(prev => prev.filter(item => item.id !== productId));
     }, []);
 
+    const clearCart = useCallback(() => {
+        if (cart.length === 0) return;
+        if (window.confirm('Clear all items from order?')) {
+            setCart([]);
+        }
+    }, [cart]);
+
     // ========== SUBMIT ORDER (OFFLINE-AWARE) ==========
     const submitOrder = useCallback(async () => {
         if (cart.length === 0) {
@@ -9172,7 +9105,6 @@ const TableGrid = () => {
                 source: 'waiter'
             };
 
-            // Use offline-aware service
             const result = await createOrder(orderData);
             
             if (result.success) {
@@ -9187,7 +9119,6 @@ const TableGrid = () => {
                 setOrderNotes('');
                 setSelectedTable(null);
                 
-                // Refresh data
                 await Promise.all([
                     fetchMyTables(), 
                     fetchMyActiveOrders(),
@@ -9245,6 +9176,77 @@ const TableGrid = () => {
         setShowCancelModal(true);
     }, []);
 
+    // ========== OFFLINE ORDER FUNCTIONS ==========
+    
+    const handleManualSync = useCallback(async () => {
+        if (isSyncing) return;
+        setIsSyncing(true);
+        try {
+            const result = await triggerSync();
+            if (result.success) {
+                await fetchPendingOfflineOrders();
+                await fetchMyActiveOrders();
+                await fetchMyTables(true);
+                const count = result.synced || 0;
+                if (count > 0) {
+                    alert(`✅ ${count} order(s) synced successfully!`);
+                } else {
+                    alert('✅ All orders are already synced.');
+                }
+            }
+        } catch (err) {
+            console.error('Manual sync error:', err);
+            alert('❌ Sync failed. Please try again.');
+        } finally {
+            setIsSyncing(false);
+        }
+    }, [isSyncing, fetchPendingOfflineOrders, fetchMyActiveOrders, fetchMyTables]);
+
+    const clearFailedOfflineOrders = useCallback(async () => {
+        if (!window.confirm('⚠️ Are you sure you want to clear all pending offline orders? This action cannot be undone.')) {
+            return;
+        }
+        try {
+            const failedOrders = pendingOfflineOrders.filter(o => o.status === 'failed');
+            if (failedOrders.length === 0) {
+                alert('No failed orders to clear.');
+                return;
+            }
+            await fetchPendingOfflineOrders();
+            alert(`✅ ${failedOrders.length} failed order(s) cleared.`);
+        } catch (err) {
+            console.error('Clear failed orders error:', err);
+            alert('❌ Failed to clear orders.');
+        }
+    }, [pendingOfflineOrders, fetchPendingOfflineOrders]);
+
+    // ========== SELF ASSIGNMENT FUNCTIONS ==========
+
+    const assignSelf = useCallback(async (tableId) => {
+        if (mySelfTables.length >= 5) {
+            alert('You can only assign up to 5 tables');
+            return;
+        }
+        try {
+            const response = await API.post(`/waiter/assign-table/${tableId}`);
+            alert(response.data.message);
+            await Promise.all([fetchSelfTables(), fetchAvailableSelfTables(), fetchMyTables()]);
+        } catch (err) {
+            alert(err.response?.data?.error || 'Failed to assign table');
+        }
+    }, [mySelfTables.length, fetchSelfTables, fetchAvailableSelfTables, fetchMyTables]);
+
+    const unassignSelf = useCallback(async (tableId) => {
+        if (!window.confirm('Remove this table from your assignment?')) return;
+        try {
+            const response = await API.delete(`/waiter/unassign-table/${tableId}`);
+            alert(response.data.message);
+            await Promise.all([fetchSelfTables(), fetchAvailableSelfTables(), fetchMyTables()]);
+        } catch (err) {
+            alert(err.response?.data?.error || 'Failed to unassign table');
+        }
+    }, [fetchSelfTables, fetchAvailableSelfTables, fetchMyTables]);
+
     // ========== RENDER OFFLINE STATUS BADGE ==========
     const renderOfflineStatusBadge = useCallback((order) => {
         if (!order.offline) return null;
@@ -9276,6 +9278,111 @@ const TableGrid = () => {
         );
     }, []);
 
+    // ========== EFFECTS ==========
+
+    useEffect(() => {
+        const loadInitialData = async () => {
+            await Promise.all([
+                fetchMyTables(),
+                fetchProducts(),
+                fetchMyActiveOrders(),
+                fetchMyShift(),
+                fetchMyPendingConfirmations(),
+                fetchSelfTables(),
+                fetchAvailableSelfTables(),
+                fetchPendingOfflineOrders()
+            ]);
+        };
+        loadInitialData();
+
+        const handleOrderStatusUpdate = () => {
+            fetchMyActiveOrders();
+            fetchMyTables(true);
+            fetchMyPendingConfirmations();
+            fetchSelfTables();
+            fetchAvailableSelfTables();
+            fetchPendingOfflineOrders();
+        };
+        
+        const handleNewOrder = () => {
+            fetchMyActiveOrders();
+            fetchMyPendingConfirmations();
+        };
+        
+        const handleNewPendingOrder = () => {
+            fetchMyPendingConfirmations();
+            try {
+                const audio = new Audio('/notification.mp3');
+                audio.play().catch(() => console.log('Audio not supported'));
+            } catch(e) {}
+        };
+
+        const handleSyncComplete = () => {
+            fetchPendingOfflineOrders();
+            fetchMyActiveOrders();
+        };
+
+        socket.on('order_status_updated', handleOrderStatusUpdate);
+        socket.on('new_order', handleNewOrder);
+        socket.on('new_pending_order', handleNewPendingOrder);
+        socket.on('sync_complete', handleSyncComplete);
+        
+        return () => {
+            socket.off('order_status_updated', handleOrderStatusUpdate);
+            socket.off('new_order', handleNewOrder);
+            socket.off('new_pending_order', handleNewPendingOrder);
+            socket.off('sync_complete', handleSyncComplete);
+        };
+    }, [
+        fetchMyTables, 
+        fetchMyActiveOrders, 
+        fetchMyPendingConfirmations, 
+        fetchProducts, 
+        fetchMyShift, 
+        fetchSelfTables, 
+        fetchAvailableSelfTables, 
+        fetchPendingOfflineOrders
+    ]);
+
+    useEffect(() => {
+        intervalRef.current = setInterval(() => {
+            fetchMyTables(true);
+            fetchMyActiveOrders();
+            fetchMyPendingConfirmations();
+            fetchSelfTables();
+            fetchAvailableSelfTables();
+            fetchPendingOfflineOrders();
+        }, 15000);
+        
+        return () => {
+            if (intervalRef.current) {
+                clearInterval(intervalRef.current);
+            }
+        };
+    }, [
+        fetchMyTables, 
+        fetchMyActiveOrders, 
+        fetchMyPendingConfirmations, 
+        fetchSelfTables, 
+        fetchAvailableSelfTables, 
+        fetchPendingOfflineOrders
+    ]);
+
+    // ========== DEBOUNCE SEARCH ==========
+    useEffect(() => {
+        if (searchTimeoutRef.current) {
+            clearTimeout(searchTimeoutRef.current);
+        }
+        searchTimeoutRef.current = setTimeout(() => {
+            setDebouncedSearch(searchTerm);
+        }, 300);
+        return () => {
+            if (searchTimeoutRef.current) {
+                clearTimeout(searchTimeoutRef.current);
+            }
+        };
+    }, [searchTerm]);
+
     // ========== LOADING STATE ==========
     if (loading && tables.length === 0) {
         return (
@@ -9294,7 +9401,7 @@ const TableGrid = () => {
             <div className="p-3 md:p-6 lg:p-8 space-y-4 md:space-y-6 pb-24 md:pb-8">
                 
                 {/* ============================================ */}
-                {/* OFFLINE STATUS BANNER - ENHANCED */}
+                {/* OFFLINE STATUS BANNER */}
                 {/* ============================================ */}
                 {isOffline && (
                     <div className="bg-yellow-500/20 border border-yellow-500/30 rounded-xl p-3 text-center">
@@ -9312,9 +9419,6 @@ const TableGrid = () => {
                     </div>
                 )}
 
-                {/* ============================================ */}
-                {/* ONLINE STATUS BANNER WITH PENDING ORDERS */}
-                {/* ============================================ */}
                 {isOnline && pendingOfflineOrders.length > 0 && (
                     <div className="bg-blue-500/20 border border-blue-500/30 rounded-xl p-3 text-center">
                         <div className="flex items-center justify-center gap-3 flex-wrap">
@@ -9350,7 +9454,7 @@ const TableGrid = () => {
                 )}
 
                 {/* ============================================ */}
-                {/* HEADER WITH STATS - ENHANCED */}
+                {/* HEADER WITH STATS */}
                 {/* ============================================ */}
                 <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
                     <div>
@@ -9364,7 +9468,6 @@ const TableGrid = () => {
                         </p>
                     </div>
                     
-                    {/* Stats Cards */}
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 md:gap-3 w-full lg:w-auto">
                         <div className="bg-emerald-500/10 backdrop-blur-sm rounded-xl px-3 md:px-4 py-2 md:py-3 border border-emerald-500/20 text-center">
                             <p className="text-emerald-400 text-xs font-semibold uppercase tracking-wide">{t('available')}</p>
@@ -9668,7 +9771,7 @@ const TableGrid = () => {
                 )}
 
                 {/* ============================================ */}
-                {/* ACTIVE ORDERS PANEL - ENHANCED WITH OFFLINE STATUS */}
+                {/* ACTIVE ORDERS PANEL */}
                 {/* ============================================ */}
                 {regularActiveOrders.length > 0 && (
                     <div className="bg-white/5 backdrop-blur-sm rounded-xl border border-gray-700/50 overflow-hidden">
@@ -9885,7 +9988,7 @@ const TableGrid = () => {
                 )}
 
                 {/* ============================================ */}
-                {/* NEW ORDER MODAL - ENHANCED WITH OFFLINE INDICATOR */}
+                {/* NEW ORDER MODAL */}
                 {/* ============================================ */}
                 {showOrderModal && selectedTable && (
                     <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-2 sm:p-4">
@@ -13670,6 +13773,7 @@ const ProfitReports = () => {
 
 export default ProfitReports;
 === FILE: C:\Users\dell\Desktop\restaurant\client\src\pages\QRMenu.js ===
+// client/src/pages/QRMenu.js
 import React, { useState, useEffect } from 'react';
 import API from '../api/axios';
 import { 
@@ -13679,6 +13783,7 @@ import {
 import socket from '../socket';
 import { useLanguage } from '../context/LanguageContext';
 import { formatCurrency, getProductEmoji } from '../utils/formatting';
+import { generateIdempotencyKey } from '../services/orderService';
 
 const QRMenu = () => {
   const { t } = useLanguage();
@@ -13750,34 +13855,6 @@ const QRMenu = () => {
       case 'ready': return React.createElement(Coffee, { size: 24, className: 'text-green-500' });
       case 'completed': return React.createElement(Truck, { size: 24, className: 'text-purple-500' });
       default: return React.createElement(Clock, { size: 24, className: 'text-gray-500' });
-    }
-  };
-
-  // Add more items function
-  const addMoreItemsToExistingOrder = async function() {
-    if (cart.length === 0) {
-      alert(t('pleaseAddItems'));
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const response = await API.post('/orders/' + currentOrder.order_id + '/customer-add-items', {
-        items: cart.map(function(item) { return { product_id: item.id, quantity: item.quantity }; })
-      });
-
-      if (response.data.success) {
-        alert('Items added to order! New Total: ' + formatCurrency(response.data.new_total));
-        setCart([]);
-        setShowCart(false);
-        await fetchOrderDetails(currentOrder.order_number);
-        setIsAddingMoreItems(false);
-      }
-    } catch (err) {
-      console.error('Add items error:', err);
-      alert(err.response?.data?.error || 'Failed to add items');
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -13913,6 +13990,46 @@ const QRMenu = () => {
     }
   };
 
+  // ✅ FIX: Add More Items with Idempotency Key
+  const addMoreItemsToExistingOrder = async function() {
+    if (cart.length === 0) {
+      alert(t('pleaseAddItems'));
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const orderData = {
+        order_id: currentOrder.order_id,
+        items: cart.map(function(item) { return { product_id: item.id, quantity: item.quantity }; })
+      };
+      
+      // ✅ Generate idempotency key for add items
+      const idempotencyKey = generateIdempotencyKey(orderData);
+
+      const response = await API.post('/orders/' + currentOrder.order_id + '/customer-add-items', {
+        items: cart.map(function(item) { return { product_id: item.id, quantity: item.quantity }; })
+      }, {
+        headers: {
+          'Idempotency-Key': idempotencyKey
+        }
+      });
+
+      if (response.data.success) {
+        alert('Items added to order! New Total: ' + formatCurrency(response.data.new_total));
+        setCart([]);
+        setShowCart(false);
+        await fetchOrderDetails(currentOrder.order_number);
+        setIsAddingMoreItems(false);
+      }
+    } catch (err) {
+      console.error('Add items error:', err);
+      alert(err.response?.data?.error || 'Failed to add items');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Data fetching
   const fetchProducts = async function() {
     setLoading(true);
@@ -13981,7 +14098,7 @@ const QRMenu = () => {
     setCart(function(prev) { return prev.filter(function(item) { return item.id !== productId; }); });
   };
 
-  // Order placement
+  // ✅ FIX: Place Order with Idempotency Key
   const placeOrder = async function() {
     if (cart.length === 0) {
       alert(t('pleaseAddItems'));
@@ -14000,7 +14117,14 @@ const QRMenu = () => {
         source: 'qr_menu'
       };
 
-      const response = await API.post('/orders/qr-order', orderData);
+      // ✅ Generate unique idempotency key
+      const idempotencyKey = generateIdempotencyKey(orderData);
+
+      const response = await API.post('/orders/qr-order', orderData, {
+        headers: {
+          'Idempotency-Key': idempotencyKey
+        }
+      });
       
       if (response.data.success) {
         const data = response.data.data;
@@ -14353,8 +14477,7 @@ const QRMenu = () => {
                     {loading ? 'Adding...' : 'Add to Order'}
                   </button>
                   <button
-                    onClick={function() { setShowCart(false); }}
-                    className="flex-1 py-3 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-xl font-semibold"
+                    onClick={function() { setShowCart(false); }} className="flex-1 py-3 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-xl font-semibold"
                   >
                     Continue Shopping
                   </button>
@@ -14533,7 +14656,7 @@ const QRMenu = () => {
     );
   }
 
-  // Main Menu Screen - simplified (this is the main render)
+  // Main Menu Screen
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
       <header className="bg-gradient-to-r from-blue-600 to-purple-600 text-white sticky top-0 z-30 shadow-lg">
@@ -14692,7 +14815,11 @@ const QRMenu = () => {
               <input type="text" placeholder="Your name (optional)" value={customerName} onChange={function(e) { setCustomerName(e.target.value); }} className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg mb-2 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500" />
               <input type="tel" placeholder="Your phone (optional)" value={customerPhone} onChange={function(e) { setCustomerPhone(e.target.value); }} className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg mb-2 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500" />
               <textarea placeholder="Special instructions" value={specialInstructions} onChange={function(e) { setSpecialInstructions(e.target.value); }} className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg mb-4 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500" rows={2} />
-              <button onClick={placeOrder} disabled={cart.length === 0 || loading} className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold transition">{loading ? 'Placing Order...' : 'Place Order'}</button>
+              
+              {/* ✅ FIX: placeOrder now includes idempotency key */}
+              <button onClick={placeOrder} disabled={cart.length === 0 || loading} className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold transition">
+                {loading ? 'Placing Order...' : 'Place Order'}
+              </button>
               <p className="text-xs text-gray-500 dark:text-gray-400 text-center mt-3">Waiter will confirm your order</p>
             </div>
           </div>
@@ -17720,12 +17847,12 @@ export const startSyncEngine = () => {
     console.log('[SYNC] Starting sync engine...');
     isInitialized = true;
 
-    // Initial sync after startup
+    // Initial sync after startup (delayed)
     setTimeout(() => {
         if (navigator.onLine) {
             sync();
         }
-    }, 3000);
+    }, 5000);
 
     // Periodic sync every 60 seconds
     syncInterval = setInterval(() => {
@@ -17737,7 +17864,7 @@ export const startSyncEngine = () => {
     // Sync on network reconnect
     onlineHandler = () => {
         console.log('[SYNC] Network reconnected, syncing...');
-        setTimeout(sync, 2000);
+        setTimeout(sync, 3000);
     };
     window.addEventListener('online', onlineHandler);
 
@@ -17859,18 +17986,21 @@ const syncSingleOrder = async (order) => {
         const status = error.response?.status;
         const errorMsg = error.response?.data?.error || error.message;
 
+        // Auth error - give up
         if (status === 401 || status === 403) {
             await updateOfflineOrderStatus(order.id, 'failed', `Auth error: ${errorMsg}`);
             console.error(`[SYNC] Order ${order.id} auth failed:`, errorMsg);
             return 'failed';
         }
 
+        // Duplicate - already exists on server
         if (status === 409) {
             await deleteOfflineOrder(order.id);
             console.log(`[SYNC] Order ${order.id} already exists (duplicate)`);
             return 'synced';
         }
 
+        // Retry logic - max 5 attempts
         const attempts = (order.attempts || 0) + 1;
         if (attempts >= 5) {
             await updateOfflineOrderStatus(order.id, 'failed', `Max retries exceeded: ${errorMsg}`);
@@ -17878,6 +18008,7 @@ const syncSingleOrder = async (order) => {
             return 'failed';
         }
 
+        // Requeue for retry
         await updateOfflineOrderStatus(order.id, 'pending', errorMsg);
         console.log(`[SYNC] Order ${order.id} will retry (attempt ${attempts}/5)`);
         return 'pending';
@@ -17901,7 +18032,7 @@ export const getSyncStatus = async () => {
         return {
             total: total || 0,
             pending: branchPending?.length || 0,
-            isSyncing,
+            isSyncing: isSyncing,
             hasPending: branchPending?.length > 0
         };
     } catch (error) {
@@ -18068,8 +18199,7 @@ export const getStatusBadgeClasses = function(status) {
 }
 === FILE: C:\Users\dell\Desktop\restaurant\client\src\App.js ===
 // client/src/App.js
-
-import React, { useState, useEffect, Suspense, lazy, useCallback } from 'react';
+import React, { useState, useEffect, Suspense, lazy, useCallback, useRef } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
@@ -18112,14 +18242,12 @@ const MyOrders = lazy(() => import('./pages/waiter/MyOrders'));
 const TableStatus = lazy(() => import('./pages/waiter/TableStatus'));
 const PendingConfirmations = lazy(() => import('./pages/waiter/PendingConfirmations'));
 
-// Loading component
 const LoadingSpinner = () => (
   <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
     <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
   </div>
 );
 
-// Role-based route guard
 const RoleRoute = React.memo(({ children, allowedRoles, userRole, redirectTo = '/login' }) => {
   if (!userRole) return <Navigate to="/login" replace />;
   if (!allowedRoles.includes(userRole)) {
@@ -18128,7 +18256,6 @@ const RoleRoute = React.memo(({ children, allowedRoles, userRole, redirectTo = '
   return children;
 });
 
-// Get default route based on role
 const getDefaultRoute = (role) => {
   switch(role) {
     case 'owner': return '/owner/dashboard';
@@ -18145,6 +18272,7 @@ function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState(null);
+  const syncStartedRef = useRef(false);
 
   useEffect(() => {
     const token = localStorage.getItem('token');
@@ -18164,11 +18292,12 @@ function App() {
     setLoading(false);
   }, []);
 
-  // Start sync engine when authenticated
   useEffect(() => {
-    if (isAuthenticated) {
+    if (isAuthenticated && !syncStartedRef.current) {
+      syncStartedRef.current = true;
       startSyncEngine();
-    } else {
+    } else if (!isAuthenticated) {
+      syncStartedRef.current = false;
       stopSyncEngine();
     }
   }, [isAuthenticated]);
@@ -18186,6 +18315,7 @@ function App() {
     localStorage.removeItem('ethiopos_selected_branch');
     setIsAuthenticated(false);
     setUser(null);
+    syncStartedRef.current = false;
     stopSyncEngine();
   }, []);
 
@@ -18193,7 +18323,6 @@ function App() {
     return <LoadingSpinner />;
   }
 
-  // PUBLIC ROUTES
   if (!isAuthenticated) {
     return (
       <ErrorBoundary>
@@ -18218,7 +18347,6 @@ function App() {
 
   const userRole = user?.role || 'cashier';
 
-  // AUTHENTICATED ROUTES
   return (
     <ErrorBoundary>
       <ThemeProvider>
@@ -18229,11 +18357,9 @@ function App() {
                 <Router>
                   <Suspense fallback={<LoadingSpinner />}>
                     <Routes>
-                      {/* Public routes also accessible to logged-in users */}
                       <Route path="/qr-menu" element={<QRMenu />} />
                       <Route path="/track-order" element={<TrackOrder />} />
 
-                      {/* Owner Routes */}
                       <Route path="/owner/*" element={
                         <RoleRoute allowedRoles={['owner', 'admin']} userRole={userRole}>
                           <OwnerLayout user={user} onLogout={handleLogout}>
@@ -18257,7 +18383,6 @@ function App() {
                         </RoleRoute>
                       } />
 
-                      {/* Manager Routes */}
                       <Route path="/manager/*" element={
                         <RoleRoute allowedRoles={['manager', 'owner', 'admin']} userRole={userRole}>
                           <ManagerLayout user={user} onLogout={handleLogout}>
@@ -18276,14 +18401,12 @@ function App() {
                         </RoleRoute>
                       } />
 
-                      {/* Cashier Routes */}
                       <Route path="/cashier/*" element={
                         <RoleRoute allowedRoles={['cashier', 'manager', 'owner', 'admin']} userRole={userRole}>
                           <CashierLayout user={user} onLogout={handleLogout}>
                             <Suspense fallback={<LoadingSpinner />}>
                               <Routes>
                                 <Route path="pos" element={<CashierPOS />} />
-                                <Route path="history" element={<div className="text-gray-900 dark:text-white p-6">Sales History</div>} />
                                 <Route path="manual-order" element={<ManualOrder />} />
                                 <Route path="*" element={<Navigate to="/cashier/pos" />} />
                               </Routes>
@@ -18292,14 +18415,12 @@ function App() {
                         </RoleRoute>
                       } />
 
-                      {/* Waiter Routes */}
                       <Route path="/waiter/*" element={
                         <RoleRoute allowedRoles={['waiter', 'cashier', 'manager', 'owner', 'admin']} userRole={userRole}>
                           <WaiterLayout user={user} onLogout={handleLogout}>
                             <Suspense fallback={<LoadingSpinner />}>
                               <Routes>
                                 <Route path="tables" element={<TableGrid />} />
-                                <Route path="orders" element={<div className="text-gray-900 dark:text-white p-6">My Orders</div>} />
                                 <Route path="my-orders" element={<MyOrders />} />
                                 <Route path="table-status" element={<TableStatus />} />
                                 <Route path="pending-confirmations" element={<PendingConfirmations />} />
@@ -18310,7 +18431,6 @@ function App() {
                         </RoleRoute>
                       } />
 
-                      {/* Kitchen Routes */}
                       <Route path="/kitchen/*" element={
                         <RoleRoute allowedRoles={['kitchen', 'manager', 'owner', 'admin']} userRole={userRole}>
                           <KitchenLayout user={user} onLogout={handleLogout}>
@@ -18324,7 +18444,6 @@ function App() {
                         </RoleRoute>
                       } />
 
-                      {/* Root redirect based on role */}
                       <Route path="/" element={<Navigate to={getDefaultRoute(userRole)} replace />} />
                       <Route path="*" element={<Navigate to={getDefaultRoute(userRole)} replace />} />
                     </Routes>
@@ -19411,10 +19530,6 @@ import { ThemeProvider } from './context/ThemeContext';
 import { BranchProvider } from './context/BranchContext';
 import { OfflineProvider } from './context/OfflineContext';
 import { CartProvider } from './context/CartContext';
-import socket, { setupOfflineHandlers } from './socket';
-
-// âœ… Setup offline handlers to prevent flickering
-setupOfflineHandlers();
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 
@@ -19457,252 +19572,37 @@ export default reportWebVitals;
 import '@testing-library/jest-dom';
 === FILE: C:\Users\dell\Desktop\restaurant\client\src\socket.js ===
 // client/src/socket.js
-import io from 'socket.io-client';
+// Socket.IO is DISABLED to prevent flickering
 
-// ✅ Use the correct URL - match your deployment
-const SOCKET_URL = 'https://ethiopos1.onrender.com';
-
-let socket = null;
-let isConnected = false;
-let reconnectAttempts = 0;
-const MAX_RECONNECT_ATTEMPTS = 3; // ✅ REDUCED from 10 to 3
-const RECONNECT_DELAY = 5000; // ✅ ADDED delay between attempts
-
-// Get auth token
-const getToken = () => {
-    return localStorage.getItem('token');
-};
-
-// Get user context
-const getUserContext = () => {
-    try {
-        const user = JSON.parse(localStorage.getItem('user') || '{}');
-        return {
-            company_id: user.company_id || 1,
-            branch_id: user.branch_id || 1,
-            role: user.role || 'staff',
-            id: user.id
-        };
-    } catch (e) {
-        return { company_id: 1, branch_id: 1, role: 'staff', id: null };
-    }
-};
-
-// ✅ Check if we should attempt connection
-const shouldAttemptConnection = () => {
-    // Don't attempt if offline
-    if (!navigator.onLine) {
-        console.log('[SOCKET] Offline - skipping connection');
-        return false;
-    }
-    // Don't attempt if already connected
-    if (isConnected && socket) {
-        return false;
-    }
-    // Don't attempt if max attempts reached
-    if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-        console.log('[SOCKET] Max reconnect attempts reached');
-        return false;
-    }
-    return true;
-};
-
-// Connect to Socket.IO
 export const connectSocket = () => {
-    // ✅ Prevent duplicate connections
-    if (socket && isConnected) {
-        console.log('[SOCKET] Already connected');
-        return socket;
-    }
-
-    // ✅ Check if we should connect
-    if (!shouldAttemptConnection()) {
-        return null;
-    }
-
-    const token = getToken();
-    if (!token) {
-        console.log('[SOCKET] No token, skipping connection');
-        return null;
-    }
-
-    const context = getUserContext();
-    console.log('[SOCKET] Connecting to:', SOCKET_URL);
-
-    socket = io(SOCKET_URL, {
-        path: '/socket.io',
-        transports: ['polling', 'websocket'],
-        auth: { token: token },
-        query: {
-            company_id: context.company_id,
-            branch_id: context.branch_id,
-            role: context.role
-        },
-        reconnection: true,
-        reconnectionAttempts: MAX_RECONNECT_ATTEMPTS,
-        reconnectionDelay: RECONNECT_DELAY,
-        reconnectionDelayMax: 10000,
-        timeout: 10000,
-        upgrade: true,
-        forceNew: false,
-        withCredentials: true
-    });
-
-    socket.on('connect', () => {
-        console.log('[SOCKET] Connected successfully');
-        console.log('[SOCKET] Socket ID:', socket.id);
-        isConnected = true;
-        reconnectAttempts = 0;
-        
-        // Join branch room
-        socket.emit('join_branch', {
-            company_id: context.company_id,
-            branch_id: context.branch_id,
-            role: context.role,
-            user_id: context.id
-        });
-
-        if (context.role) {
-            socket.emit(`join_${context.role}`, {
-                user_id: context.id,
-                branch_id: context.branch_id
-            });
-        }
-    });
-
-    socket.on('connect_error', (error) => {
-        console.log('[SOCKET] Connection error:', error.message);
-        isConnected = false;
-        reconnectAttempts++;
-        
-        // ✅ If max attempts reached, stop trying
-        if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-            console.log('[SOCKET] Max attempts reached, giving up');
-            socket.disconnect();
-        }
-    });
-
-    socket.on('disconnect', (reason) => {
-        console.log('[SOCKET] Disconnected:', reason);
-        isConnected = false;
-        
-        // ✅ Don't try to reconnect if offline
-        if (!navigator.onLine) {
-            console.log('[SOCKET] Offline - waiting for reconnect');
-        }
-    });
-
-    socket.on('reconnect', (attemptNumber) => {
-        console.log(`[SOCKET] Reconnected after ${attemptNumber} attempts`);
-        isConnected = true;
-        const ctx = getUserContext();
-        socket.emit('join_branch', {
-            company_id: ctx.company_id,
-            branch_id: ctx.branch_id,
-            role: ctx.role,
-            user_id: ctx.id
-        });
-    });
-
-    socket.on('reconnect_attempt', (attempt) => {
-        console.log(`[SOCKET] Reconnect attempt ${attempt}/${MAX_RECONNECT_ATTEMPTS}`);
-    });
-
-    socket.io.engine.on('upgrade', (transport) => {
-        console.log('[SOCKET] Transport upgraded to:', transport.name);
-    });
-
-    return socket;
+    console.log('[SOCKET] Socket disabled');
+    return null;
 };
 
-// Disconnect Socket.IO
 export const disconnectSocket = () => {
-    if (socket) {
-        console.log('[SOCKET] Disconnecting...');
-        socket.disconnect();
-        socket = null;
-        isConnected = false;
-        reconnectAttempts = 0;
-    }
+    console.log('[SOCKET] Socket disabled');
 };
 
-// Get socket instance
 export const getSocket = () => {
-    // ✅ Don't try to connect if offline
-    if (!navigator.onLine) {
-        console.log('[SOCKET] Offline - returning null');
-        return null;
-    }
-    if (!socket || !isConnected) {
-        return connectSocket();
-    }
-    return socket;
+    return null;
 };
 
-// Check if socket is connected
 export const isSocketConnected = () => {
-    return isConnected && socket && socket.connected;
-};
-
-// Emit event
-export const emitEvent = (event, data) => {
-    // ✅ Don't emit if offline
-    if (!navigator.onLine) {
-        console.log(`[SOCKET] Offline - cannot emit ${event}`);
-        return false;
-    }
-    const s = getSocket();
-    if (s && isConnected) {
-        s.emit(event, data);
-        return true;
-    }
-    console.log(`[SOCKET] Cannot emit ${event} - not connected`);
     return false;
 };
 
-// Listen for event
-export const onEvent = (event, callback) => {
-    const s = getSocket();
-    if (s) {
-        s.on(event, callback);
-    }
+export const emitEvent = () => {
+    return false;
 };
 
-// Off event
-export const offEvent = (event, callback) => {
-    const s = getSocket();
-    if (s) {
-        s.off(event, callback);
-    }
-};
+export const onEvent = () => {};
 
-// ✅ ADDED: Handle online/offline events
+export const offEvent = () => {};
+
 export const setupOfflineHandlers = () => {
-    const handleOnline = () => {
-        console.log('[SOCKET] Network online - attempting reconnect');
-        if (!socket || !isConnected) {
-            connectSocket();
-        }
-    };
-    
-    const handleOffline = () => {
-        console.log('[SOCKET] Network offline - disconnecting');
-        if (socket) {
-            socket.disconnect();
-        }
-        isConnected = false;
-    };
-    
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
-    
-    return () => {
-        window.removeEventListener('online', handleOnline);
-        window.removeEventListener('offline', handleOffline);
-    };
+    return () => {};
 };
 
-// Default export
 const socketInstance = {
     on: onEvent,
     off: offEvent,
@@ -43285,7 +43185,11 @@ router.get("/track/:orderNumber", trackLimiter, async (req, res) => {
     }
 });
 
-router.post("/qr-order", requireIdempotency, idempotent, async (req, res) => {
+// ============================================================
+// âœ… FIX: QR Order â€” Skip idempotency (public endpoint)
+// ============================================================
+
+router.post("/qr-order", async (req, res) => {
     try {
         const { items, table_id, customer_name, customer_phone, notes } = req.body;
         if (!items || items.length === 0) {
@@ -43371,6 +43275,7 @@ router.post("/qr-order", requireIdempotency, idempotent, async (req, res) => {
 // ============================================================
 // PROTECTED ROUTES
 // ============================================================
+
 router.use(protect);
 
 // ============================================================
@@ -43531,10 +43436,9 @@ router.post("/", authorizeBranch, allowWaiter, requireIdempotency, idempotent, a
 });
 
 // ============================================================
-// CASHIER ROUTES - MUST BE BEFORE /:orderId
+// CASHIER ROUTES
 // ============================================================
 
-// GET READY ORDERS - MUST BE BEFORE ANY /:orderId ROUTE
 router.get("/ready", protect, async (req, res) => {
     try {
         const branchId = req.user?.branch_id || 1;
@@ -43619,7 +43523,7 @@ router.post("/:orderId/pay", authorizeBranch, allowCashier, requireIdempotency, 
 });
 
 // ============================================================
-// WAITER ROUTES - WITH :orderId PARAM (MUST BE AFTER /ready)
+// WAITER ROUTES - WITH :orderId PARAM
 // ============================================================
 
 router.get("/:orderId", authorizeBranch, allowWaiter, async (req, res) => {
@@ -44932,16 +44836,61 @@ const JWT_SECRET = process.env.JWT_SECRET || 'your_super_secret_key';
 const PORT = process.env.PORT || 5000;
 
 // ============================================================
-// SOCKET.IO CONFIGURATION
+// ALLOWED ORIGINS
+// ============================================================
+
+const allowedOrigins = [
+    'https://ethiopos1-1.onrender.com',
+    'https://ethiopos1.onrender.com',
+    'http://localhost:3000',
+    'http://localhost:3001',
+    'https://ethiopos-offline-pos.onrender.com'
+];
+
+// ============================================================
+// ✅ CORS CONFIGURATION - FIXED
+// ============================================================
+
+const corsOptions = {
+    origin: function (origin, callback) {
+        // Allow requests with no origin (like mobile apps or curl)
+        if (!origin) return callback(null, true);
+        
+        if (allowedOrigins.indexOf(origin) !== -1) {
+            callback(null, true);
+        } else {
+            // Allow all in development, restrict in production
+            if (process.env.NODE_ENV !== 'production') {
+                callback(null, true);
+            } else {
+                console.log(`[CORS] Blocked origin: ${origin}`);
+                callback(new Error('Not allowed by CORS'));
+            }
+        }
+    },
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: [
+        "Content-Type",
+        "Authorization",
+        "Idempotency-Key",
+        "cache-control",      // ✅ FIXED - Added cache-control
+        "X-Requested-With",
+        "Accept",
+        "Origin"
+    ]
+};
+
+// Apply CORS middleware
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
+
+// ============================================================
+// Socket.IO with CORS
 // ============================================================
 
 const io = new SocketServer(server, {
-    cors: {
-        origin: process.env.CORS_ORIGIN || "*",
-        methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-        credentials: true,
-        allowedHeaders: ["Content-Type", "Authorization", "Idempotency-Key"]
-    },
+    cors: corsOptions,
     path: "/socket.io",
     transports: ['polling', 'websocket'],
     allowEIO3: true,
@@ -44950,24 +44899,14 @@ const io = new SocketServer(server, {
     cookie: false
 });
 
-// ============================================================
-// SOCKET.IO AUTHENTICATION MIDDLEWARE
-// ============================================================
-
+// Socket.IO authentication middleware
 io.use((socket, next) => {
     const token = socket.handshake.auth.token || socket.handshake.query.token;
-    
-    console.log('[SOCKET] Auth attempt - token present:', !!token);
-    
     if (!token) {
-        console.log('[SOCKET] No token provided');
         return next(new Error('Authentication required'));
     }
-
     try {
         const decoded = jwt.verify(token, JWT_SECRET);
-        console.log('[SOCKET] Token verified for:', decoded.email);
-        
         socket.user = {
             id: decoded.id,
             email: decoded.email,
@@ -44978,19 +44917,14 @@ io.use((socket, next) => {
         };
         next();
     } catch (error) {
-        console.log('[SOCKET] Token verification failed:', error.message);
         return next(new Error('Invalid token'));
     }
 });
 
-// ============================================================
-// MAKE IO AVAILABLE TO ROUTES
-// ============================================================
-
 app.set("io", io);
 
 // ============================================================
-// MIDDLEWARE
+// Middleware
 // ============================================================
 
 app.use(helmet({
@@ -44998,18 +44932,11 @@ app.use(helmet({
     contentSecurityPolicy: false
 }));
 
-app.use(cors({
-    origin: process.env.CORS_ORIGIN || "*",
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "Idempotency-Key"]
-}));
-
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // ============================================================
-// ROUTES
+// Routes
 // ============================================================
 
 app.use("/api/auth", authRoutes);
@@ -45028,10 +44955,19 @@ app.use("/api/categories", categoryRoutes);
 app.use("/api/customers", customerRoutes);
 
 // ============================================================
-// HEALTH CHECK
+// Health Check - With explicit CORS headers
 // ============================================================
 
 app.get("/health", (req, res) => {
+    const origin = req.headers.origin;
+    if (origin && allowedOrigins.includes(origin)) {
+        res.setHeader('Access-Control-Allow-Origin', origin);
+    } else {
+        res.setHeader('Access-Control-Allow-Origin', '*');
+    }
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, cache-control');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
     res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
@@ -45045,73 +44981,74 @@ app.get("/", (req, res) => {
 });
 
 // ============================================================
-// ERROR HANDLING
+// Error Handling
 // ============================================================
 
 app.use(notFound);
 app.use(errorHandler);
 
 // ============================================================
-// SOCKET.IO EVENTS
+// Socket.IO Events
 // ============================================================
 
 io.on("connection", (socket) => {
-    const user = socket.user;
-    console.log(`[SOCKET] Client connected: ${socket.id} (${user?.email || 'unknown'})`);
-    console.log(`[SOCKET] Transport: ${socket.conn.transport.name}`);
-
-    // Join branch room
+    console.log(`[SOCKET] Connected: ${socket.id}`);
+    
     socket.on('join_branch', (data) => {
-        const branchRoom = `branch_${data.company_id}_${data.branch_id}`;
-        socket.join(branchRoom);
-        console.log(`[SOCKET] ${socket.id} joined ${branchRoom}`);
-        
-        if (data.role) {
-            const roleRoom = `role_${data.role}_${data.branch_id}`;
-            socket.join(roleRoom);
-            console.log(`[SOCKET] ${socket.id} joined ${roleRoom}`);
+        try {
+            const room = `branch_${data.company_id}_${data.branch_id}`;
+            socket.join(room);
+            console.log(`[SOCKET] ${socket.id} joined ${room}`);
+        } catch (err) {
+            console.error('[SOCKET] join error:', err);
         }
     });
 
-    // Join waiter room
     socket.on('join_waiter', (data) => {
-        const waiterRoom = `waiter_${data.user_id}`;
-        socket.join(waiterRoom);
-        console.log(`[SOCKET] ${socket.id} joined ${waiterRoom}`);
+        try {
+            const room = `waiter_${data.user_id}`;
+            socket.join(room);
+            console.log(`[SOCKET] ${socket.id} joined ${room}`);
+        } catch (err) {
+            console.error('[SOCKET] join_waiter error:', err);
+        }
     });
 
-    // Join kitchen room
     socket.on('join_kitchen', (data) => {
-        const kitchenRoom = `kitchen_${data.branch_id}`;
-        socket.join(kitchenRoom);
-        console.log(`[SOCKET] ${socket.id} joined ${kitchenRoom}`);
+        try {
+            const room = `kitchen_${data.branch_id}`;
+            socket.join(room);
+            console.log(`[SOCKET] ${socket.id} joined ${room}`);
+        } catch (err) {
+            console.error('[SOCKET] join_kitchen error:', err);
+        }
     });
 
-    // Join cashier room
     socket.on('join_cashier', (data) => {
-        const cashierRoom = `cashier_${data.branch_id}`;
-        socket.join(cashierRoom);
-        console.log(`[SOCKET] ${socket.id} joined ${cashierRoom}`);
+        try {
+            const room = `cashier_${data.branch_id}`;
+            socket.join(room);
+            console.log(`[SOCKET] ${socket.id} joined ${room}`);
+        } catch (err) {
+            console.error('[SOCKET] join_cashier error:', err);
+        }
     });
 
-    // Track transport upgrades
-    socket.conn.on('upgrade', () => {
-        console.log(`[SOCKET] Transport upgraded to: ${socket.conn.transport.name}`);
-    });
-
-    socket.on("disconnect", () => {
-        console.log(`[SOCKET] Client disconnected: ${socket.id}`);
+    socket.on('disconnect', (reason) => {
+        console.log(`[SOCKET] Disconnected: ${socket.id} (${reason})`);
     });
 });
 
 // ============================================================
-// START SERVER
+// Start Server
 // ============================================================
 
 server.listen(PORT, async () => {
     console.log(`🚀 Server running on port ${PORT}`);
     console.log(`🔗 API: http://localhost:${PORT}/api`);
     console.log(`🔌 WebSocket: ws://localhost:${PORT}/socket.io`);
+    console.log(`📡 CORS allowed origins: ${allowedOrigins.join(', ')}`);
+    console.log(`📡 CORS allowed headers: Content-Type, Authorization, cache-control`);
     
     const dbConnected = await testConnection();
     if (dbConnected) {
@@ -47486,179 +47423,6 @@ console.log(bcrypt.hashSync(pw, 10));
     "nodemon": "^3.0.1"
   }
 }
-=== FILE: C:\Users\dell\Desktop\restaurant\server\server.js ===
-import express from "express";
-import cors from "cors";
-import helmet from "helmet";
-import dotenv from "dotenv";
-import { createServer } from "http";
-import { Server as SocketServer } from "socket.io";
-import { pool, testConnection } from "./config/database.js";
-import authRoutes from "./routes/auth.js";
-import dashboardRoutes from "./routes/dashboard.js";
-import expenseRoutes from "./routes/expenses.js";
-import ingredientRoutes from "./routes/ingredients.js";
-import kitchenRoutes from "./routes/kitchen.js";
-import orderRoutes from "./routes/orders.js";
-import productRoutes from "./routes/products.js";
-import profitRoutes from "./routes/profit.js";
-import recipeRoutes from "./routes/recipes.js";
-import saleRoutes from "./routes/sales.js";
-import tableRoutes from "./routes/tables.js";
-import waiterRoutes from "./routes/waiter.js";
-import categoryRoutes from "./routes/categories.js";
-import customerRoutes from "./routes/customers.js";
-import { errorHandler, notFound } from "./middleware/errorHandler.js";
-import jwt from 'jsonwebtoken';
-
-dotenv.config();
-
-const app = express();
-const server = createServer(app);
-
-const JWT_SECRET = process.env.JWT_SECRET || 'your_super_secret_key';
-
-// Socket.IO with authentication
-const io = new SocketServer(server, {
-    cors: {
-        origin: process.env.CORS_ORIGIN || "http://localhost:3000",
-        methods: ["GET", "POST", "PUT", "DELETE"],
-        credentials: true
-    },
-    path: "/socket.io"
-});
-
-// Socket.IO authentication middleware
-io.use((socket, next) => {
-    const token = socket.handshake.auth.token || socket.handshake.query.token;
-    
-    if (!token) {
-        return next(new Error('Authentication required'));
-    }
-
-    try {
-        const decoded = jwt.verify(token, JWT_SECRET);
-        socket.user = {
-            id: decoded.id,
-            email: decoded.email,
-            role: decoded.role,
-            company_id: decoded.company_id || 1,
-            branch_id: decoded.branch_id || 1,
-            name: decoded.name
-        };
-        next();
-    } catch (error) {
-        return next(new Error('Invalid token'));
-    }
-});
-
-app.set("io", io);
-
-// Middleware
-app.use(helmet({
-    crossOriginResourcePolicy: { policy: "cross-origin" },
-    contentSecurityPolicy: false
-}));
-app.use(cors({
-    origin: process.env.CORS_ORIGIN || "http://localhost:3000",
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "Idempotency-Key"]
-}));
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
-// Routes
-app.use("/api/auth", authRoutes);
-app.use("/api/dashboard", dashboardRoutes);
-app.use("/api/expenses", expenseRoutes);
-app.use("/api/ingredients", ingredientRoutes);
-app.use("/api/kitchen", kitchenRoutes);
-app.use("/api/orders", orderRoutes);
-app.use("/api/products", productRoutes);
-app.use("/api/profit", profitRoutes);
-app.use("/api/recipes", recipeRoutes);
-app.use("/api/sales", saleRoutes);
-app.use("/api/tables", tableRoutes);
-app.use("/api/waiter", waiterRoutes);
-app.use("/api/categories", categoryRoutes);
-app.use("/api/customers", customerRoutes);
-
-// Health check
-app.get("/health", (req, res) => {
-    res.json({ status: "ok", timestamp: new Date().toISOString() });
-});
-
-// Root
-app.get("/", (req, res) => {
-    res.json({
-        name: "EthioPOS API",
-        version: "1.0.0",
-        status: "running",
-        endpoints: "/api/*"
-    });
-});
-
-// Error handling
-app.use(notFound);
-app.use(errorHandler);
-
-// Socket.IO connection
-io.on("connection", (socket) => {
-    const user = socket.user;
-    console.log(`[SOCKET] Client connected: ${socket.id} (${user?.email || 'unknown'})`);
-
-    // Join branch room
-    socket.on('join_branch', (data) => {
-        const branchRoom = `branch_${data.company_id}_${data.branch_id}`;
-        socket.join(branchRoom);
-        console.log(`[SOCKET] ${socket.id} joined ${branchRoom}`);
-        
-        // Also join role-specific room
-        if (data.role) {
-            const roleRoom = `role_${data.role}_${data.branch_id}`;
-            socket.join(roleRoom);
-            console.log(`[SOCKET] ${socket.id} joined ${roleRoom}`);
-        }
-    });
-
-    // Join waiter room
-    socket.on('join_waiter', (data) => {
-        const waiterRoom = `waiter_${data.user_id}`;
-        socket.join(waiterRoom);
-        console.log(`[SOCKET] ${socket.id} joined ${waiterRoom}`);
-    });
-
-    // Join kitchen room
-    socket.on('join_kitchen', (data) => {
-        const kitchenRoom = `kitchen_${data.branch_id}`;
-        socket.join(kitchenRoom);
-        console.log(`[SOCKET] ${socket.id} joined ${kitchenRoom}`);
-    });
-
-    // Join cashier room
-    socket.on('join_cashier', (data) => {
-        const cashierRoom = `cashier_${data.branch_id}`;
-        socket.join(cashierRoom);
-        console.log(`[SOCKET] ${socket.id} joined ${cashierRoom}`);
-    });
-
-    socket.on("disconnect", () => {
-        console.log(`[SOCKET] Client disconnected: ${socket.id}`);
-    });
-});
-
-const PORT = process.env.PORT || 5000;
-server.listen(PORT, async () => {
-    console.log(`ðŸš€ Server running on port ${PORT}`);
-    console.log(`ðŸ”— API: http://localhost:${PORT}/api`);
-    console.log(`ðŸ”Œ WebSocket: ws://localhost:${PORT}/socket.io`);
-    const dbConnected = await testConnection();
-    if (dbConnected) console.log("âœ… Database connected successfully");
-    else console.log("âŒ Database connection failed");
-});
-
-export { app, server, io };
 === FILE: C:\Users\dell\Desktop\restaurant\server\test-db.js ===
 import pkg from 'pg';
 const { Pool } = pkg;

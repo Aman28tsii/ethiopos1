@@ -137,7 +137,7 @@ export const getRecipeByProduct = catchAsync(async (req, res) => {
 });
 
 // ============================================================
-// CREATE OR UPDATE RECIPE (Company-validated)
+// CREATE OR UPDATE RECIPE (Company-validated) - ✅ FIXED
 // ============================================================
 export const createOrUpdateRecipe = catchAsync(async (req, res) => {
     const { productId } = req.params;
@@ -191,11 +191,13 @@ export const createOrUpdateRecipe = catchAsync(async (req, res) => {
             recipeId = result.rows[0].id;
         }
 
+        // ✅ FIXED: Include 'unit' in the INSERT statement
         for (const item of ingredients) {
             if (!item.ingredient_id || !item.quantity_required || item.quantity_required <= 0) {
                 throw new AppError('Each ingredient requires valid ingredient_id and quantity_required', 400);
             }
 
+            // Get the unit from the ingredient or use the provided unit
             const ingredientCheck = await client.query(
                 'SELECT id, unit FROM ingredients WHERE id = $1',
                 [item.ingredient_id]
@@ -205,14 +207,18 @@ export const createOrUpdateRecipe = catchAsync(async (req, res) => {
                 throw new AppError(`Ingredient ID ${item.ingredient_id} not found`, 404);
             }
 
+            const unit = item.unit || ingredientCheck.rows[0].unit || 'pcs';
+
+            // ✅ FIXED: INSERT includes 'unit' column
             await client.query(
                 `INSERT INTO recipe_ingredients (
-                    recipe_id, ingredient_id, quantity_required, 
+                    recipe_id, ingredient_id, unit, quantity_required, 
                     wastage_percentage, cooking_loss_percentage
-                ) VALUES ($1, $2, $3, $4, $5)`,
+                ) VALUES ($1, $2, $3, $4, $5, $6)`,
                 [
                     recipeId, 
                     item.ingredient_id, 
+                    unit,
                     item.quantity_required,
                     item.wastage_percentage || 0,
                     item.cooking_loss_percentage || 0
@@ -748,7 +754,6 @@ export const processOrderStockDeduction = async (orderId, items, client) => {
     // Get company and branch from first ingredient
     const firstIngredient = ingredientMap.get(ingredientIds[0]);
     
-    // ✅ FIXED: No fallback values - require proper authentication context
     const companyId = firstIngredient?.company_id;
     const branchId = firstIngredient?.branch_id;
 
@@ -792,7 +797,6 @@ export const processOrderStockDeduction = async (orderId, items, client) => {
     for (const row of lockedResult.rows) {
         const required = ingredientMap.get(row.id).total_required;
         
-        // ✅ Guarded update with stock check
         const updateResult = await client.query(`
             UPDATE ingredients 
             SET quantity = quantity - $1,

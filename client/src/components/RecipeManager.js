@@ -1,3 +1,5 @@
+// client/src/components/RecipeManager.js
+
 import React, { useState, useEffect } from 'react';
 import API from '../api/axios';
 import { 
@@ -129,7 +131,7 @@ const RecipeManager = ({ productId, productName, productPrice, onSave, onClose }
     };
 
     // ============================================
-    // ADD INGREDIENT
+    // ADD INGREDIENT - ✅ FIXED: Include unit
     // ============================================
     const addIngredient = () => {
         if (!selectedIngredient.ingredient_id || !selectedIngredient.quantity_required) {
@@ -229,7 +231,7 @@ const RecipeManager = ({ productId, productName, productPrice, onSave, onClose }
     };
 
     // ============================================
-    // SAVE RECIPE
+    // SAVE RECIPE - ✅ FIXED: Include unit in payload
     // ============================================
     const saveRecipe = async () => {
         if (ingredients.length === 0) {
@@ -244,6 +246,7 @@ const RecipeManager = ({ productId, productName, productPrice, onSave, onClose }
                 yield_quantity: yieldQuantity,
                 ingredients: ingredients.map(ing => ({
                     ingredient_id: ing.ingredient_id,
+                    unit: ing.unit,  // ✅ FIXED: Include unit
                     quantity_required: ing.quantity_required,
                     wastage_percentage: ing.wastage_percentage || 0,
                     cooking_loss_percentage: ing.cooking_loss_percentage || 0
@@ -514,7 +517,7 @@ const RecipeManager = ({ productId, productName, productPrice, onSave, onClose }
                     </div>
 
                     {/* ============================================ */}
-                    {/* ADD INGREDIENT FORM */}
+                    {/* ADD INGREDIENT FORM - ✅ FIXED: Unit included */}
                     {/* ============================================ */}
                     <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
                         <h3 className="font-semibold text-gray-900 dark:text-white mb-3">Add Ingredient</h3>
