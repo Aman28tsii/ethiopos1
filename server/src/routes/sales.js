@@ -1,4 +1,6 @@
-﻿import express from 'express';
+﻿// server/src/routes/sales.js
+
+import express from 'express';
 import {
     createSale,
     getSales,
@@ -6,6 +8,7 @@ import {
     getTodaySales
 } from '../controllers/saleController.js';
 import { protect, allowCashier, allowManager } from '../middleware/auth.js';
+import { requireIdempotency, idempotent } from '../middleware/idempotency.js';
 
 const router = express.Router();
 
@@ -16,10 +19,10 @@ router.use(protect);
 // CASHIER ROUTES
 // ============================================
 
-// Cashier and above can create sales
-router.post('/', allowCashier, createSale);
+// ✅ FIX: Added idempotency protection to prevent duplicate sales
+router.post('/', allowCashier, requireIdempotency, idempotent, createSale);
 
-// Cashier and above can view sales (changed from allowManager)
+// Cashier and above can view sales
 router.get('/', allowCashier, getSales);
 router.get('/today', allowCashier, getTodaySales);
 router.get('/:id', allowCashier, getSaleById);

@@ -3,6 +3,9 @@
 import { query, getClient } from '../config/database.js';
 import { AppError, catchAsync } from '../middleware/errorHandler.js';
 
+// ============================================
+// GENERATE SALE NUMBER
+// ============================================
 const generateSaleNumber = () => {
     const date = new Date();
     const timestamp = date.getTime().toString().slice(-8);
@@ -29,7 +32,6 @@ const calculateProductCost = async (productId, quantity, client) => {
         const cookingLossPct = parseFloat(item.cooking_loss_percentage) || 0;
         const unitCost = parseFloat(item.unit_cost) || 0;
         
-        // ✅ FIXED: Use quantity directly, no transformation
         const effectiveQty = qtyRequired * quantity * (1 + wastagePct / 100) * (1 + cookingLossPct / 100);
         totalCost += effectiveQty * unitCost;
     }
@@ -37,10 +39,10 @@ const calculateProductCost = async (productId, quantity, client) => {
 };
 
 // ============================================
-// DEDUCT INGREDIENTS - ✅ FIXED
+// DEDUCT INGREDIENTS - WITH STOCK_TRANSACTIONS FIX
 // ============================================
-const deductIngredients = async (productId, quantity, client) => {
-    // ✅ FIXED: Normalize and validate quantity
+const deductIngredients = async (productId, quantity, saleId, companyId, branchId, client) => {
+    // Normalize and validate quantity
     const saleQuantity = Number(quantity);
     
     if (!Number.isFinite(saleQuantity) || saleQuantity <= 0) {
@@ -49,7 +51,7 @@ const deductIngredients = async (productId, quantity, client) => {
 
     const recipeResult = await client.query(
         `SELECT ri.ingredient_id, ri.quantity_required, i.quantity as current_stock, i.name,
-                ri.wastage_percentage, ri.cooking_loss_percentage
+                ri.wastage_percentage, ri.cooking_loss_percentage, i.unit_cost
          FROM recipe_ingredients ri
          JOIN ingredients i ON ri.ingredient_id = i.id
          WHERE ri.recipe_id IN (SELECT id FROM recipes WHERE product_id = $1)`,
@@ -61,9 +63,13 @@ const deductIngredients = async (productId, quantity, client) => {
         const wastagePct = parseFloat(item.wastage_percentage) || 0;
         const cookingLossPct = parseFloat(item.cooking_loss_percentage) || 0;
         const currentQuantity = parseFloat(item.current_stock) || 0;
+        const unitCost = parseFloat(item.unit_cost) || 0;
 
-        // ✅ FIXED: Use saleQuantity directly - NO (quantity + 1) / 2 transformation
-        const requiredAmount = qtyRequired * saleQuantity * (1 + wastagePct / 100) * (1 + cookingLossPct / 100);
+        // Calculate required amount with wastage and cooking loss
+        const expectedQuantity = qtyRequired * saleQuantity;
+        const requiredAmount = expectedQuantity * (1 + wastagePct / 100) * (1 + cookingLossPct / 100);
+        const wastageAmount = requiredAmount - expectedQuantity;
+        const wastagePercentage = expectedQuantity > 0 ? (wastageAmount / expectedQuantity * 100) : 0;
         const newQuantity = currentQuantity - requiredAmount;
 
         if (newQuantity < 0) {
@@ -74,15 +80,161 @@ const deductIngredients = async (productId, quantity, client) => {
             );
         }
 
+        // Update ingredient stock
         await client.query(
-            'UPDATE ingredients SET quantity = quantity - $1 WHERE id = $2',
+            'UPDATE ingredients SET quantity = quantity - $1, updated_at = NOW() WHERE id = $2',
             [requiredAmount, item.ingredient_id]
         );
+
+        // ✅ FIX: Create stock_transactions record for audit trail
+        await client.query(`
+            INSERT INTO stock_transactions (
+                ingredient_id,
+                order_id,
+                product_id,
+                expected_quantity,
+                actual_quantity,
+                wastage_amount,
+                wastage_percentage,
+                transaction_type,
+                notes,
+                company_id,
+                branch_id
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        `, [
+            item.ingredient_id,
+            null,  // No order_id for direct sales
+            productId,
+            parseFloat(expectedQuantity.toFixed(3)),
+            parseFloat(requiredAmount.toFixed(3)),
+            parseFloat(wastageAmount.toFixed(3)),
+            parseFloat(wastagePercentage.toFixed(1)),
+            'sale_deduction',
+            `Sale ${saleId} - ${item.name}`,
+            companyId,
+            branchId
+        ]);
     }
 };
 
 // ============================================
-// GET ALL SALES (Branch-isolated)
+// CREATE SALE - FIXED WITH IDEMPOTENCY SUPPORT
+// ============================================
+export const createSale = catchAsync(async (req, res) => {
+    const { items, payment_method, customer_name, customer_phone } = req.body;
+    const userId = req.user.id;
+    const companyId = req.user.company_id;
+    const branchId = req.user.branch_id;
+    
+    if (!companyId || !branchId) {
+        throw new AppError('Company and branch context required', 401);
+    }
+    
+    if (!items || items.length === 0) {
+        throw new AppError('No items in sale', 400);
+    }
+    
+    const client = await getClient();
+    
+    try {
+        await client.query('BEGIN');
+        
+        let totalAmount = 0;
+        let totalCost = 0;
+        const saleItems = [];
+        
+        // Process each item
+        for (const item of items) {
+            const quantity = Number(item.quantity);
+            
+            if (!Number.isFinite(quantity) || quantity <= 0) {
+                throw new AppError(`Invalid quantity for product ${item.product_id}`, 400);
+            }
+            
+            const productResult = await client.query(
+                `SELECT id, name, price FROM products 
+                 WHERE id = $1 AND company_id = $2 AND is_available = true`,
+                [item.product_id, companyId]
+            );
+            
+            if (productResult.rows.length === 0) {
+                throw new Error(`Product ${item.product_id} not found`);
+            }
+            
+            const product = productResult.rows[0];
+            const unitPrice = parseFloat(product.price);
+            const itemTotal = unitPrice * quantity;
+            const itemCost = await calculateProductCost(item.product_id, quantity, client);
+            
+            totalAmount += itemTotal;
+            totalCost += itemCost;
+            
+            saleItems.push({
+                product_id: item.product_id,
+                product_name: product.name,
+                quantity,
+                unit_price: unitPrice,
+                total_price: itemTotal,
+                cost: itemCost
+            });
+        }
+        
+        // Create sale record first (need sale_id for stock_transactions)
+        const saleNumber = generateSaleNumber();
+        const profit = totalAmount - totalCost;
+        const profitMargin = totalAmount > 0 ? (profit / totalAmount) * 100 : 0;
+        
+        const saleResult = await client.query(
+            `INSERT INTO sales (company_id, branch_id, user_id, sale_number, total_amount, total_cost, profit, payment_method, customer_name, customer_phone, status)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'completed')
+             RETURNING id, sale_number, created_at`,
+            [companyId, branchId, userId, saleNumber, totalAmount, totalCost, profit, payment_method, customer_name || null, customer_phone || null]
+        );
+        
+        const saleId = saleResult.rows[0].id;
+        
+        // ✅ FIX: Deduct ingredients WITH stock_transactions
+        for (const item of items) {
+            await deductIngredients(item.product_id, item.quantity, saleId, companyId, branchId, client);
+        }
+        
+        // Create sale_items
+        for (const item of saleItems) {
+            await client.query(
+                `INSERT INTO sale_items (sale_id, product_id, quantity, unit_price, total_price)
+                 VALUES ($1, $2, $3, $4, $5)`,
+                [saleId, item.product_id, item.quantity, item.unit_price, item.total_price]
+            );
+        }
+        
+        await client.query('COMMIT');
+        
+        res.status(201).json({
+            success: true,
+            message: 'Sale completed successfully',
+            data: {
+                sale_id: saleId,
+                sale_number: saleNumber,
+                total_amount: totalAmount,
+                total_cost: totalCost,
+                profit: profit,
+                profit_margin: parseFloat(profitMargin.toFixed(2)),
+                payment_method: payment_method,
+                items: saleItems
+            }
+        });
+        
+    } catch (error) {
+        await client.query('ROLLBACK');
+        console.error('Create sale error:', error);
+        throw error;
+    } finally {
+        client.release();
+    }
+});
+
+// ============================================
+// GET ALL SALES
 // ============================================
 export const getSales = catchAsync(async (req, res) => {
     const { startDate, endDate, page = 1, limit = 20 } = req.query;
@@ -140,7 +292,7 @@ export const getSales = catchAsync(async (req, res) => {
 });
 
 // ============================================
-// GET SALE BY ID (Tenant-validated)
+// GET SALE BY ID
 // ============================================
 export const getSaleById = catchAsync(async (req, res) => {
     const { id } = req.params;
@@ -182,118 +334,7 @@ export const getSaleById = catchAsync(async (req, res) => {
 });
 
 // ============================================
-// CREATE SALE (Cashier+) - ✅ FIXED
-// ============================================
-export const createSale = catchAsync(async (req, res) => {
-    const { items, payment_method, customer_name, customer_phone } = req.body;
-    const userId = req.user.id;
-    const companyId = req.user.company_id;
-    const branchId = req.user.branch_id;
-    
-    if (!companyId || !branchId) {
-        throw new AppError('Company and branch context required', 401);
-    }
-    
-    if (!items || items.length === 0) {
-        throw new AppError('No items in sale', 400);
-    }
-    
-    const client = await getClient();
-    
-    try {
-        await client.query('BEGIN');
-        
-        let totalAmount = 0;
-        let totalCost = 0;
-        const saleItems = [];
-        
-        for (const item of items) {
-            const quantity = Number(item.quantity);
-            
-            if (!Number.isFinite(quantity) || quantity <= 0) {
-                throw new AppError(`Invalid quantity for product ${item.product_id}`, 400);
-            }
-            
-            const productResult = await client.query(
-                `SELECT id, name, price FROM products 
-                 WHERE id = $1 AND company_id = $2 AND is_available = true`,
-                [item.product_id, companyId]
-            );
-            
-            if (productResult.rows.length === 0) {
-                throw new Error(`Product ${item.product_id} not found`);
-            }
-            
-            const product = productResult.rows[0];
-            const unitPrice = parseFloat(product.price);
-            const itemTotal = unitPrice * quantity;
-            const itemCost = await calculateProductCost(item.product_id, quantity, client);
-            
-            totalAmount += itemTotal;
-            totalCost += itemCost;
-            
-            saleItems.push({
-                product_id: item.product_id,
-                product_name: product.name,
-                quantity,
-                unit_price: unitPrice,
-                total_price: itemTotal,
-                cost: itemCost
-            });
-            
-            // ✅ FIXED: Pass quantity directly - NO transformation
-            await deductIngredients(item.product_id, quantity, client);
-        }
-        
-        const profit = totalAmount - totalCost;
-        const profitMargin = totalAmount > 0 ? (profit / totalAmount) * 100 : 0;
-        const saleNumber = generateSaleNumber();
-        
-        const saleResult = await client.query(
-            `INSERT INTO sales (company_id, branch_id, user_id, sale_number, total_amount, total_cost, profit, payment_method, customer_name, customer_phone, status)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'completed')
-             RETURNING id, sale_number, created_at`,
-            [companyId, branchId, userId, saleNumber, totalAmount, totalCost, profit, payment_method, customer_name, customer_phone]
-        );
-        
-        const saleId = saleResult.rows[0].id;
-        
-        for (const item of saleItems) {
-            await client.query(
-                `INSERT INTO sale_items (sale_id, product_id, quantity, unit_price, total_price)
-                 VALUES ($1, $2, $3, $4, $5)`,
-                [saleId, item.product_id, item.quantity, item.unit_price, item.total_price]
-            );
-        }
-        
-        await client.query('COMMIT');
-        
-        res.status(201).json({
-            success: true,
-            message: 'Sale completed successfully',
-            data: {
-                sale_id: saleId,
-                sale_number: saleNumber,
-                total_amount: totalAmount,
-                total_cost: totalCost,
-                profit: profit,
-                profit_margin: profitMargin.toFixed(2),
-                payment_method: payment_method,
-                items: saleItems
-            }
-        });
-        
-    } catch (error) {
-        await client.query('ROLLBACK');
-        console.error('Create sale error:', error);
-        throw error;
-    } finally {
-        client.release();
-    }
-});
-
-// ============================================
-// GET TODAY'S SALES (Branch-isolated)
+// GET TODAY'S SALES
 // ============================================
 export const getTodaySales = catchAsync(async (req, res) => {
     if (!req.user?.company_id || !req.user?.branch_id) {
