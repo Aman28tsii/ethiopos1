@@ -86,7 +86,7 @@ const deductIngredients = async (productId, quantity, saleId, companyId, branchI
             [requiredAmount, item.ingredient_id]
         );
 
-        // ✅ FIX: Create stock_transactions record for audit trail
+        // ✅ FIX: Create stock_transactions record for audit trail with sale_id
         await client.query(`
             INSERT INTO stock_transactions (
                 ingredient_id,
@@ -99,8 +99,9 @@ const deductIngredients = async (productId, quantity, saleId, companyId, branchI
                 transaction_type,
                 notes,
                 company_id,
-                branch_id
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                branch_id,
+                sale_id
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
         `, [
             item.ingredient_id,
             null,  // No order_id for direct sales
@@ -112,7 +113,8 @@ const deductIngredients = async (productId, quantity, saleId, companyId, branchI
             'sale_deduction',
             `Sale ${saleId} - ${item.name}`,
             companyId,
-            branchId
+            branchId,
+            saleId
         ]);
     }
 };
