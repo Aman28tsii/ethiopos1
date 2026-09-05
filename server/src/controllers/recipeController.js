@@ -137,7 +137,7 @@ export const getRecipeByProduct = catchAsync(async (req, res) => {
 });
 
 // ============================================================
-// CREATE OR UPDATE RECIPE (Company-validated) - ✅ FIXED
+// CREATE OR UPDATE RECIPE (Company-validated)
 // ============================================================
 export const createOrUpdateRecipe = catchAsync(async (req, res) => {
     const { productId } = req.params;
@@ -184,32 +184,29 @@ export const createOrUpdateRecipe = catchAsync(async (req, res) => {
             );
         } else {
             const result = await client.query(
-                `INSERT INTO recipes (product_id, yield_quantity) 
-                 VALUES ($1, $2) RETURNING id`,
-                [productId, yield_quantity]
+                `INSERT INTO recipes (product_id, yield_quantity, company_id) 
+                 VALUES ($1, $2, $3) RETURNING id`,
+                [productId, yield_quantity, companyId]
             );
             recipeId = result.rows[0].id;
         }
 
-        // ✅ FIXED: Include 'unit' in the INSERT statement
         for (const item of ingredients) {
             if (!item.ingredient_id || !item.quantity_required || item.quantity_required <= 0) {
                 throw new AppError('Each ingredient requires valid ingredient_id and quantity_required', 400);
             }
 
-            // Get the unit from the ingredient or use the provided unit
             const ingredientCheck = await client.query(
-                'SELECT id, unit FROM ingredients WHERE id = $1',
-                [item.ingredient_id]
+                'SELECT id, unit FROM ingredients WHERE id = $1 AND company_id = $2',
+                [item.ingredient_id, companyId]
             );
 
             if (ingredientCheck.rows.length === 0) {
-                throw new AppError(`Ingredient ID ${item.ingredient_id} not found`, 404);
+                throw new AppError(`Ingredient ID ${item.ingredient_id} not found in this company`, 404);
             }
 
             const unit = item.unit || ingredientCheck.rows[0].unit || 'pcs';
 
-            // ✅ FIXED: INSERT includes 'unit' column
             await client.query(
                 `INSERT INTO recipe_ingredients (
                     recipe_id, ingredient_id, unit, quantity_required, 
@@ -255,7 +252,9 @@ export const deleteRecipe = catchAsync(async (req, res) => {
     const companyId = req.user.company_id;
 
     const result = await query(
-        'DELETE FROM recipes WHERE id = $1 AND product_id IN (SELECT id FROM products WHERE company_id = $2) RETURNING id',
+        `DELETE FROM recipes 
+         WHERE id = $1 AND product_id IN (SELECT id FROM products WHERE company_id = $2)
+         RETURNING id`,
         [id, companyId]
     );
 
@@ -377,14 +376,15 @@ export const getWastageReport = catchAsync(async (req, res) => {
             SUM(st.actual_quantity) as total_actual,
             SUM(st.wastage_amount) as total_wastage,
             AVG(st.wastage_percentage) as avg_wastage_percentage,
-            SUM(st.wastage_amount * i.unit_cost) as total_wastage_cost
+            SUM(st.wastage_amount * i.unit_cost) as total_wastage_cost,
+            st.order_id
         FROM stock_transactions st
         JOIN ingredients i ON st.ingredient_id = i.id
         WHERE DATE(st.created_at) BETWEEN $1 AND $2
           AND st.transaction_type = 'order_deduction'
           AND i.company_id = $3
           AND i.branch_id = $4
-        GROUP BY i.id, i.name, i.unit
+        GROUP BY i.id, i.name, i.unit, st.order_id
         ORDER BY total_wastage_cost DESC
     `, [startDate, endDate, companyId, branchId]);
 
@@ -682,7 +682,9 @@ export const calculateStockDeductionWithWastage = (recipeIngredients, orderQuant
             unit: ingredient.unit,
             unit_cost: parseFloat(ingredient.unit_cost) || 0,
             wastage_cost: parseFloat((wastageAmount * (parseFloat(ingredient.unit_cost) || 0)).toFixed(2)),
-            current_stock: parseFloat(ingredient.current_stock) || 0
+            current_stock: parseFloat(ingredient.current_stock) || 0,
+            company_id: ingredient.company_id,
+            branch_id: ingredient.branch_id
         });
     }
 
@@ -690,9 +692,9 @@ export const calculateStockDeductionWithWastage = (recipeIngredients, orderQuant
 };
 
 // ============================================================
-// PROCESS ORDER STOCK DEDUCTION — WITH TRANSACTION SAFETY
+// PROCESS ORDER STOCK DEDUCTION - FIXED with context override
 // ============================================================
-export const processOrderStockDeduction = async (orderId, items, client) => {
+export const processOrderStockDeduction = async (orderId, items, client, companyIdOverride = null, branchIdOverride = null) => {
     const allDeductions = [];
     let totalWastageCost = 0;
     const ingredientIds = [];
@@ -751,11 +753,15 @@ export const processOrderStockDeduction = async (orderId, items, client) => {
     // Step 2: Sort ingredient IDs to prevent deadlocks
     ingredientIds.sort((a, b) => a - b);
 
-    // Get company and branch from first ingredient
-    const firstIngredient = ingredientMap.get(ingredientIds[0]);
-    
-    const companyId = firstIngredient?.company_id;
-    const branchId = firstIngredient?.branch_id;
+    // Get company and branch from override or from first ingredient
+    let companyId = companyIdOverride;
+    let branchId = branchIdOverride;
+
+    if (!companyId || !branchId) {
+        const firstIngredient = ingredientMap.get(ingredientIds[0]);
+        companyId = firstIngredient?.company_id;
+        branchId = firstIngredient?.branch_id;
+    }
 
     if (!companyId || !branchId) {
         throw new AppError('Company or branch context missing for stock deduction', 403);

@@ -138,10 +138,10 @@ router.post("/qr-order", async (req, res) => {
                 `, [orderId, item.product_id, item.quantity, productResult.rows[0].price, itemTotal]);
             }
             
-            // ✅ STOCK DEDUCTION - NEW
+            // ✅ STOCK DEDUCTION - FIXED: Pass company_id and branch_id
             let stockResult = { deductions: [], totalWastageCost: 0 };
             try {
-                stockResult = await processOrderStockDeduction(orderId, items, client);
+                stockResult = await processOrderStockDeduction(orderId, items, client, companyId, branchId);
             } catch (stockError) {
                 console.error('[QR ORDER] Stock deduction failed:', stockError.message);
                 await client.query('ROLLBACK');
@@ -191,7 +191,7 @@ router.post("/:orderId/customer-add-items", async (req, res) => {
         await client.query("BEGIN");
         
         const orderCheck = await client.query(
-            "SELECT id, status, total_amount, company_id FROM orders WHERE id = $1 AND status = $2",
+            "SELECT id, status, total_amount, company_id, branch_id FROM orders WHERE id = $1 AND status = $2",
             [orderId, 'pending_confirmation']
         );
         if (orderCheck.rows.length === 0) {
@@ -199,6 +199,7 @@ router.post("/:orderId/customer-add-items", async (req, res) => {
         }
         const order = orderCheck.rows[0];
         const companyId = order.company_id;
+        const branchId = order.branch_id;
         
         let additionalAmount = 0;
         const newItems = [];
@@ -222,10 +223,10 @@ router.post("/:orderId/customer-add-items", async (req, res) => {
             newItems.push(item);
         }
         
-        // ✅ STOCK DEDUCTION FOR ADDED ITEMS - NEW
+        // ✅ STOCK DEDUCTION FOR ADDED ITEMS - FIXED: Pass company_id and branch_id
         let stockResult = { deductions: [], totalWastageCost: 0 };
         try {
-            stockResult = await processOrderStockDeduction(orderId, newItems, client);
+            stockResult = await processOrderStockDeduction(orderId, newItems, client, companyId, branchId);
         } catch (stockError) {
             console.error('[QR ADD ITEMS] Stock deduction failed:', stockError.message);
             await client.query('ROLLBACK');
@@ -373,7 +374,7 @@ router.post("/", authorizeBranch, allowWaiter, requireIdempotency, idempotent, a
             
             let stockResult = { deductions: [], totalWastageCost: 0 };
             try {
-                stockResult = await processOrderStockDeduction(orderId, items, client);
+                stockResult = await processOrderStockDeduction(orderId, items, client, companyId, branchId);
             } catch (stockError) {
                 console.warn("Stock deduction warning:", stockError.message);
             }
@@ -604,7 +605,7 @@ router.post("/:orderId/add-items", authorizeBranch, allowWaiter, async (req, res
         
         let stockResult = { deductions: [], totalWastageCost: 0 };
         try {
-            stockResult = await processOrderStockDeduction(orderId, newItems, client);
+            stockResult = await processOrderStockDeduction(orderId, newItems, client, companyId, branchId);
         } catch (stockError) {
             console.warn("Stock deduction warning:", stockError.message);
         }
