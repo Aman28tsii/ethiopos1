@@ -10,7 +10,9 @@ const generateSaleNumber = () => {
     return `SALE-${timestamp}${random}`;
 };
 
-// ✅ FIXED: calculateProductCost now includes wastage_percentage and cooking_loss_percentage
+// ============================================
+// FIXED: calculateProductCost with proper quantity
+// ============================================
 const calculateProductCost = async (productId, quantity, client) => {
     const recipeResult = await client.query(
         `SELECT ri.quantity_required, i.unit_cost, ri.wastage_percentage, ri.cooking_loss_percentage
@@ -27,15 +29,29 @@ const calculateProductCost = async (productId, quantity, client) => {
         const cookingLossPct = parseFloat(item.cooking_loss_percentage) || 0;
         const unitCost = parseFloat(item.unit_cost) || 0;
         
-        // Include wastage and cooking loss - matches stock deduction logic
-        const effectiveQty = qtyRequired * (1 + wastagePct / 100) * (1 + cookingLossPct / 100);
-        totalCost += effectiveQty * unitCost * quantity;
+        const effectiveQty = qtyRequired * quantity * (1 + wastagePct / 100) * (1 + cookingLossPct / 100);
+        totalCost += effectiveQty * unitCost;
     }
     return totalCost;
 };
 
-// ✅ FIXED: deductIngredients now includes wastage and cooking loss in stock deduction
+// ============================================
+// FIXED: deductIngredients with proper quantity
+// ============================================
 const deductIngredients = async (productId, quantity, client) => {
+    // FORENSIC LOGGING - Remove after verification
+    console.log("=== INV-001 deductIngredients START ===");
+    console.log("productId:", productId);
+    console.log("quantity:", quantity);
+    console.log("quantityType:", typeof quantity);
+
+    // Normalize and validate quantity
+    const saleQuantity = Number(quantity);
+    if (!Number.isFinite(saleQuantity) || saleQuantity <= 0) {
+        console.error("INVALID QUANTITY:", { quantity, saleQuantity });
+        throw new AppError('Invalid sale quantity', 400);
+    }
+
     const recipeResult = await client.query(
         `SELECT ri.ingredient_id, ri.quantity_required, i.quantity as current_stock, i.name,
                 ri.wastage_percentage, ri.cooking_loss_percentage
@@ -44,28 +60,49 @@ const deductIngredients = async (productId, quantity, client) => {
          WHERE ri.recipe_id IN (SELECT id FROM recipes WHERE product_id = $1)`,
         [productId]
     );
-    
+
+    console.log("RECIPE ROWS FOUND:", recipeResult.rows.length);
+
     for (const item of recipeResult.rows) {
         const qtyRequired = parseFloat(item.quantity_required) || 0;
         const wastagePct = parseFloat(item.wastage_percentage) || 0;
         const cookingLossPct = parseFloat(item.cooking_loss_percentage) || 0;
-        
-        // Calculate required amount including wastage and cooking loss
-        const requiredAmount = qtyRequired * quantity * (1 + wastagePct / 100) * (1 + cookingLossPct / 100);
-        const currentStock = parseFloat(item.current_stock);
-        
-        if (currentStock < requiredAmount) {
+        const currentQuantity = parseFloat(item.current_stock) || 0;
+
+        // FORENSIC LOGGING - Remove after verification
+        console.log("RECIPE INGREDIENT:", {
+            ingredientId: item.ingredient_id,
+            ingredientName: item.name,
+            qtyRequired,
+            quantity: saleQuantity,
+            wastagePct,
+            cookingLossPct,
+            currentQuantity
+        });
+
+        // ✅ FIXED: Proper calculation with saleQuantity
+        const requiredAmount = qtyRequired * saleQuantity * (1 + wastagePct / 100) * (1 + cookingLossPct / 100);
+        const newQuantity = currentQuantity - requiredAmount;
+
+        if (newQuantity < 0) {
             throw new AppError(
-                `Insufficient stock for ingredient: ${item.name}. Required: ${requiredAmount.toFixed(2)}, Available: ${currentStock.toFixed(2)}`,
+                `Insufficient stock for ingredient: ${item.name}. Required: ${requiredAmount.toFixed(2)}, Available: ${currentQuantity.toFixed(2)}`,
                 400,
                 'INSUFFICIENT_STOCK'
             );
         }
-        
+
+        // FORENSIC LOGGING - Remove after verification
+        console.log("STOCK UPDATE:", {
+            ingredientId: item.ingredient_id,
+            ingredientName: item.name,
+            currentQuantity,
+            requiredAmount,
+            newQuantity
+        });
+
         await client.query(
-            `UPDATE ingredients 
-             SET quantity = quantity - $1, updated_at = CURRENT_TIMESTAMP 
-             WHERE id = $2`,
+            'UPDATE ingredients SET quantity = quantity - $1 WHERE id = $2',
             [requiredAmount, item.ingredient_id]
         );
     }
@@ -172,9 +209,13 @@ export const getSaleById = catchAsync(async (req, res) => {
 });
 
 // ============================================
-// CREATE SALE (Cashier+) - ✅ FIXED with wastage
+// CREATE SALE - FIXED
 // ============================================
 export const createSale = catchAsync(async (req, res) => {
+    // FORENSIC LOGGING - Remove after verification
+    console.log("=== INV-001 createSale ===");
+    console.log("RAW BODY:", JSON.stringify(req.body));
+    
     const { items, payment_method, customer_name, customer_phone } = req.body;
     const userId = req.user.id;
     const companyId = req.user.company_id;
@@ -188,6 +229,10 @@ export const createSale = catchAsync(async (req, res) => {
         throw new AppError('No items in sale', 400);
     }
     
+    // FORENSIC LOGGING - Remove after verification
+    console.log("ITEMS:", JSON.stringify(items));
+    console.log("items.length:", items.length);
+    
     const client = await getClient();
     
     try {
@@ -197,7 +242,22 @@ export const createSale = catchAsync(async (req, res) => {
         let totalCost = 0;
         const saleItems = [];
         
-        for (const item of items) {
+        for (let i = 0; i < items.length; i++) {
+            const item = items[i];
+            const quantity = Number(item.quantity);
+            
+            // FORENSIC LOGGING - Remove after verification
+            console.log(`SALE ITEM ${i}:`, {
+                product_id: item.product_id,
+                quantity: quantity,
+                quantityType: typeof quantity,
+                rawQuantity: item.quantity
+            });
+            
+            if (!Number.isFinite(quantity) || quantity <= 0) {
+                throw new AppError(`Invalid quantity for product ${item.product_id}`, 400);
+            }
+            
             const productResult = await client.query(
                 `SELECT id, name, price FROM products 
                  WHERE id = $1 AND company_id = $2 AND is_available = true`,
@@ -209,11 +269,8 @@ export const createSale = catchAsync(async (req, res) => {
             }
             
             const product = productResult.rows[0];
-            const quantity = item.quantity;
             const unitPrice = parseFloat(product.price);
             const itemTotal = unitPrice * quantity;
-            
-            // ✅ FIXED: calculateProductCost now includes wastage and cooking loss
             const itemCost = await calculateProductCost(item.product_id, quantity, client);
             
             totalAmount += itemTotal;
@@ -228,7 +285,12 @@ export const createSale = catchAsync(async (req, res) => {
                 cost: itemCost
             });
             
-            // ✅ FIXED: deductIngredients now includes wastage and cooking loss
+            // FORENSIC LOGGING - Remove after verification
+            console.log("BEFORE deductIngredients:", {
+                productId: item.product_id,
+                quantity: quantity
+            });
+            
             await deductIngredients(item.product_id, quantity, client);
         }
         
@@ -272,6 +334,7 @@ export const createSale = catchAsync(async (req, res) => {
         
     } catch (error) {
         await client.query('ROLLBACK');
+        console.error('Create sale error:', error);
         throw error;
     } finally {
         client.release();
