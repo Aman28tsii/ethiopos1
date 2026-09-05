@@ -39,14 +39,13 @@ const calculateProductCost = async (productId, quantity, client) => {
 // DEDUCT INGREDIENTS - WITH FORENSIC LOGGING
 // ============================================
 const deductIngredients = async (productId, quantity, client) => {
-    // FORENSIC LOGGING - TRACE THE QUANTITY
     const traceId = `INV001-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
+    
     console.log(`\n[${traceId}] === INV-001 DEDUCT INGREDIENTS ===`);
     console.log(`[${traceId}] RAW quantity received:`, quantity);
     console.log(`[${traceId}] quantity type:`, typeof quantity);
     console.log(`[${traceId}] productId:`, productId);
 
-    // Normalize quantity - THIS IS THE FIX
     const saleQuantity = Number(quantity);
     console.log(`[${traceId}] Normalized saleQuantity:`, saleQuantity);
 
@@ -65,13 +64,6 @@ const deductIngredients = async (productId, quantity, client) => {
     );
 
     console.log(`[${traceId}] RECIPE ROWS FOUND:`, recipeResult.rows.length);
-    console.log(`[${traceId}] RECIPE DATA:`, JSON.stringify(recipeResult.rows.map(r => ({
-        name: r.name,
-        qtyRequired: r.quantity_required,
-        wastage: r.wastage_percentage,
-        cookingLoss: r.cooking_loss_percentage,
-        currentStock: r.current_stock
-    })), null, 2));
 
     let executionCount = 0;
 
@@ -87,14 +79,12 @@ const deductIngredients = async (productId, quantity, client) => {
             name: item.name,
             ingredientId: item.ingredient_id,
             qtyRequired,
-            saleQuantity,  // This should be 1, 2, or 3
+            saleQuantity,
             wastagePct,
             cookingLossPct,
-            currentQuantity,
-            calculation: `${qtyRequired} * ${saleQuantity} * (1 + ${wastagePct}/100) * (1 + ${cookingLossPct}/100)`
+            currentQuantity
         });
 
-        // ✅ CORRECT CALCULATION - Using saleQuantity directly
         const requiredAmount = qtyRequired * saleQuantity * (1 + wastagePct / 100) * (1 + cookingLossPct / 100);
         const newQuantity = currentQuantity - requiredAmount;
 
@@ -216,7 +206,7 @@ export const getSaleById = catchAsync(async (req, res) => {
 });
 
 // ============================================
-// CREATE SALE - WITH FORENSIC LOGGING
+// CREATE SALE
 // ============================================
 export const createSale = catchAsync(async (req, res) => {
     const traceId = `INV001-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
@@ -389,4 +379,4 @@ export const getTodaySales = catchAsync(async (req, res) => {
         data: result.rows[0],
         date: today
     });
-});clear
+});
