@@ -118,14 +118,32 @@ const markFailed = async (client, idempotencyKey, companyId, branchId, resourceT
     );
 };
 
-// ✅ FIX: Improved resource type detection
+// ✅ FIX: Improved resource type detection with exact matching
 const getResourceType = (req) => {
     const path = req.path;
-    if (path.includes('/orders') || path.includes('/order')) return 'order';
-    if (path.includes('/pay')) return 'payment';
-    if (path.includes('/sales') || path.includes('/sale')) return 'sale';
-    if (path.includes('/adjust-stock')) return 'stock_adjustment';
-    if (path.includes('/ingredients')) return 'stock_adjustment';
+    const method = req.method;
+    
+    // Check for payment first (exact match on path ending with /pay)
+    if (path.includes('/pay') && !path.includes('/payment')) {
+        return 'payment';
+    }
+    // Check for orders
+    if (path.includes('/orders') || path.includes('/order')) {
+        return 'order';
+    }
+    // Check for sales
+    if (path.includes('/sales') || path.includes('/sale')) {
+        return 'sale';
+    }
+    // Check for stock adjustment
+    if (path.includes('/adjust-stock')) {
+        return 'stock_adjustment';
+    }
+    // Check for ingredients
+    if (path.includes('/ingredients')) {
+        return 'stock_adjustment';
+    }
+    // Default
     return 'order';
 };
 
@@ -152,7 +170,7 @@ export const idempotent = (req, res, next) => {
     }
 
     const resourceType = getResourceType(req);
-    console.log(`[IDEMPOTENCY] Resource type: ${resourceType}`);
+    console.log(`[IDEMPOTENCY] Resource type: ${resourceType} for path ${req.path}`);
     
     const requestHash = generateRequestHash(req.body);
     const cacheKey = getCacheKey(idempotencyKey, companyId, branchId, resourceType);
@@ -220,10 +238,19 @@ export const idempotent = (req, res, next) => {
             res.json = function(data) {
                 if (!responseSent) {
                     responseSent = true;
-                    const resourceId = data?.data?.id || data?.data?.order_id || data?.data?.sale_id || null;
+                    // Extract resource ID from response
+                    let resourceId = null;
+                    if (data?.data?.sale_number) {
+                        // For payments, use sale_number as resource ID
+                        resourceId = data.data.sale_number;
+                    } else if (data?.data?.order_id) {
+                        resourceId = data.data.order_id;
+                    } else if (data?.data?.id) {
+                        resourceId = data.data.id;
+                    }
                     
                     if (statusCode >= 200 && statusCode < 300) {
-                        console.log(`[IDEMPOTENCY] Storing success result for ${idempotencyKey}`);
+                        console.log(`[IDEMPOTENCY] Storing success result for ${idempotencyKey}, resourceId: ${resourceId}`);
                         storeResult(client, idempotencyKey, companyId, branchId, resourceType, resourceId, data, statusCode)
                             .then(() => client.query('COMMIT').catch(err => console.error('[IDEMPOTENCY] Commit error:', err)))
                             .catch(async (err) => {
@@ -257,9 +284,16 @@ export const idempotent = (req, res, next) => {
                     if (statusCode >= 200 && statusCode < 300) {
                         try {
                             const parsed = typeof data === 'string' ? JSON.parse(data) : data;
-                            const resourceId = parsed?.data?.id || parsed?.data?.order_id || parsed?.data?.sale_id || null;
+                            let resourceId = null;
+                            if (parsed?.data?.sale_number) {
+                                resourceId = parsed.data.sale_number;
+                            } else if (parsed?.data?.order_id) {
+                                resourceId = parsed.data.order_id;
+                            } else if (parsed?.data?.id) {
+                                resourceId = parsed.data.id;
+                            }
                             
-                            console.log(`[IDEMPOTENCY] Storing send result for ${idempotencyKey}`);
+                            console.log(`[IDEMPOTENCY] Storing send result for ${idempotencyKey}, resourceId: ${resourceId}`);
                             storeResult(client, idempotencyKey, companyId, branchId, resourceType, resourceId, parsed, statusCode)
                                 .then(() => client.query('COMMIT').catch(err => console.error('[IDEMPOTENCY] Commit error:', err)))
                                 .catch(async (err) => {

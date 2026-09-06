@@ -451,6 +451,10 @@ router.get("/ready", protect, async (req, res) => {
     }
 });
 
+// ============================================================
+// PAYMENT ROUTE - WITH IDEMPOTENCY
+// ============================================================
+
 router.post("/:orderId/pay", authorizeBranch, allowCashier, requireIdempotency, idempotent, async (req, res) => {
     const { orderId } = req.params;
     const { payment_method } = req.body;
@@ -625,7 +629,7 @@ router.post("/:orderId/add-items", authorizeBranch, allowWaiter, async (req, res
 });
 
 // ============================================================
-// ORDER CANCELLATION - FIXED: Restores stock
+// ORDER CANCELLATION - WITH STOCK RESTORATION
 // ============================================================
 
 router.put("/:orderId/cancel", authorizeBranch, allowWaiter, async (req, res) => {
@@ -640,7 +644,6 @@ router.put("/:orderId/cancel", authorizeBranch, allowWaiter, async (req, res) =>
     try {
         await client.query("BEGIN");
         
-        // Check if order exists and belongs to this waiter
         const orderCheck = await client.query(
             `SELECT o.id, o.status, o.payment_status, o.table_id, o.order_number, 
                     o.company_id, o.branch_id, o.created_by, o.waiter_id
@@ -654,7 +657,6 @@ router.put("/:orderId/cancel", authorizeBranch, allowWaiter, async (req, res) =>
         );
         
         if (orderCheck.rows.length === 0) {
-            // Check if order exists but not assigned to this waiter
             const anyOrder = await client.query(
                 "SELECT id, status, payment_status FROM orders WHERE id = $1",
                 [orderId]
@@ -677,16 +679,14 @@ router.put("/:orderId/cancel", authorizeBranch, allowWaiter, async (req, res) =>
         
         const order = orderCheck.rows[0];
         
-        // Prevent cancelling paid orders
         if (order.payment_status === 'paid') {
             throw new Error("Cannot cancel a paid order");
         }
         
         // ============================================================
-        // FIX: RESTORE STOCK FOR ALL ORDER ITEMS
+        // RESTORE STOCK FOR ALL ORDER ITEMS
         // ============================================================
         
-        // Get all order items with product and recipe information
         const orderItemsResult = await client.query(`
             SELECT 
                 oi.product_id,
@@ -708,19 +708,16 @@ router.put("/:orderId/cancel", authorizeBranch, allowWaiter, async (req, res) =>
             WHERE oi.order_id = $1
         `, [orderId]);
         
-        // Group ingredients by ingredient_id to sum quantities
         const ingredientMap = new Map();
         
         for (const item of orderItemsResult.rows) {
             if (!item.ingredient_id) continue;
             
-            // Calculate the amount to restore (reverse of deduction)
             const orderQty = parseFloat(item.quantity);
             const qtyRequired = parseFloat(item.quantity_required) || 0;
             const wastagePct = parseFloat(item.wastage_percentage) || 0;
             const cookingLossPct = parseFloat(item.cooking_loss_percentage) || 0;
             
-            // Calculate the amount that was deducted
             const expectedQuantity = qtyRequired * orderQty;
             const restoredQuantity = expectedQuantity * (1 + wastagePct / 100) * (1 + cookingLossPct / 100);
             
@@ -743,11 +740,9 @@ router.put("/:orderId/cancel", authorizeBranch, allowWaiter, async (req, res) =>
             }
         }
         
-        // Lock and restore stock for each ingredient
         const ingredientIds = Array.from(ingredientMap.keys());
         
         if (ingredientIds.length > 0) {
-            // Lock ingredients for update
             const lockResult = await client.query(`
                 SELECT id, quantity, name, unit
                 FROM ingredients
@@ -757,7 +752,6 @@ router.put("/:orderId/cancel", authorizeBranch, allowWaiter, async (req, res) =>
                 FOR UPDATE
             `, [ingredientIds, companyId, branchId]);
             
-            // Restore stock for each ingredient
             for (const row of lockResult.rows) {
                 const ingredientData = ingredientMap.get(row.id);
                 const restoreQty = ingredientData.restore_quantity;
@@ -772,7 +766,6 @@ router.put("/:orderId/cancel", authorizeBranch, allowWaiter, async (req, res) =>
                       AND branch_id = $4
                 `, [newQuantity, row.id, companyId, branchId]);
                 
-                // Create stock_transactions record for restoration
                 await client.query(`
                     INSERT INTO stock_transactions (
                         ingredient_id,
@@ -801,7 +794,6 @@ router.put("/:orderId/cancel", authorizeBranch, allowWaiter, async (req, res) =>
             }
         }
         
-        // Update order status
         await client.query(`
             UPDATE orders 
             SET status = 'cancelled', 
@@ -810,7 +802,6 @@ router.put("/:orderId/cancel", authorizeBranch, allowWaiter, async (req, res) =>
             WHERE id = $2
         `, [reason || 'Cancelled by waiter', orderId]);
         
-        // Update kitchen order
         await client.query(`
             UPDATE kitchen_orders 
             SET status = 'cancelled', 
@@ -818,7 +809,6 @@ router.put("/:orderId/cancel", authorizeBranch, allowWaiter, async (req, res) =>
             WHERE order_id = $1
         `, [orderId]);
         
-        // Update table status if table was occupied
         if (order.table_id) {
             await client.query(`
                 UPDATE tables 
