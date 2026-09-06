@@ -2,6 +2,7 @@
 
 import { query, getClient } from '../config/database.js';
 import { AppError, catchAsync } from '../middleware/errorHandler.js';
+import crypto from 'crypto';
 
 // ============================================================
 // GET ALL INGREDIENTS (Branch-isolated)
@@ -341,7 +342,7 @@ export const deleteIngredient = catchAsync(async (req, res) => {
 });
 
 // ============================================================
-// ADJUST STOCK (Branch-validated) - WITH ROW-LEVEL LOCKING & ZERO AMOUNT VALIDATION (INV-004 FIX 1 & 2)
+// ADJUST STOCK (Branch-validated) - WITH ROW-LEVEL LOCKING, ZERO AMOUNT VALIDATION & IDEMPOTENCY (INV-004 FIX 1 & 2 + INV-005)
 // ============================================================
 export const adjustStock = catchAsync(async (req, res) => {
     const { id } = req.params;
@@ -367,6 +368,52 @@ export const adjustStock = catchAsync(async (req, res) => {
     
     if (numericAmount === 0) {
         throw new AppError('Adjustment amount cannot be zero', 400);
+    }
+    
+    // ============================================================
+    // ✅ FIX: IDEMPOTENCY CHECK (INV-005)
+    // ============================================================
+    const idempotencyKey = req.headers['idempotency-key'];
+    let cachedResponse = null;
+    
+    if (idempotencyKey) {
+        console.log(`[IDEMPOTENCY] Checking key: ${idempotencyKey} for ingredient ${id}`);
+        
+        // Check if this key has been used for this ingredient
+        const existing = await query(
+            `SELECT id, response_data, request_hash FROM idempotency_records 
+             WHERE idempotency_key = $1 
+               AND company_id = $2 
+               AND branch_id = $3 
+               AND resource_type = 'stock_adjustment'
+               AND resource_id = $4
+               AND status = 'completed'`,
+            [idempotencyKey, companyId, branchId, id]
+        );
+        
+        if (existing.rows.length > 0) {
+            console.log(`[IDEMPOTENCY] Cache hit for ${idempotencyKey}`);
+            // Return cached response
+            return res.status(200).json(existing.rows[0].response_data);
+        }
+        
+        // Check for conflicting key with different payload
+        const conflicting = await query(
+            `SELECT id, request_hash FROM idempotency_records 
+             WHERE idempotency_key = $1 
+               AND company_id = $2 
+               AND branch_id = $3 
+               AND resource_type = 'stock_adjustment'
+               AND resource_id = $4`,
+            [idempotencyKey, companyId, branchId, id]
+        );
+        
+        if (conflicting.rows.length > 0) {
+            const requestHash = crypto.createHash('sha256').update(JSON.stringify(req.body)).digest('hex');
+            if (conflicting.rows[0].request_hash !== requestHash) {
+                throw new AppError('Idempotency key reused with different request payload', 409);
+            }
+        }
     }
     
     const client = await getClient();
@@ -437,11 +484,36 @@ export const adjustStock = catchAsync(async (req, res) => {
         
         const action = numericAmount > 0 ? 'added to' : 'removed from';
         
-        res.json({
+        const responseData = {
             success: true,
             message: `${absAmount} ${ingredient.unit} ${action} ${ingredient.name}`,
             data: updateResult.rows[0]
-        });
+        };
+        
+        // ✅ Store idempotency record if key was provided
+        if (idempotencyKey) {
+            const requestHash = crypto.createHash('sha256').update(JSON.stringify(req.body)).digest('hex');
+            
+            await query(
+                `INSERT INTO idempotency_records 
+                 (idempotency_key, company_id, branch_id, resource_type, resource_id, 
+                  request_hash, response_data, status_code, status, created_at, updated_at)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'completed', NOW(), NOW())`,
+                [
+                    idempotencyKey,
+                    companyId,
+                    branchId,
+                    'stock_adjustment',
+                    parseInt(id),
+                    requestHash,
+                    responseData,
+                    200
+                ]
+            );
+            console.log(`[IDEMPOTENCY] Stored result for ${idempotencyKey}`);
+        }
+        
+        res.json(responseData);
         
     } catch (error) {
         await client.query('ROLLBACK');
