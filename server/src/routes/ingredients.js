@@ -1,6 +1,9 @@
-﻿import express from 'express';
+﻿// server/src/routes/ingredients.js
+
+import express from 'express';
 import { protect, allowManager, allowOwner } from '../middleware/auth.js';
 import { authorizeCompany, authorizeBranch, requireCompanyContext } from '../middleware/authorization.js';
+import { requireIdempotency, idempotent } from '../middleware/idempotency.js';
 import {
     getAllIngredients,
     getIngredientById,
@@ -49,6 +52,7 @@ router.put('/:id', authorizeBranch, allowOwner, updateIngredient);
 router.delete('/:id', authorizeBranch, allowOwner, deleteIngredient);
 
 // Adjust stock - validate branch ownership
-router.put('/:id/adjust-stock', authorizeBranch, allowOwner, adjustStock);
+// ✅ FIX: Added idempotency protection
+router.put('/:id/adjust-stock', authorizeBranch, allowOwner, requireIdempotency, idempotent, adjustStock);
 
 export default router;

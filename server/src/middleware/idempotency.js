@@ -1,12 +1,12 @@
 // server/src/middleware/idempotency.js
+
 import { query, getClient } from '../config/database.js';
 import crypto from 'crypto';
 
 const IDEMPOTENCY_HEADER = 'idempotency-key';
 const CACHE_TTL = 7 * 24 * 60 * 60 * 1000; // 7 days
 
-// In-memory cache for quick lookups (reduces DB hits)
-// This is an optimization, NOT the source of truth
+// In-memory cache for quick lookups
 const memoryCache = new Map();
 
 // Cleanup old memory cache entries
@@ -25,7 +25,6 @@ const getCacheKey = (key, companyId, branchId, resourceType = 'order') => {
 
 // Generate request hash from payload
 const generateRequestHash = (body) => {
-    // Sort keys to ensure consistent hashing
     const canonical = JSON.stringify(body, Object.keys(body).sort());
     return crypto.createHash('sha256').update(canonical).digest('hex');
 };
@@ -51,8 +50,6 @@ const getCachedResult = async (idempotencyKey, companyId, branchId, resourceType
 
 // Atomically claim idempotency key
 const claimIdempotencyKey = async (client, idempotencyKey, companyId, branchId, resourceType, requestHash) => {
-    // Try to insert with 'processing' status
-    // If it already exists, the unique constraint will fail
     try {
         await client.query(
             `INSERT INTO idempotency_records 
@@ -62,8 +59,7 @@ const claimIdempotencyKey = async (client, idempotencyKey, companyId, branchId, 
         );
         return { claimed: true, existing: null };
     } catch (err) {
-        // If unique constraint fails, check if it's a duplicate
-        if (err.code === '23505') { // Unique violation
+        if (err.code === '23505') {
             const existing = await client.query(
                 `SELECT response_data, status_code, status, request_hash
                  FROM idempotency_records 
@@ -76,7 +72,6 @@ const claimIdempotencyKey = async (client, idempotencyKey, companyId, branchId, 
             
             if (existing.rows.length > 0) {
                 const record = existing.rows[0];
-                // Check if request hash matches
                 if (record.request_hash !== requestHash) {
                     return { 
                         claimed: false, 
@@ -123,16 +118,23 @@ const markFailed = async (client, idempotencyKey, companyId, branchId, resourceT
     );
 };
 
-// Idempotency middleware - DATABASE FIRST
+// ✅ FIX: Added stock_adjustment resource type detection
+const getResourceType = (req) => {
+    if (req.path.includes('/orders')) return 'order';
+    if (req.path.includes('/pay')) return 'payment';
+    if (req.path.includes('/sales')) return 'sale';
+    if (req.path.includes('/adjust-stock')) return 'stock_adjustment';
+    return 'order';
+};
+
+// Idempotency middleware
 export const idempotent = (req, res, next) => {
     const idempotencyKey = req.headers[IDEMPOTENCY_HEADER];
     
-    // Skip if no key
     if (!idempotencyKey) {
         return next();
     }
 
-    // ✅ NO DEFAULT VALUES - require proper authentication
     const companyId = req.user?.company_id;
     const branchId = req.user?.branch_id;
     
@@ -143,19 +145,14 @@ export const idempotent = (req, res, next) => {
         });
     }
 
-    const resourceType = req.path.includes('orders') ? 'order' : 
-                         req.path.includes('pay') ? 'payment' : 
-                         req.path.includes('sale') ? 'sale' : 'order';
-    
-    // Generate request hash from body
+    const resourceType = getResourceType(req);
     const requestHash = generateRequestHash(req.body);
     const cacheKey = getCacheKey(idempotencyKey, companyId, branchId, resourceType);
 
-    // Check memory cache first (fast path)
+    // Check memory cache first
     const cached = memoryCache.get(cacheKey);
     if (cached) {
         console.log(`[IDEMPOTENCY] Memory cache hit for ${idempotencyKey}`);
-        // Verify the request hash matches
         if (cached.requestHash === requestHash) {
             return res.status(cached.status).json(cached.data);
         } else {
@@ -167,34 +164,27 @@ export const idempotent = (req, res, next) => {
         }
     }
 
-    // Use a database transaction for atomicity
     const clientPromise = getClient();
     
     clientPromise.then(async (client) => {
         try {
             await client.query('BEGIN');
             
-            // Atomically claim the idempotency key
             const claim = await claimIdempotencyKey(client, idempotencyKey, companyId, branchId, resourceType, requestHash);
             
             if (!claim.claimed && claim.existing) {
-                // Key already completed - replay result
                 await client.query('COMMIT');
                 const record = claim.existing;
-                
-                // Store in memory cache
                 memoryCache.set(cacheKey, {
                     status: record.status_code,
                     data: record.response_data,
                     requestHash: record.request_hash,
                     timestamp: Date.now()
                 });
-                
                 return res.status(record.status_code).json(record.response_data);
             }
             
             if (!claim.claimed && claim.conflict) {
-                // Same key, different payload - conflict
                 await client.query('ROLLBACK');
                 return res.status(409).json({
                     success: false,
@@ -203,41 +193,32 @@ export const idempotent = (req, res, next) => {
                 });
             }
             
-            // We have successfully claimed the key (status = 'processing')
-            // Store original response methods
+            // We have successfully claimed the key
             const originalJson = res.json.bind(res);
             const originalSend = res.send.bind(res);
             const originalStatus = res.status.bind(res);
             let statusCode = 200;
             let responseSent = false;
 
-            // Override status
             res.status = function(code) {
                 statusCode = code;
                 return originalStatus(code);
             };
 
-            // Override json
             res.json = function(data) {
                 if (!responseSent) {
                     responseSent = true;
-                    const resourceId = data?.data?.order_id || data?.data?.sale_id || data?.data?.id || null;
+                    const resourceId = data?.data?.id || data?.data?.order_id || data?.data?.sale_id || null;
                     
                     if (statusCode >= 200 && statusCode < 300) {
-                        // Success - store result
                         storeResult(client, idempotencyKey, companyId, branchId, resourceType, resourceId, data, statusCode)
-                            .then(() => {
-                                client.query('COMMIT').catch(err => {
-                                    console.error('[IDEMPOTENCY] Commit error:', err);
-                                });
-                            })
+                            .then(() => client.query('COMMIT').catch(err => console.error('[IDEMPOTENCY] Commit error:', err)))
                             .catch(async (err) => {
                                 console.error('[IDEMPOTENCY] Store result error:', err);
                                 await markFailed(client, idempotencyKey, companyId, branchId, resourceType);
                                 await client.query('ROLLBACK');
                             });
                         
-                        // Store in memory cache
                         memoryCache.set(cacheKey, {
                             status: statusCode,
                             data: data,
@@ -245,13 +226,8 @@ export const idempotent = (req, res, next) => {
                             timestamp: Date.now()
                         });
                     } else {
-                        // Non-success - mark as failed so retry can work
                         markFailed(client, idempotencyKey, companyId, branchId, resourceType)
-                            .then(() => {
-                                client.query('COMMIT').catch(err => {
-                                    console.error('[IDEMPOTENCY] Commit error:', err);
-                                });
-                            })
+                            .then(() => client.query('COMMIT').catch(err => console.error('[IDEMPOTENCY] Commit error:', err)))
                             .catch(async (err) => {
                                 console.error('[IDEMPOTENCY] Mark failed error:', err);
                                 await client.query('ROLLBACK');
@@ -261,21 +237,16 @@ export const idempotent = (req, res, next) => {
                 return originalJson(data);
             };
 
-            // Override send
             res.send = function(data) {
                 if (!responseSent) {
                     responseSent = true;
                     if (statusCode >= 200 && statusCode < 300) {
                         try {
                             const parsed = typeof data === 'string' ? JSON.parse(data) : data;
-                            const resourceId = parsed?.data?.order_id || parsed?.data?.sale_id || parsed?.data?.id || null;
+                            const resourceId = parsed?.data?.id || parsed?.data?.order_id || parsed?.data?.sale_id || null;
                             
                             storeResult(client, idempotencyKey, companyId, branchId, resourceType, resourceId, parsed, statusCode)
-                                .then(() => {
-                                    client.query('COMMIT').catch(err => {
-                                        console.error('[IDEMPOTENCY] Commit error:', err);
-                                    });
-                                })
+                                .then(() => client.query('COMMIT').catch(err => console.error('[IDEMPOTENCY] Commit error:', err)))
                                 .catch(async (err) => {
                                     console.error('[IDEMPOTENCY] Store result error:', err);
                                     await markFailed(client, idempotencyKey, companyId, branchId, resourceType);
@@ -289,19 +260,11 @@ export const idempotent = (req, res, next) => {
                                 timestamp: Date.now()
                             });
                         } catch (e) {
-                            // Non-JSON response
-                            client.query('COMMIT').catch(err => {
-                                console.error('[IDEMPOTENCY] Commit error:', err);
-                            });
+                            client.query('COMMIT').catch(err => console.error('[IDEMPOTENCY] Commit error:', err));
                         }
                     } else {
-                        // Non-success - mark as failed
                         markFailed(client, idempotencyKey, companyId, branchId, resourceType)
-                            .then(() => {
-                                client.query('COMMIT').catch(err => {
-                                    console.error('[IDEMPOTENCY] Commit error:', err);
-                                });
-                            })
+                            .then(() => client.query('COMMIT').catch(err => console.error('[IDEMPOTENCY] Commit error:', err)))
                             .catch(async (err) => {
                                 console.error('[IDEMPOTENCY] Mark failed error:', err);
                                 await client.query('ROLLBACK');
@@ -311,7 +274,6 @@ export const idempotent = (req, res, next) => {
                 return originalSend(data);
             };
 
-            // Proceed to the actual handler
             next();
 
         } catch (error) {
@@ -333,7 +295,6 @@ export const idempotent = (req, res, next) => {
     });
 };
 
-// Middleware to enforce idempotency for certain routes
 export const requireIdempotency = (req, res, next) => {
     const idempotencyKey = req.headers[IDEMPOTENCY_HEADER];
     if (!idempotencyKey) {
@@ -345,12 +306,10 @@ export const requireIdempotency = (req, res, next) => {
     next();
 };
 
-// Get idempotency key from request
 export const getIdempotencyKey = (req) => {
     return req.headers[IDEMPOTENCY_HEADER] || null;
 };
 
-// Clean up old idempotency records (run periodically)
 export const cleanupIdempotencyRecords = async () => {
     try {
         const result = await query(
@@ -363,5 +322,4 @@ export const cleanupIdempotencyRecords = async () => {
     }
 };
 
-// Run cleanup every 6 hours
 setInterval(cleanupIdempotencyRecords, 6 * 60 * 60 * 1000);
