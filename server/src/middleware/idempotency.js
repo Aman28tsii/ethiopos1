@@ -118,12 +118,14 @@ const markFailed = async (client, idempotencyKey, companyId, branchId, resourceT
     );
 };
 
-// ✅ FIX: Added stock_adjustment resource type detection
+// ✅ FIX: Improved resource type detection
 const getResourceType = (req) => {
-    if (req.path.includes('/orders')) return 'order';
-    if (req.path.includes('/pay')) return 'payment';
-    if (req.path.includes('/sales')) return 'sale';
-    if (req.path.includes('/adjust-stock')) return 'stock_adjustment';
+    const path = req.path;
+    if (path.includes('/orders') || path.includes('/order')) return 'order';
+    if (path.includes('/pay')) return 'payment';
+    if (path.includes('/sales') || path.includes('/sale')) return 'sale';
+    if (path.includes('/adjust-stock')) return 'stock_adjustment';
+    if (path.includes('/ingredients')) return 'stock_adjustment';
     return 'order';
 };
 
@@ -131,7 +133,10 @@ const getResourceType = (req) => {
 export const idempotent = (req, res, next) => {
     const idempotencyKey = req.headers[IDEMPOTENCY_HEADER];
     
+    console.log(`[IDEMPOTENCY] Request: ${req.method} ${req.path}, Key: ${idempotencyKey || 'none'}`);
+    
     if (!idempotencyKey) {
+        console.log('[IDEMPOTENCY] No key, skipping');
         return next();
     }
 
@@ -139,6 +144,7 @@ export const idempotent = (req, res, next) => {
     const branchId = req.user?.branch_id;
     
     if (!companyId || !branchId) {
+        console.log('[IDEMPOTENCY] No company/branch, rejecting');
         return res.status(401).json({
             success: false,
             error: 'Authentication required for idempotent operations'
@@ -146,6 +152,8 @@ export const idempotent = (req, res, next) => {
     }
 
     const resourceType = getResourceType(req);
+    console.log(`[IDEMPOTENCY] Resource type: ${resourceType}`);
+    
     const requestHash = generateRequestHash(req.body);
     const cacheKey = getCacheKey(idempotencyKey, companyId, branchId, resourceType);
 
@@ -181,17 +189,21 @@ export const idempotent = (req, res, next) => {
                     requestHash: record.request_hash,
                     timestamp: Date.now()
                 });
+                console.log(`[IDEMPOTENCY] Returning cached result for ${idempotencyKey}`);
                 return res.status(record.status_code).json(record.response_data);
             }
             
             if (!claim.claimed && claim.conflict) {
                 await client.query('ROLLBACK');
+                console.log(`[IDEMPOTENCY] Conflict for ${idempotencyKey}`);
                 return res.status(409).json({
                     success: false,
                     error: 'Idempotency key reused with different request payload',
                     idempotency_key: idempotencyKey
                 });
             }
+            
+            console.log(`[IDEMPOTENCY] Claimed key ${idempotencyKey}, processing request`);
             
             // We have successfully claimed the key
             const originalJson = res.json.bind(res);
@@ -211,6 +223,7 @@ export const idempotent = (req, res, next) => {
                     const resourceId = data?.data?.id || data?.data?.order_id || data?.data?.sale_id || null;
                     
                     if (statusCode >= 200 && statusCode < 300) {
+                        console.log(`[IDEMPOTENCY] Storing success result for ${idempotencyKey}`);
                         storeResult(client, idempotencyKey, companyId, branchId, resourceType, resourceId, data, statusCode)
                             .then(() => client.query('COMMIT').catch(err => console.error('[IDEMPOTENCY] Commit error:', err)))
                             .catch(async (err) => {
@@ -226,6 +239,7 @@ export const idempotent = (req, res, next) => {
                             timestamp: Date.now()
                         });
                     } else {
+                        console.log(`[IDEMPOTENCY] Marking failed for ${idempotencyKey}`);
                         markFailed(client, idempotencyKey, companyId, branchId, resourceType)
                             .then(() => client.query('COMMIT').catch(err => console.error('[IDEMPOTENCY] Commit error:', err)))
                             .catch(async (err) => {
@@ -245,6 +259,7 @@ export const idempotent = (req, res, next) => {
                             const parsed = typeof data === 'string' ? JSON.parse(data) : data;
                             const resourceId = parsed?.data?.id || parsed?.data?.order_id || parsed?.data?.sale_id || null;
                             
+                            console.log(`[IDEMPOTENCY] Storing send result for ${idempotencyKey}`);
                             storeResult(client, idempotencyKey, companyId, branchId, resourceType, resourceId, parsed, statusCode)
                                 .then(() => client.query('COMMIT').catch(err => console.error('[IDEMPOTENCY] Commit error:', err)))
                                 .catch(async (err) => {
@@ -260,9 +275,11 @@ export const idempotent = (req, res, next) => {
                                 timestamp: Date.now()
                             });
                         } catch (e) {
+                            console.log('[IDEMPOTENCY] Non-JSON response, committing');
                             client.query('COMMIT').catch(err => console.error('[IDEMPOTENCY] Commit error:', err));
                         }
                     } else {
+                        console.log(`[IDEMPOTENCY] Marking failed for ${idempotencyKey}`);
                         markFailed(client, idempotencyKey, companyId, branchId, resourceType)
                             .then(() => client.query('COMMIT').catch(err => console.error('[IDEMPOTENCY] Commit error:', err)))
                             .catch(async (err) => {
