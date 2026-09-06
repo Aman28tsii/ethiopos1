@@ -273,11 +273,11 @@ export const logout = catchAsync(async (req, res) => {
 });
 
 // ============================================================
-// UPDATE USER
+// UPDATE USER — FIXED to accept status and is_active
 // ============================================================
 export const updateUser = catchAsync(async (req, res) => {
   const { id } = req.params;
-  const { name, email, role, phone, station_type } = req.body;
+  const { name, email, role, phone, station_type, status, is_active } = req.body;
   
   if (!req.user?.company_id) {
     throw new AppError('Authentication required', 401);
@@ -293,15 +293,15 @@ export const updateUser = catchAsync(async (req, res) => {
   const params = [];
   let paramIndex = 1;
   
-  if (name) {
+  if (name !== undefined) {
     queryStr += `name = $${paramIndex++}, `;
-    params.push(name.trim());
+    params.push(name?.trim());
   }
-  if (email) {
+  if (email !== undefined) {
     queryStr += `email = $${paramIndex++}, `;
-    params.push(email.toLowerCase().trim());
+    params.push(email?.toLowerCase().trim());
   }
-  if (role) {
+  if (role !== undefined) {
     queryStr += `role = $${paramIndex++}, `;
     params.push(role);
   }
@@ -309,9 +309,18 @@ export const updateUser = catchAsync(async (req, res) => {
     queryStr += `phone = $${paramIndex++}, `;
     params.push(phone);
   }
-  if (station_type) {
+  if (station_type !== undefined) {
     queryStr += `station_type = $${paramIndex++}, `;
     params.push(station_type);
+  }
+  // ✅ FIXED: Allow status and is_active updates
+  if (status !== undefined) {
+    queryStr += `status = $${paramIndex++}, `;
+    params.push(status);
+  }
+  if (is_active !== undefined) {
+    queryStr += `is_active = $${paramIndex++}, `;
+    params.push(is_active);
   }
   
   queryStr += `updated_at = CURRENT_TIMESTAMP WHERE id = $${paramIndex} AND company_id = $${paramIndex + 1} RETURNING *`;
@@ -354,6 +363,75 @@ export const deleteUser = catchAsync(async (req, res) => {
   res.json({
     success: true,
     message: 'User deleted successfully'
+  });
+});
+
+// ============================================================
+// ENABLE USER — NEW
+// ============================================================
+export const enableUser = catchAsync(async (req, res) => {
+  const { id } = req.params;
+  
+  if (!req.user?.company_id) {
+    throw new AppError('Authentication required', 401);
+  }
+  
+  const companyId = req.user.company_id;
+  
+  const result = await query(
+    `UPDATE users 
+     SET status = 'active', is_active = true, updated_at = CURRENT_TIMESTAMP
+     WHERE id = $1 AND company_id = $2
+     RETURNING id, name, email, role, status, is_active, company_id, branch_id`,
+    [id, companyId]
+  );
+  
+  if (result.rows.length === 0) {
+    throw new AppError('User not found', 404);
+  }
+  
+  res.json({
+    success: true,
+    message: 'User enabled successfully',
+    user: result.rows[0]
+  });
+});
+
+// ============================================================
+// DISABLE USER — NEW
+// ============================================================
+export const disableUser = catchAsync(async (req, res) => {
+  const { id } = req.params;
+  
+  if (!req.user?.company_id) {
+    throw new AppError('Authentication required', 401);
+  }
+  
+  const companyId = req.user.company_id;
+  
+  // Prevent disabling yourself
+  if (parseInt(id) === req.user.id) {
+    throw new AppError('You cannot disable your own account', 400);
+  }
+  
+  const result = await query(
+    `UPDATE users 
+     SET status = 'inactive', is_active = false, updated_at = CURRENT_TIMESTAMP
+     WHERE id = $1 AND company_id = $2
+     RETURNING id, name, email, role, status, is_active, company_id, branch_id`,
+    [id, companyId]
+  );
+  
+  if (result.rows.length === 0) {
+    throw new AppError('User not found', 404);
+  }
+  
+  console.log(`[SECURITY] User ${req.user.id} (${req.user.email}) disabled user ${result.rows[0].id} (${result.rows[0].email})`);
+  
+  res.json({
+    success: true,
+    message: 'User disabled successfully. All existing tokens are now invalid.',
+    user: result.rows[0]
   });
 });
 
@@ -406,8 +484,9 @@ export const getStaffPerformance = catchAsync(async (req, res) => {
         }
     });
 });
+
 // ============================================================
-// SWITCH BRANCH (Owner/Admin only)
+// SWITCH BRANCH
 // ============================================================
 export const switchBranch = catchAsync(async (req, res) => {
     const { branchId } = req.body;
@@ -421,7 +500,6 @@ export const switchBranch = catchAsync(async (req, res) => {
         });
     }
     
-    // Verify branch belongs to user's company
     const branchCheck = await query(
         'SELECT id, name, is_active FROM branches WHERE id = $1 AND company_id = $2',
         [branchId, companyId]
@@ -441,13 +519,11 @@ export const switchBranch = catchAsync(async (req, res) => {
         });
     }
     
-    // Update user's branch in database
     await query(
         'UPDATE users SET branch_id = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
         [branchId, userId]
     );
     
-    // Get updated user data
     const userResult = await query(
         `SELECT id, name, email, role, phone, status, is_active, company_id, branch_id 
          FROM users WHERE id = $1`,
@@ -455,8 +531,6 @@ export const switchBranch = catchAsync(async (req, res) => {
     );
     
     const updatedUser = userResult.rows[0];
-    
-    // Generate new JWT with updated branch
     const newToken = generateToken(updatedUser);
     
     res.json({

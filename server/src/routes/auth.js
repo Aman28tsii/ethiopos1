@@ -15,7 +15,9 @@ import {
   logout,
   updateUser,
   deleteUser,
-  switchBranch
+  switchBranch,
+  enableUser,
+  disableUser
 } from '../controllers/authController.js';
 import { protect, allowOwner } from '../middleware/auth.js';
 import { 
@@ -33,10 +35,9 @@ const router = express.Router();
 // RATE LIMITING FOR AUTH
 // ============================================================
 
-// ✅ ADDED: Rate limiting for login to prevent brute force
 const authLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 20, // 20 login attempts
+    windowMs: 15 * 60 * 1000,
+    max: 20,
     message: { 
         success: false, 
         error: 'Too many login attempts. Please try again later.' 
@@ -87,7 +88,6 @@ router.get('/branches', protect, getOwnerBranches, async (req, res) => {
             });
         }
     }
-    // Normal staff get only their branch
     res.json({ 
         success: true, 
         data: [{
@@ -112,6 +112,11 @@ router.put('/users/:id/approve', authorizeCompany, allowOwner, approveUser);
 router.delete('/users/:id/reject', authorizeCompany, allowOwner, rejectUser);
 router.put('/users/:id', authorizeCompany, allowOwner, updateUser);
 router.delete('/users/:id', authorizeCompany, allowOwner, deleteUser);
+
+// ✅ NEW: Enable/Disable user (Owner/Admin only)
+router.put('/users/:id/enable', authorizeCompany, allowOwner, enableUser);
+router.put('/users/:id/disable', authorizeCompany, allowOwner, disableUser);
+
 router.get('/performance', authorizeCompany, allowOwner, getStaffPerformance);
 
 // ============================================================
