@@ -371,15 +371,15 @@ export const adjustStock = catchAsync(async (req, res) => {
     }
     
     // ============================================================
-    // ✅ FIX: IDEMPOTENCY CHECK (INV-005)
+    // ✅ FIX: IDEMPOTENCY CHECK (INV-005) - Check BEFORE transaction
     // ============================================================
     const idempotencyKey = req.headers['idempotency-key'];
-    let cachedResponse = null;
+    let recordId = null;
     
     if (idempotencyKey) {
         console.log(`[IDEMPOTENCY] Checking key: ${idempotencyKey} for ingredient ${id}`);
         
-        // Check if this key has been used for this ingredient
+        // Check if this key has been used for this ingredient (completed)
         const existing = await query(
             `SELECT id, response_data, request_hash FROM idempotency_records 
              WHERE idempotency_key = $1 
@@ -397,9 +397,9 @@ export const adjustStock = catchAsync(async (req, res) => {
             return res.status(200).json(existing.rows[0].response_data);
         }
         
-        // Check for conflicting key with different payload
+        // Check for conflicting key with different payload (processing or completed)
         const conflicting = await query(
-            `SELECT id, request_hash FROM idempotency_records 
+            `SELECT id, request_hash, status FROM idempotency_records 
              WHERE idempotency_key = $1 
                AND company_id = $2 
                AND branch_id = $3 
@@ -413,6 +413,10 @@ export const adjustStock = catchAsync(async (req, res) => {
             if (conflicting.rows[0].request_hash !== requestHash) {
                 throw new AppError('Idempotency key reused with different request payload', 409);
             }
+            // If status is 'processing', reject as duplicate in progress
+            if (conflicting.rows[0].status === 'processing') {
+                throw new AppError('Duplicate request is being processed', 409);
+            }
         }
     }
     
@@ -420,6 +424,29 @@ export const adjustStock = catchAsync(async (req, res) => {
     
     try {
         await client.query('BEGIN');
+        
+        // ✅ SAVE idempotency record FIRST (before stock update)
+        if (idempotencyKey) {
+            const requestHash = crypto.createHash('sha256').update(JSON.stringify(req.body)).digest('hex');
+            
+            const insertResult = await client.query(
+                `INSERT INTO idempotency_records 
+                 (idempotency_key, company_id, branch_id, resource_type, resource_id, 
+                  request_hash, status, created_at, updated_at)
+                 VALUES ($1, $2, $3, $4, $5, $6, 'processing', NOW(), NOW())
+                 RETURNING id`,
+                [
+                    idempotencyKey,
+                    companyId,
+                    branchId,
+                    'stock_adjustment',
+                    parseInt(id),
+                    requestHash
+                ]
+            );
+            recordId = insertResult.rows[0].id;
+            console.log(`[IDEMPOTENCY] Created processing record ${recordId} for ${idempotencyKey}`);
+        }
         
         // Fix 1: Row-level lock using FOR UPDATE
         const lockResult = await client.query(`
@@ -480,8 +507,6 @@ export const adjustStock = catchAsync(async (req, res) => {
             branchId
         ]);
         
-        await client.query('COMMIT');
-        
         const action = numericAmount > 0 ? 'added to' : 'removed from';
         
         const responseData = {
@@ -490,28 +515,21 @@ export const adjustStock = catchAsync(async (req, res) => {
             data: updateResult.rows[0]
         };
         
-        // ✅ Store idempotency record if key was provided
-        if (idempotencyKey) {
-            const requestHash = crypto.createHash('sha256').update(JSON.stringify(req.body)).digest('hex');
-            
-            await query(
-                `INSERT INTO idempotency_records 
-                 (idempotency_key, company_id, branch_id, resource_type, resource_id, 
-                  request_hash, response_data, status_code, status, created_at, updated_at)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'completed', NOW(), NOW())`,
-                [
-                    idempotencyKey,
-                    companyId,
-                    branchId,
-                    'stock_adjustment',
-                    parseInt(id),
-                    requestHash,
-                    responseData,
-                    200
-                ]
+        // ✅ UPDATE idempotency record to completed
+        if (recordId) {
+            await client.query(
+                `UPDATE idempotency_records 
+                 SET status = 'completed',
+                     response_data = $1,
+                     status_code = 200,
+                     updated_at = NOW()
+                 WHERE id = $2`,
+                [responseData, recordId]
             );
-            console.log(`[IDEMPOTENCY] Stored result for ${idempotencyKey}`);
+            console.log(`[IDEMPOTENCY] Updated record ${recordId} to completed`);
         }
+        
+        await client.query('COMMIT');
         
         res.json(responseData);
         
