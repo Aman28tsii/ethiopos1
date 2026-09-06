@@ -125,7 +125,6 @@ router.post("/qr-order", async (req, res) => {
             
             const orderId = orderResult.rows[0].id;
             
-            // Insert order_items
             for (const item of items) {
                 const productResult = await client.query(
                     "SELECT price, name FROM products WHERE id = $1",
@@ -138,7 +137,6 @@ router.post("/qr-order", async (req, res) => {
                 `, [orderId, item.product_id, item.quantity, productResult.rows[0].price, itemTotal]);
             }
             
-            // ✅ STOCK DEDUCTION - FIXED: Pass company_id and branch_id
             let stockResult = { deductions: [], totalWastageCost: 0 };
             try {
                 stockResult = await processOrderStockDeduction(orderId, items, client, companyId, branchId);
@@ -204,7 +202,6 @@ router.post("/:orderId/customer-add-items", async (req, res) => {
         let additionalAmount = 0;
         const newItems = [];
         
-        // Insert new order_items
         for (const item of items) {
             const productResult = await client.query(
                 "SELECT price, company_id, name FROM products WHERE id = $1",
@@ -223,7 +220,6 @@ router.post("/:orderId/customer-add-items", async (req, res) => {
             newItems.push(item);
         }
         
-        // ✅ STOCK DEDUCTION FOR ADDED ITEMS - FIXED: Pass company_id and branch_id
         let stockResult = { deductions: [], totalWastageCost: 0 };
         try {
             stockResult = await processOrderStockDeduction(orderId, newItems, client, companyId, branchId);
@@ -628,6 +624,10 @@ router.post("/:orderId/add-items", authorizeBranch, allowWaiter, async (req, res
     }
 });
 
+// ============================================================
+// ORDER CANCELLATION - FIXED: Restores stock
+// ============================================================
+
 router.put("/:orderId/cancel", authorizeBranch, allowWaiter, async (req, res) => {
     const { orderId } = req.params;
     const { reason } = req.body;
@@ -636,40 +636,215 @@ router.put("/:orderId/cancel", authorizeBranch, allowWaiter, async (req, res) =>
     const companyId = req.user.company_id;
     
     const client = await pool.connect();
+    
     try {
         await client.query("BEGIN");
+        
+        // Check if order exists and belongs to this waiter
         const orderCheck = await client.query(
-            "SELECT status, payment_status, table_id FROM orders WHERE id = $1 AND waiter_id = $2 AND branch_id = $3 AND company_id = $4",
+            `SELECT o.id, o.status, o.payment_status, o.table_id, o.order_number, 
+                    o.company_id, o.branch_id, o.created_by, o.waiter_id
+             FROM orders o
+             WHERE o.id = $1 
+               AND o.waiter_id = $2 
+               AND o.branch_id = $3 
+               AND o.company_id = $4
+               AND o.status NOT IN ('completed', 'cancelled')`,
             [orderId, userId, branchId, companyId]
         );
+        
         if (orderCheck.rows.length === 0) {
-            throw new Error("Order not found or does not belong to you");
-        }
-        const order = orderCheck.rows[0];
-        if (order.payment_status === 'paid') {
-            throw new Error("Cannot cancel a paid order.");
+            // Check if order exists but not assigned to this waiter
+            const anyOrder = await client.query(
+                "SELECT id, status, payment_status FROM orders WHERE id = $1",
+                [orderId]
+            );
+            
+            if (anyOrder.rows.length === 0) {
+                throw new Error("Order not found");
+            }
+            
+            if (anyOrder.rows[0].payment_status === 'paid') {
+                throw new Error("Cannot cancel a paid order");
+            }
+            
+            if (anyOrder.rows[0].status === 'completed') {
+                throw new Error("Order already completed");
+            }
+            
+            throw new Error("Order not assigned to you");
         }
         
+        const order = orderCheck.rows[0];
+        
+        // Prevent cancelling paid orders
+        if (order.payment_status === 'paid') {
+            throw new Error("Cannot cancel a paid order");
+        }
+        
+        // ============================================================
+        // FIX: RESTORE STOCK FOR ALL ORDER ITEMS
+        // ============================================================
+        
+        // Get all order items with product and recipe information
+        const orderItemsResult = await client.query(`
+            SELECT 
+                oi.product_id,
+                oi.quantity,
+                p.name as product_name,
+                ri.ingredient_id,
+                ri.quantity_required,
+                ri.wastage_percentage,
+                ri.cooking_loss_percentage,
+                i.name as ingredient_name,
+                i.unit,
+                i.unit_cost,
+                i.quantity as current_stock
+            FROM order_items oi
+            JOIN products p ON oi.product_id = p.id
+            LEFT JOIN recipes r ON p.id = r.product_id
+            LEFT JOIN recipe_ingredients ri ON r.id = ri.recipe_id
+            LEFT JOIN ingredients i ON ri.ingredient_id = i.id
+            WHERE oi.order_id = $1
+        `, [orderId]);
+        
+        // Group ingredients by ingredient_id to sum quantities
+        const ingredientMap = new Map();
+        
+        for (const item of orderItemsResult.rows) {
+            if (!item.ingredient_id) continue;
+            
+            // Calculate the amount to restore (reverse of deduction)
+            const orderQty = parseFloat(item.quantity);
+            const qtyRequired = parseFloat(item.quantity_required) || 0;
+            const wastagePct = parseFloat(item.wastage_percentage) || 0;
+            const cookingLossPct = parseFloat(item.cooking_loss_percentage) || 0;
+            
+            // Calculate the amount that was deducted
+            const expectedQuantity = qtyRequired * orderQty;
+            const restoredQuantity = expectedQuantity * (1 + wastagePct / 100) * (1 + cookingLossPct / 100);
+            
+            if (ingredientMap.has(item.ingredient_id)) {
+                const existing = ingredientMap.get(item.ingredient_id);
+                existing.restore_quantity += restoredQuantity;
+                existing.ingredient_name = item.ingredient_name;
+                existing.unit = item.unit;
+                existing.unit_cost = item.unit_cost;
+                existing.current_stock = item.current_stock;
+            } else {
+                ingredientMap.set(item.ingredient_id, {
+                    ingredient_id: item.ingredient_id,
+                    ingredient_name: item.ingredient_name,
+                    restore_quantity: restoredQuantity,
+                    unit: item.unit,
+                    unit_cost: item.unit_cost,
+                    current_stock: item.current_stock
+                });
+            }
+        }
+        
+        // Lock and restore stock for each ingredient
+        const ingredientIds = Array.from(ingredientMap.keys());
+        
+        if (ingredientIds.length > 0) {
+            // Lock ingredients for update
+            const lockResult = await client.query(`
+                SELECT id, quantity, name, unit
+                FROM ingredients
+                WHERE id = ANY($1)
+                  AND company_id = $2
+                  AND branch_id = $3
+                FOR UPDATE
+            `, [ingredientIds, companyId, branchId]);
+            
+            // Restore stock for each ingredient
+            for (const row of lockResult.rows) {
+                const ingredientData = ingredientMap.get(row.id);
+                const restoreQty = ingredientData.restore_quantity;
+                const newQuantity = parseFloat(row.quantity) + restoreQty;
+                
+                await client.query(`
+                    UPDATE ingredients 
+                    SET quantity = $1,
+                        updated_at = NOW()
+                    WHERE id = $2
+                      AND company_id = $3
+                      AND branch_id = $4
+                `, [newQuantity, row.id, companyId, branchId]);
+                
+                // Create stock_transactions record for restoration
+                await client.query(`
+                    INSERT INTO stock_transactions (
+                        ingredient_id,
+                        order_id,
+                        expected_quantity,
+                        actual_quantity,
+                        wastage_amount,
+                        wastage_percentage,
+                        transaction_type,
+                        notes,
+                        company_id,
+                        branch_id
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                `, [
+                    row.id,
+                    orderId,
+                    restoreQty,
+                    restoreQty,
+                    0,
+                    0,
+                    'order_cancellation',
+                    `Stock restored from cancelled order ${order.order_number}`,
+                    companyId,
+                    branchId
+                ]);
+            }
+        }
+        
+        // Update order status
         await client.query(`
-            UPDATE orders SET status = 'cancelled', updated_at = NOW(), cancellation_reason = $1
+            UPDATE orders 
+            SET status = 'cancelled', 
+                updated_at = CURRENT_TIMESTAMP,
+                cancellation_reason = $1
             WHERE id = $2
-        `, [reason || "Cancelled by staff", orderId]);
+        `, [reason || 'Cancelled by waiter', orderId]);
+        
+        // Update kitchen order
         await client.query(`
-            UPDATE kitchen_orders SET status = 'cancelled', updated_at = NOW()
+            UPDATE kitchen_orders 
+            SET status = 'cancelled', 
+                updated_at = CURRENT_TIMESTAMP
             WHERE order_id = $1
         `, [orderId]);
+        
+        // Update table status if table was occupied
         if (order.table_id) {
             await client.query(`
-                UPDATE tables SET status = 'available', current_order_id = NULL, pending_order_id = NULL, updated_at = NOW()
+                UPDATE tables 
+                SET status = 'available', 
+                    current_order_id = NULL,
+                    updated_at = CURRENT_TIMESTAMP
                 WHERE id = $1
             `, [order.table_id]);
         }
+        
         await client.query("COMMIT");
-        res.json({ success: true, message: "Order cancelled successfully", data: { order_id: orderId } });
-    } catch (err) {
+        
+        res.json({ 
+            success: true, 
+            message: "Order cancelled successfully. Stock restored to inventory.",
+            data: { 
+                order_id: orderId,
+                stock_restored: ingredientIds.length > 0,
+                ingredients_restored: ingredientIds.length
+            }
+        });
+        
+    } catch (error) {
         await client.query("ROLLBACK");
-        console.error("Cancel order error:", err);
-        res.status(500).json({ success: false, error: err.message });
+        console.error("Cancel order error:", error);
+        res.status(500).json({ success: false, error: error.message });
     } finally {
         client.release();
     }

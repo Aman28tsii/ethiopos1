@@ -1361,6 +1361,8 @@ RealTimeNotifications.displayName = 'RealTimeNotifications';
 
 export default RealTimeNotifications;
 === FILE: C:\Users\dell\Desktop\restaurant\client\src\components\RecipeManager.js ===
+// client/src/components/RecipeManager.js
+
 import React, { useState, useEffect } from 'react';
 import API from '../api/axios';
 import { 
@@ -1492,7 +1494,7 @@ const RecipeManager = ({ productId, productName, productPrice, onSave, onClose }
     };
 
     // ============================================
-    // ADD INGREDIENT
+    // ADD INGREDIENT - âœ… FIXED: Include unit
     // ============================================
     const addIngredient = () => {
         if (!selectedIngredient.ingredient_id || !selectedIngredient.quantity_required) {
@@ -1592,7 +1594,7 @@ const RecipeManager = ({ productId, productName, productPrice, onSave, onClose }
     };
 
     // ============================================
-    // SAVE RECIPE
+    // SAVE RECIPE - âœ… FIXED: Include unit in payload
     // ============================================
     const saveRecipe = async () => {
         if (ingredients.length === 0) {
@@ -1607,6 +1609,7 @@ const RecipeManager = ({ productId, productName, productPrice, onSave, onClose }
                 yield_quantity: yieldQuantity,
                 ingredients: ingredients.map(ing => ({
                     ingredient_id: ing.ingredient_id,
+                    unit: ing.unit,  // âœ… FIXED: Include unit
                     quantity_required: ing.quantity_required,
                     wastage_percentage: ing.wastage_percentage || 0,
                     cooking_loss_percentage: ing.cooking_loss_percentage || 0
@@ -1877,7 +1880,7 @@ const RecipeManager = ({ productId, productName, productPrice, onSave, onClose }
                     </div>
 
                     {/* ============================================ */}
-                    {/* ADD INGREDIENT FORM */}
+                    {/* ADD INGREDIENT FORM - âœ… FIXED: Unit included */}
                     {/* ============================================ */}
                     <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
                         <h3 className="font-semibold text-gray-900 dark:text-white mb-3">Add Ingredient</h3>
@@ -38465,7 +38468,28 @@ import { query } from '../config/database.js';
 import { catchAsync, AppError } from '../middleware/errorHandler.js';
 
 // ============================================
-// GET DASHBOARD DATA
+// HELPER: Get Ethiopia local date
+// ============================================
+const getEthiopiaDate = () => {
+    // Ethiopia is UTC+3
+    const now = new Date();
+    const ethiopiaTime = new Date(now.getTime() + (3 * 60 * 60 * 1000));
+    return ethiopiaTime.toISOString().split('T')[0];
+};
+
+const getEthiopiaDateRange = (days) => {
+    const now = new Date();
+    const ethiopiaTime = new Date(now.getTime() + (3 * 60 * 60 * 1000));
+    const endDate = ethiopiaTime.toISOString().split('T')[0];
+    const startDate = new Date(ethiopiaTime.getTime() - (days * 24 * 60 * 60 * 1000));
+    return {
+        startDate: startDate.toISOString().split('T')[0],
+        endDate: endDate
+    };
+};
+
+// ============================================
+// GET DASHBOARD DATA - âœ… FIXED
 // ============================================
 export const getDashboardData = catchAsync(async (req, res) => {
     if (!req.user?.company_id || !req.user?.branch_id) {
@@ -38474,48 +38498,71 @@ export const getDashboardData = catchAsync(async (req, res) => {
     
     const companyId = req.user.company_id;
     const branchId = req.user.branch_id;
-    const today = new Date().toISOString().split('T')[0];
-    const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-    const monthAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    
+    // âœ… FIXED: Use Ethiopia local date (UTC+3)
+    const today = getEthiopiaDate();
+    const weekAgo = new Date(new Date().getTime() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    const monthAgo = new Date(new Date().getTime() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
-    // Today's stats from orders
+    // âœ… FIXED: Today's stats from SALES table (not orders)
     const todayStats = await query(`
         SELECT 
             COUNT(*) as total_orders,
             COALESCE(SUM(total_amount), 0) as total_revenue,
-            COALESCE(AVG(total_amount), 0) as average_order
-        FROM orders
+            COALESCE(AVG(total_amount), 0) as average_order,
+            COALESCE(SUM(total_cost), 0) as total_cost,
+            COALESCE(SUM(profit), 0) as total_profit,
+            CASE 
+                WHEN SUM(total_amount) > 0 
+                THEN ROUND((SUM(profit) / SUM(total_amount)) * 100, 2)
+                ELSE 0 
+            END as profit_margin
+        FROM sales
         WHERE DATE(created_at) = $1 
           AND status = 'completed'
           AND company_id = $2
           AND branch_id = $3
     `, [today, companyId, branchId]);
 
-    // Week stats
+    // Week stats from SALES table
     const weekStats = await query(`
         SELECT 
             COUNT(*) as total_orders,
-            COALESCE(SUM(total_amount), 0) as total_revenue
-        FROM orders
+            COALESCE(SUM(total_amount), 0) as total_revenue,
+            COALESCE(SUM(total_cost), 0) as total_cost,
+            COALESCE(SUM(profit), 0) as total_profit,
+            CASE 
+                WHEN SUM(total_amount) > 0 
+                THEN ROUND((SUM(profit) / SUM(total_amount)) * 100, 2)
+                ELSE 0 
+            END as profit_margin
+        FROM sales
         WHERE DATE(created_at) >= $1 
           AND status = 'completed'
           AND company_id = $2
           AND branch_id = $3
     `, [weekAgo, companyId, branchId]);
 
-    // Month stats
+    // Month stats from SALES table
     const monthStats = await query(`
         SELECT 
             COUNT(*) as total_orders,
-            COALESCE(SUM(total_amount), 0) as total_revenue
-        FROM orders
+            COALESCE(SUM(total_amount), 0) as total_revenue,
+            COALESCE(SUM(total_cost), 0) as total_cost,
+            COALESCE(SUM(profit), 0) as total_profit,
+            CASE 
+                WHEN SUM(total_amount) > 0 
+                THEN ROUND((SUM(profit) / SUM(total_amount)) * 100, 2)
+                ELSE 0 
+            END as profit_margin
+        FROM sales
         WHERE DATE(created_at) >= $1 
           AND status = 'completed'
           AND company_id = $2
           AND branch_id = $3
     `, [monthAgo, companyId, branchId]);
 
-    // Month expenses - âœ… FIXED: use company_id instead of business_id
+    // Month expenses
     const monthExpenses = await query(`
         SELECT COALESCE(SUM(amount), 0) as total_expenses
         FROM expenses
@@ -38538,40 +38585,43 @@ export const getDashboardData = catchAsync(async (req, res) => {
         WHERE company_id = $1 AND branch_id = $2 AND quantity <= min_stock
     `, [companyId, branchId]);
 
-    // Top 5 products
+    // Top 5 products from SALES
     const topProducts = await query(`
         SELECT 
             p.id,
             p.name,
-            COALESCE(SUM(oi.quantity), 0) as quantity_sold,
-            COALESCE(SUM(oi.total_price), 0) as revenue
+            COALESCE(SUM(si.quantity), 0) as quantity_sold,
+            COALESCE(SUM(si.total_price), 0) as revenue
         FROM products p
-        LEFT JOIN order_items oi ON p.id = oi.product_id
-        LEFT JOIN orders o ON oi.order_id = o.id 
-          AND o.status = 'completed'
-          AND o.company_id = $1
-          AND o.branch_id = $2
+        LEFT JOIN sale_items si ON p.id = si.product_id
+        LEFT JOIN sales s ON si.sale_id = s.id 
+          AND s.status = 'completed'
+          AND s.company_id = $1
+          AND s.branch_id = $2
         WHERE p.company_id = $1
         GROUP BY p.id, p.name
         ORDER BY revenue DESC
         LIMIT 5
     `, [companyId, branchId]);
 
-    // Recent orders
-    const recentOrders = await query(`
-        SELECT o.id, o.order_number, o.total_amount, o.created_at, u.name as cashier_name
-        FROM orders o
-        LEFT JOIN users u ON o.created_by = u.id
-        WHERE o.status = 'completed'
-          AND o.company_id = $1
-          AND o.branch_id = $2
-        ORDER BY o.created_at DESC
+    // Recent sales
+    const recentSales = await query(`
+        SELECT s.id, s.sale_number, s.total_amount, s.created_at, u.name as cashier_name
+        FROM sales s
+        LEFT JOIN users u ON s.user_id = u.id
+        WHERE s.status = 'completed'
+          AND s.company_id = $1
+          AND s.branch_id = $2
+        ORDER BY s.created_at DESC
         LIMIT 10
     `, [companyId, branchId]);
 
     const monthRevenue = parseFloat(monthStats.rows[0].total_revenue || 0);
+    const monthCost = parseFloat(monthStats.rows[0].total_cost || 0);
+    const monthProfit = parseFloat(monthStats.rows[0].total_profit || 0);
     const monthExpensesTotal = parseFloat(monthExpenses.rows[0].total_expenses || 0);
-    const monthProfit = monthRevenue - monthExpensesTotal;
+    const monthNetProfit = monthProfit - monthExpensesTotal;
+    const monthProfitMargin = monthRevenue > 0 ? (monthProfit / monthRevenue) * 100 : 0;
 
     res.json({
         success: true,
@@ -38579,32 +38629,39 @@ export const getDashboardData = catchAsync(async (req, res) => {
             today: {
                 orders: parseInt(todayStats.rows[0].total_orders || 0),
                 revenue: parseFloat(todayStats.rows[0].total_revenue || 0),
+                cost: parseFloat(todayStats.rows[0].total_cost || 0),
+                profit: parseFloat(todayStats.rows[0].total_profit || 0),
+                profit_margin: parseFloat(todayStats.rows[0].profit_margin || 0),
                 average_order: parseFloat(todayStats.rows[0].average_order || 0)
             },
             week: {
                 orders: parseInt(weekStats.rows[0].total_orders || 0),
-                revenue: parseFloat(weekStats.rows[0].total_revenue || 0)
+                revenue: parseFloat(weekStats.rows[0].total_revenue || 0),
+                cost: parseFloat(weekStats.rows[0].total_cost || 0),
+                profit: parseFloat(weekStats.rows[0].total_profit || 0),
+                profit_margin: parseFloat(weekStats.rows[0].profit_margin || 0)
             },
             month: {
                 orders: parseInt(monthStats.rows[0].total_orders || 0),
                 revenue: monthRevenue,
-                expenses: monthExpensesTotal,
+                cost: monthCost,
                 profit: monthProfit,
-                net_profit: monthProfit,
-                profit_margin: monthRevenue > 0 ? (monthProfit / monthRevenue) * 100 : 0
+                profit_margin: parseFloat(monthProfitMargin.toFixed(2)),
+                expenses: monthExpensesTotal,
+                net_profit: monthNetProfit
             },
             inventory: {
                 low_stock: parseInt(lowStock.rows[0].count || 0)
             },
             users: totalStaff.rows,
             top_products: topProducts.rows,
-            recent_sales: recentOrders.rows
+            recent_sales: recentSales.rows
         }
     });
 });
 
 // ============================================
-// GET CHART DATA
+// GET CHART DATA - âœ… FIXED (if needed)
 // ============================================
 export const getChartData = catchAsync(async (req, res) => {
     if (!req.user?.company_id || !req.user?.branch_id) {
@@ -38623,12 +38680,15 @@ export const getChartData = catchAsync(async (req, res) => {
         default: days = 7;
     }
 
+    // âœ… FIXED: Use SALES table for chart data
     const salesData = await query(`
         SELECT 
             DATE(created_at) as date,
             COALESCE(SUM(total_amount), 0) as revenue,
+            COALESCE(SUM(total_cost), 0) as cost,
+            COALESCE(SUM(profit), 0) as profit,
             COUNT(*) as orders
-        FROM orders
+        FROM sales
         WHERE created_at >= NOW() - INTERVAL '${days} days'
           AND status = 'completed'
           AND company_id = $1
@@ -38640,15 +38700,15 @@ export const getChartData = catchAsync(async (req, res) => {
     const topProducts = await query(`
         SELECT 
             p.name,
-            COALESCE(SUM(oi.quantity), 0) as total_sold,
-            COALESCE(SUM(oi.total_price), 0) as revenue
+            COALESCE(SUM(si.quantity), 0) as total_sold,
+            COALESCE(SUM(si.total_price), 0) as revenue
         FROM products p
-        LEFT JOIN order_items oi ON p.id = oi.product_id
-        LEFT JOIN orders o ON oi.order_id = o.id 
-          AND o.status = 'completed' 
-          AND o.company_id = $1
-          AND o.branch_id = $2
-          AND o.created_at >= NOW() - INTERVAL '30 days'
+        LEFT JOIN sale_items si ON p.id = si.product_id
+        LEFT JOIN sales s ON si.sale_id = s.id 
+          AND s.status = 'completed' 
+          AND s.company_id = $1
+          AND s.branch_id = $2
+          AND s.created_at >= NOW() - INTERVAL '30 days'
         WHERE p.company_id = $1
         GROUP BY p.id, p.name
         ORDER BY revenue DESC
@@ -38660,7 +38720,7 @@ export const getChartData = catchAsync(async (req, res) => {
             COALESCE(payment_method, 'cash') as payment_method,
             COUNT(*) as count,
             COALESCE(SUM(total_amount), 0) as total
-        FROM orders
+        FROM sales
         WHERE created_at >= NOW() - INTERVAL '30 days'
           AND status = 'completed'
           AND company_id = $1
@@ -38673,7 +38733,7 @@ export const getChartData = catchAsync(async (req, res) => {
             EXTRACT(HOUR FROM created_at) as hour,
             COUNT(*) as orders,
             COALESCE(SUM(total_amount), 0) as revenue
-        FROM orders
+        FROM sales
         WHERE created_at >= NOW() - INTERVAL '7 days'
           AND status = 'completed'
           AND company_id = $1
@@ -39892,9 +39952,9 @@ export const createOrUpdateRecipe = catchAsync(async (req, res) => {
             );
         } else {
             const result = await client.query(
-                `INSERT INTO recipes (product_id, yield_quantity) 
-                 VALUES ($1, $2) RETURNING id`,
-                [productId, yield_quantity]
+                `INSERT INTO recipes (product_id, yield_quantity, company_id) 
+                 VALUES ($1, $2, $3) RETURNING id`,
+                [productId, yield_quantity, companyId]
             );
             recipeId = result.rows[0].id;
         }
@@ -39905,22 +39965,25 @@ export const createOrUpdateRecipe = catchAsync(async (req, res) => {
             }
 
             const ingredientCheck = await client.query(
-                'SELECT id, unit FROM ingredients WHERE id = $1',
-                [item.ingredient_id]
+                'SELECT id, unit FROM ingredients WHERE id = $1 AND company_id = $2',
+                [item.ingredient_id, companyId]
             );
 
             if (ingredientCheck.rows.length === 0) {
-                throw new AppError(`Ingredient ID ${item.ingredient_id} not found`, 404);
+                throw new AppError(`Ingredient ID ${item.ingredient_id} not found in this company`, 404);
             }
+
+            const unit = item.unit || ingredientCheck.rows[0].unit || 'pcs';
 
             await client.query(
                 `INSERT INTO recipe_ingredients (
-                    recipe_id, ingredient_id, quantity_required, 
+                    recipe_id, ingredient_id, unit, quantity_required, 
                     wastage_percentage, cooking_loss_percentage
-                ) VALUES ($1, $2, $3, $4, $5)`,
+                ) VALUES ($1, $2, $3, $4, $5, $6)`,
                 [
                     recipeId, 
                     item.ingredient_id, 
+                    unit,
                     item.quantity_required,
                     item.wastage_percentage || 0,
                     item.cooking_loss_percentage || 0
@@ -39957,7 +40020,9 @@ export const deleteRecipe = catchAsync(async (req, res) => {
     const companyId = req.user.company_id;
 
     const result = await query(
-        'DELETE FROM recipes WHERE id = $1 AND product_id IN (SELECT id FROM products WHERE company_id = $2) RETURNING id',
+        `DELETE FROM recipes 
+         WHERE id = $1 AND product_id IN (SELECT id FROM products WHERE company_id = $2)
+         RETURNING id`,
         [id, companyId]
     );
 
@@ -40079,14 +40144,15 @@ export const getWastageReport = catchAsync(async (req, res) => {
             SUM(st.actual_quantity) as total_actual,
             SUM(st.wastage_amount) as total_wastage,
             AVG(st.wastage_percentage) as avg_wastage_percentage,
-            SUM(st.wastage_amount * i.unit_cost) as total_wastage_cost
+            SUM(st.wastage_amount * i.unit_cost) as total_wastage_cost,
+            st.order_id
         FROM stock_transactions st
         JOIN ingredients i ON st.ingredient_id = i.id
         WHERE DATE(st.created_at) BETWEEN $1 AND $2
           AND st.transaction_type = 'order_deduction'
           AND i.company_id = $3
           AND i.branch_id = $4
-        GROUP BY i.id, i.name, i.unit
+        GROUP BY i.id, i.name, i.unit, st.order_id
         ORDER BY total_wastage_cost DESC
     `, [startDate, endDate, companyId, branchId]);
 
@@ -40384,7 +40450,9 @@ export const calculateStockDeductionWithWastage = (recipeIngredients, orderQuant
             unit: ingredient.unit,
             unit_cost: parseFloat(ingredient.unit_cost) || 0,
             wastage_cost: parseFloat((wastageAmount * (parseFloat(ingredient.unit_cost) || 0)).toFixed(2)),
-            current_stock: parseFloat(ingredient.current_stock) || 0
+            current_stock: parseFloat(ingredient.current_stock) || 0,
+            company_id: ingredient.company_id,
+            branch_id: ingredient.branch_id
         });
     }
 
@@ -40392,9 +40460,9 @@ export const calculateStockDeductionWithWastage = (recipeIngredients, orderQuant
 };
 
 // ============================================================
-// PROCESS ORDER STOCK DEDUCTION â€” WITH TRANSACTION SAFETY
+// PROCESS ORDER STOCK DEDUCTION - FIXED with context override
 // ============================================================
-export const processOrderStockDeduction = async (orderId, items, client) => {
+export const processOrderStockDeduction = async (orderId, items, client, companyIdOverride = null, branchIdOverride = null) => {
     const allDeductions = [];
     let totalWastageCost = 0;
     const ingredientIds = [];
@@ -40453,12 +40521,15 @@ export const processOrderStockDeduction = async (orderId, items, client) => {
     // Step 2: Sort ingredient IDs to prevent deadlocks
     ingredientIds.sort((a, b) => a - b);
 
-    // Get company and branch from first ingredient
-    const firstIngredient = ingredientMap.get(ingredientIds[0]);
-    
-    // âœ… FIXED: No fallback values - require proper authentication context
-    const companyId = firstIngredient?.company_id;
-    const branchId = firstIngredient?.branch_id;
+    // Get company and branch from override or from first ingredient
+    let companyId = companyIdOverride;
+    let branchId = branchIdOverride;
+
+    if (!companyId || !branchId) {
+        const firstIngredient = ingredientMap.get(ingredientIds[0]);
+        companyId = firstIngredient?.company_id;
+        branchId = firstIngredient?.branch_id;
+    }
 
     if (!companyId || !branchId) {
         throw new AppError('Company or branch context missing for stock deduction', 403);
@@ -40500,7 +40571,6 @@ export const processOrderStockDeduction = async (orderId, items, client) => {
     for (const row of lockedResult.rows) {
         const required = ingredientMap.get(row.id).total_required;
         
-        // âœ… Guarded update with stock check
         const updateResult = await client.query(`
             UPDATE ingredients 
             SET quantity = quantity - $1,
@@ -40576,6 +40646,9 @@ export const processOrderStockDeduction = async (orderId, items, client) => {
 import { query, getClient } from '../config/database.js';
 import { AppError, catchAsync } from '../middleware/errorHandler.js';
 
+// ============================================
+// GENERATE SALE NUMBER
+// ============================================
 const generateSaleNumber = () => {
     const date = new Date();
     const timestamp = date.getTime().toString().slice(-8);
@@ -40583,9 +40656,12 @@ const generateSaleNumber = () => {
     return `SALE-${timestamp}${random}`;
 };
 
+// ============================================
+// CALCULATE PRODUCT COST
+// ============================================
 const calculateProductCost = async (productId, quantity, client) => {
     const recipeResult = await client.query(
-        `SELECT ri.quantity_required, i.unit_cost
+        `SELECT ri.quantity_required, i.unit_cost, ri.wastage_percentage, ri.cooking_loss_percentage
          FROM recipe_ingredients ri
          JOIN ingredients i ON ri.ingredient_id = i.id
          WHERE ri.recipe_id IN (SELECT id FROM recipes WHERE product_id = $1)`,
@@ -40594,42 +40670,216 @@ const calculateProductCost = async (productId, quantity, client) => {
     
     let totalCost = 0;
     for (const item of recipeResult.rows) {
-        totalCost += parseFloat(item.quantity_required) * parseFloat(item.unit_cost) * quantity;
+        const qtyRequired = parseFloat(item.quantity_required) || 0;
+        const wastagePct = parseFloat(item.wastage_percentage) || 0;
+        const cookingLossPct = parseFloat(item.cooking_loss_percentage) || 0;
+        const unitCost = parseFloat(item.unit_cost) || 0;
+        
+        const effectiveQty = qtyRequired * quantity * (1 + wastagePct / 100) * (1 + cookingLossPct / 100);
+        totalCost += effectiveQty * unitCost;
     }
     return totalCost;
 };
 
-const deductIngredients = async (productId, quantity, client) => {
+// ============================================
+// DEDUCT INGREDIENTS - WITH STOCK_TRANSACTIONS FIX
+// ============================================
+const deductIngredients = async (productId, quantity, saleId, companyId, branchId, client) => {
+    // Normalize and validate quantity
+    const saleQuantity = Number(quantity);
+    
+    if (!Number.isFinite(saleQuantity) || saleQuantity <= 0) {
+        throw new AppError('Invalid sale quantity', 400);
+    }
+
     const recipeResult = await client.query(
-        `SELECT ri.ingredient_id, ri.quantity_required, i.quantity as current_stock, i.name
+        `SELECT ri.ingredient_id, ri.quantity_required, i.quantity as current_stock, i.name,
+                ri.wastage_percentage, ri.cooking_loss_percentage, i.unit_cost
          FROM recipe_ingredients ri
          JOIN ingredients i ON ri.ingredient_id = i.id
          WHERE ri.recipe_id IN (SELECT id FROM recipes WHERE product_id = $1)`,
         [productId]
     );
-    
+
     for (const item of recipeResult.rows) {
-        const requiredAmount = parseFloat(item.quantity_required) * quantity;
-        
-        if (parseFloat(item.current_stock) < requiredAmount) {
+        const qtyRequired = parseFloat(item.quantity_required) || 0;
+        const wastagePct = parseFloat(item.wastage_percentage) || 0;
+        const cookingLossPct = parseFloat(item.cooking_loss_percentage) || 0;
+        const currentQuantity = parseFloat(item.current_stock) || 0;
+        const unitCost = parseFloat(item.unit_cost) || 0;
+
+        // Calculate required amount with wastage and cooking loss
+        const expectedQuantity = qtyRequired * saleQuantity;
+        const requiredAmount = expectedQuantity * (1 + wastagePct / 100) * (1 + cookingLossPct / 100);
+        const wastageAmount = requiredAmount - expectedQuantity;
+        const wastagePercentage = expectedQuantity > 0 ? (wastageAmount / expectedQuantity * 100) : 0;
+        const newQuantity = currentQuantity - requiredAmount;
+
+        if (newQuantity < 0) {
             throw new AppError(
-                `Insufficient stock for ingredient: ${item.name}. Required: ${requiredAmount}, Available: ${item.current_stock}`,
+                `Insufficient stock for ingredient: ${item.name}. Required: ${requiredAmount.toFixed(2)}, Available: ${currentQuantity.toFixed(2)}`,
                 400,
                 'INSUFFICIENT_STOCK'
             );
         }
-        
+
+        // Update ingredient stock
         await client.query(
-            `UPDATE ingredients 
-             SET quantity = quantity - $1, updated_at = CURRENT_TIMESTAMP 
-             WHERE id = $2`,
+            'UPDATE ingredients SET quantity = quantity - $1, updated_at = NOW() WHERE id = $2',
             [requiredAmount, item.ingredient_id]
         );
+
+        // ✅ FIX: Create stock_transactions record for audit trail with sale_id
+        await client.query(`
+            INSERT INTO stock_transactions (
+                ingredient_id,
+                order_id,
+                product_id,
+                expected_quantity,
+                actual_quantity,
+                wastage_amount,
+                wastage_percentage,
+                transaction_type,
+                notes,
+                company_id,
+                branch_id,
+                sale_id
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        `, [
+            item.ingredient_id,
+            null,  // No order_id for direct sales
+            productId,
+            parseFloat(expectedQuantity.toFixed(3)),
+            parseFloat(requiredAmount.toFixed(3)),
+            parseFloat(wastageAmount.toFixed(3)),
+            parseFloat(wastagePercentage.toFixed(1)),
+            'sale_deduction',
+            `Sale ${saleId} - ${item.name}`,
+            companyId,
+            branchId,
+            saleId
+        ]);
     }
 };
 
 // ============================================
-// GET ALL SALES (Branch-isolated) - ✅ FIXED
+// CREATE SALE - FIXED WITH IDEMPOTENCY SUPPORT
+// ============================================
+export const createSale = catchAsync(async (req, res) => {
+    const { items, payment_method, customer_name, customer_phone } = req.body;
+    const userId = req.user.id;
+    const companyId = req.user.company_id;
+    const branchId = req.user.branch_id;
+    
+    if (!companyId || !branchId) {
+        throw new AppError('Company and branch context required', 401);
+    }
+    
+    if (!items || items.length === 0) {
+        throw new AppError('No items in sale', 400);
+    }
+    
+    const client = await getClient();
+    
+    try {
+        await client.query('BEGIN');
+        
+        let totalAmount = 0;
+        let totalCost = 0;
+        const saleItems = [];
+        
+        // Process each item
+        for (const item of items) {
+            const quantity = Number(item.quantity);
+            
+            if (!Number.isFinite(quantity) || quantity <= 0) {
+                throw new AppError(`Invalid quantity for product ${item.product_id}`, 400);
+            }
+            
+            const productResult = await client.query(
+                `SELECT id, name, price FROM products 
+                 WHERE id = $1 AND company_id = $2 AND is_available = true`,
+                [item.product_id, companyId]
+            );
+            
+            if (productResult.rows.length === 0) {
+                throw new Error(`Product ${item.product_id} not found`);
+            }
+            
+            const product = productResult.rows[0];
+            const unitPrice = parseFloat(product.price);
+            const itemTotal = unitPrice * quantity;
+            const itemCost = await calculateProductCost(item.product_id, quantity, client);
+            
+            totalAmount += itemTotal;
+            totalCost += itemCost;
+            
+            saleItems.push({
+                product_id: item.product_id,
+                product_name: product.name,
+                quantity,
+                unit_price: unitPrice,
+                total_price: itemTotal,
+                cost: itemCost
+            });
+        }
+        
+        // Create sale record first (need sale_id for stock_transactions)
+        const saleNumber = generateSaleNumber();
+        const profit = totalAmount - totalCost;
+        const profitMargin = totalAmount > 0 ? (profit / totalAmount) * 100 : 0;
+        
+        const saleResult = await client.query(
+            `INSERT INTO sales (company_id, branch_id, user_id, sale_number, total_amount, total_cost, profit, payment_method, customer_name, customer_phone, status)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'completed')
+             RETURNING id, sale_number, created_at`,
+            [companyId, branchId, userId, saleNumber, totalAmount, totalCost, profit, payment_method, customer_name || null, customer_phone || null]
+        );
+        
+        const saleId = saleResult.rows[0].id;
+        
+        // ✅ FIX: Deduct ingredients WITH stock_transactions
+        for (const item of items) {
+            await deductIngredients(item.product_id, item.quantity, saleId, companyId, branchId, client);
+        }
+        
+        // Create sale_items
+        for (const item of saleItems) {
+            await client.query(
+                `INSERT INTO sale_items (sale_id, product_id, quantity, unit_price, total_price)
+                 VALUES ($1, $2, $3, $4, $5)`,
+                [saleId, item.product_id, item.quantity, item.unit_price, item.total_price]
+            );
+        }
+        
+        await client.query('COMMIT');
+        
+        res.status(201).json({
+            success: true,
+            message: 'Sale completed successfully',
+            data: {
+                sale_id: saleId,
+                sale_number: saleNumber,
+                total_amount: totalAmount,
+                total_cost: totalCost,
+                profit: profit,
+                profit_margin: parseFloat(profitMargin.toFixed(2)),
+                payment_method: payment_method,
+                items: saleItems
+            }
+        });
+        
+    } catch (error) {
+        await client.query('ROLLBACK');
+        console.error('Create sale error:', error);
+        throw error;
+    } finally {
+        client.release();
+    }
+});
+
+// ============================================
+// GET ALL SALES
 // ============================================
 export const getSales = catchAsync(async (req, res) => {
     const { startDate, endDate, page = 1, limit = 20 } = req.query;
@@ -40687,7 +40937,7 @@ export const getSales = catchAsync(async (req, res) => {
 });
 
 // ============================================
-// GET SALE BY ID (Tenant-validated)
+// GET SALE BY ID
 // ============================================
 export const getSaleById = catchAsync(async (req, res) => {
     const { id } = req.params;
@@ -40729,110 +40979,7 @@ export const getSaleById = catchAsync(async (req, res) => {
 });
 
 // ============================================
-// CREATE SALE (Cashier+)
-// ============================================
-export const createSale = catchAsync(async (req, res) => {
-    const { items, payment_method, customer_name, customer_phone } = req.body;
-    const userId = req.user.id;
-    const companyId = req.user.company_id;
-    const branchId = req.user.branch_id;
-    
-    if (!companyId || !branchId) {
-        throw new AppError('Company and branch context required', 401);
-    }
-    
-    if (!items || items.length === 0) {
-        throw new AppError('No items in sale', 400);
-    }
-    
-    const client = await getClient();
-    
-    try {
-        await client.query('BEGIN');
-        
-        let totalAmount = 0;
-        let totalCost = 0;
-        const saleItems = [];
-        
-        for (const item of items) {
-            const productResult = await client.query(
-                `SELECT id, name, price FROM products 
-                 WHERE id = $1 AND company_id = $2 AND is_available = true`,
-                [item.product_id, companyId]
-            );
-            
-            if (productResult.rows.length === 0) {
-                throw new Error(`Product ${item.product_id} not found`);
-            }
-            
-            const product = productResult.rows[0];
-            const quantity = item.quantity;
-            const unitPrice = parseFloat(product.price);
-            const itemTotal = unitPrice * quantity;
-            const itemCost = await calculateProductCost(item.product_id, quantity, client);
-            
-            totalAmount += itemTotal;
-            totalCost += itemCost;
-            
-            saleItems.push({
-                product_id: item.product_id,
-                product_name: product.name,
-                quantity,
-                unit_price: unitPrice,
-                total_price: itemTotal,
-                cost: itemCost
-            });
-            
-            await deductIngredients(item.product_id, quantity, client);
-        }
-        
-        const profit = totalAmount - totalCost;
-        const saleNumber = generateSaleNumber();
-        
-        const saleResult = await client.query(
-            `INSERT INTO sales (company_id, branch_id, user_id, sale_number, total_amount, total_cost, profit, payment_method, customer_name, customer_phone, status)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'completed')
-             RETURNING id, sale_number, created_at`,
-            [companyId, branchId, userId, saleNumber, totalAmount, totalCost, profit, payment_method, customer_name, customer_phone]
-        );
-        
-        const saleId = saleResult.rows[0].id;
-        
-        for (const item of saleItems) {
-            await client.query(
-                `INSERT INTO sale_items (sale_id, product_id, quantity, unit_price, total_price)
-                 VALUES ($1, $2, $3, $4, $5)`,
-                [saleId, item.product_id, item.quantity, item.unit_price, item.total_price]
-            );
-        }
-        
-        await client.query('COMMIT');
-        
-        res.status(201).json({
-            success: true,
-            message: 'Sale completed successfully',
-            data: {
-                sale_id: saleId,
-                sale_number: saleNumber,
-                total_amount: totalAmount,
-                total_cost: totalCost,
-                profit: profit,
-                profit_margin: totalAmount > 0 ? (profit / totalAmount * 100).toFixed(2) : 0,
-                payment_method: payment_method,
-                items: saleItems
-            }
-        });
-        
-    } catch (error) {
-        await client.query('ROLLBACK');
-        throw error;
-    } finally {
-        client.release();
-    }
-});
-
-// ============================================
-// GET TODAY'S SALES (Branch-isolated)
+// GET TODAY'S SALES
 // ============================================
 export const getTodaySales = catchAsync(async (req, res) => {
     if (!req.user?.company_id || !req.user?.branch_id) {
@@ -40848,7 +40995,12 @@ export const getTodaySales = catchAsync(async (req, res) => {
            COUNT(*) as total_orders,
            COALESCE(SUM(total_amount), 0) as total_revenue,
            COALESCE(SUM(profit), 0) as total_profit,
-           COALESCE(AVG(total_amount), 0) as average_order
+           COALESCE(AVG(total_amount), 0) as average_order,
+           CASE 
+               WHEN SUM(total_amount) > 0 
+               THEN ROUND((SUM(profit) / SUM(total_amount)) * 100, 2)
+               ELSE 0 
+           END as profit_margin
          FROM sales
          WHERE DATE(created_at) = $1 
            AND status = 'completed'
@@ -43186,12 +43338,13 @@ router.get("/track/:orderNumber", trackLimiter, async (req, res) => {
 });
 
 // ============================================================
-// âœ… FIX: QR Order â€” Skip idempotency (public endpoint)
+// QR ORDER ROUTES (Public)
 // ============================================================
 
 router.post("/qr-order", async (req, res) => {
     try {
         const { items, table_id, customer_name, customer_phone, notes } = req.body;
+        
         if (!items || items.length === 0) {
             return res.status(400).json({ success: false, error: "No items in order" });
         }
@@ -43241,6 +43394,7 @@ router.post("/qr-order", async (req, res) => {
             
             const orderId = orderResult.rows[0].id;
             
+            // Insert order_items
             for (const item of items) {
                 const productResult = await client.query(
                     "SELECT price, name FROM products WHERE id = $1",
@@ -43253,12 +43407,29 @@ router.post("/qr-order", async (req, res) => {
                 `, [orderId, item.product_id, item.quantity, productResult.rows[0].price, itemTotal]);
             }
             
+            // âœ… STOCK DEDUCTION - FIXED: Pass company_id and branch_id
+            let stockResult = { deductions: [], totalWastageCost: 0 };
+            try {
+                stockResult = await processOrderStockDeduction(orderId, items, client, companyId, branchId);
+            } catch (stockError) {
+                console.error('[QR ORDER] Stock deduction failed:', stockError.message);
+                await client.query('ROLLBACK');
+                throw new Error(stockError.message || 'Insufficient stock for order');
+            }
+            
             await client.query("COMMIT");
             
             res.status(201).json({
                 success: true,
                 message: "Order placed! Waiting for waiter confirmation.",
-                data: { order_id: orderId, order_number: orderNumber, total_amount: totalAmount, status: 'pending_confirmation' }
+                data: { 
+                    order_id: orderId, 
+                    order_number: orderNumber, 
+                    total_amount: totalAmount, 
+                    status: 'pending_confirmation',
+                    stock_deductions: stockResult.deductions,
+                    total_wastage_cost: stockResult.totalWastageCost
+                }
             });
         } catch (err) {
             await client.query("ROLLBACK");
@@ -43269,6 +43440,89 @@ router.post("/qr-order", async (req, res) => {
     } catch (err) {
         console.error("QR order error:", err);
         res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// ============================================================
+// QR CUSTOMER ADD ITEMS (Public)
+// ============================================================
+
+router.post("/:orderId/customer-add-items", async (req, res) => {
+    const { orderId } = req.params;
+    const { items } = req.body;
+    
+    if (!items || items.length === 0) {
+        return res.status(400).json({ success: false, error: "No items to add" });
+    }
+    
+    const client = await pool.connect();
+    try {
+        await client.query("BEGIN");
+        
+        const orderCheck = await client.query(
+            "SELECT id, status, total_amount, company_id, branch_id FROM orders WHERE id = $1 AND status = $2",
+            [orderId, 'pending_confirmation']
+        );
+        if (orderCheck.rows.length === 0) {
+            return res.status(404).json({ success: false, error: "Order not found or already confirmed" });
+        }
+        const order = orderCheck.rows[0];
+        const companyId = order.company_id;
+        const branchId = order.branch_id;
+        
+        let additionalAmount = 0;
+        const newItems = [];
+        
+        // Insert new order_items
+        for (const item of items) {
+            const productResult = await client.query(
+                "SELECT price, company_id, name FROM products WHERE id = $1",
+                [item.product_id]
+            );
+            if (productResult.rows[0].company_id !== companyId) {
+                throw new Error(`Product ${item.product_id} does not belong to this company`);
+            }
+            const unitPrice = parseFloat(productResult.rows[0].price);
+            const itemTotal = unitPrice * item.quantity;
+            additionalAmount += itemTotal;
+            await client.query(`
+                INSERT INTO order_items (order_id, product_id, quantity, unit_price, total_price)
+                VALUES ($1, $2, $3, $4, $5)
+            `, [orderId, item.product_id, item.quantity, unitPrice, itemTotal]);
+            newItems.push(item);
+        }
+        
+        // âœ… STOCK DEDUCTION FOR ADDED ITEMS - FIXED: Pass company_id and branch_id
+        let stockResult = { deductions: [], totalWastageCost: 0 };
+        try {
+            stockResult = await processOrderStockDeduction(orderId, newItems, client, companyId, branchId);
+        } catch (stockError) {
+            console.error('[QR ADD ITEMS] Stock deduction failed:', stockError.message);
+            await client.query('ROLLBACK');
+            throw new Error(stockError.message || 'Insufficient stock for additional items');
+        }
+        
+        const newTotal = parseFloat(order.total_amount) + additionalAmount;
+        await client.query(`
+            UPDATE orders SET total_amount = $1, updated_at = NOW() WHERE id = $2
+        `, [newTotal, orderId]);
+        
+        await client.query("COMMIT");
+        
+        res.json({
+            success: true,
+            message: "Items added to order",
+            additional_amount: additionalAmount,
+            new_total: newTotal,
+            stock_deductions: stockResult.deductions,
+            total_wastage_cost: stockResult.totalWastageCost
+        });
+    } catch (err) {
+        await client.query("ROLLBACK");
+        console.error("Customer add items error:", err);
+        res.status(500).json({ success: false, error: err.message });
+    } finally {
+        client.release();
     }
 });
 
@@ -43389,7 +43643,7 @@ router.post("/", authorizeBranch, allowWaiter, requireIdempotency, idempotent, a
             
             let stockResult = { deductions: [], totalWastageCost: 0 };
             try {
-                stockResult = await processOrderStockDeduction(orderId, items, client);
+                stockResult = await processOrderStockDeduction(orderId, items, client, companyId, branchId);
             } catch (stockError) {
                 console.warn("Stock deduction warning:", stockError.message);
             }
@@ -43419,6 +43673,7 @@ router.post("/", authorizeBranch, allowWaiter, requireIdempotency, idempotent, a
                     order_id: orderId, 
                     order_number: orderNumber, 
                     total_amount: totalAmount, 
+                    status: 'pending',
                     stock_deductions: stockResult.deductions, 
                     total_wastage_cost: stockResult.totalWastageCost 
                 }
@@ -43619,7 +43874,7 @@ router.post("/:orderId/add-items", authorizeBranch, allowWaiter, async (req, res
         
         let stockResult = { deductions: [], totalWastageCost: 0 };
         try {
-            stockResult = await processOrderStockDeduction(orderId, newItems, client);
+            stockResult = await processOrderStockDeduction(orderId, newItems, client, companyId, branchId);
         } catch (stockError) {
             console.warn("Stock deduction warning:", stockError.message);
         }
@@ -43698,12 +43953,11 @@ router.put("/confirm/:orderId", authorizeBranch, allowWaiter, async (req, res) =
     const client = await pool.connect();
     try {
         await client.query("BEGIN");
-        const orderCheck = await client.query(
-            `SELECT o.id, o.status, o.table_id, o.customer_name, o.order_number, o.waiter_id
-             FROM orders o
-             WHERE o.id = $1 AND o.status = 'pending_confirmation' AND o.branch_id = $2 AND o.company_id = $3`,
-            [orderId, branchId, companyId]
-        );
+        const orderCheck = await client.query(`
+            SELECT o.id, o.status, o.table_id, o.customer_name, o.order_number, o.waiter_id
+            FROM orders o
+            WHERE o.id = $1 AND o.status = 'pending_confirmation' AND o.branch_id = $2 AND o.company_id = $3
+        `, [orderId, branchId, companyId]);
         if (orderCheck.rows.length === 0) {
             return res.status(404).json({ success: false, error: "Order not found or already confirmed" });
         }
@@ -43842,58 +44096,6 @@ router.get("/table/:tableId/active-order", authorizeBranch, allowWaiter, async (
     }
 });
 
-router.post("/:orderId/customer-add-items", async (req, res) => {
-    const { orderId } = req.params;
-    const { items } = req.body;
-    if (!items || items.length === 0) {
-        return res.status(400).json({ success: false, error: "No items to add" });
-    }
-    const client = await pool.connect();
-    try {
-        await client.query("BEGIN");
-        
-        const orderCheck = await client.query(
-            "SELECT id, status, total_amount, company_id FROM orders WHERE id = $1 AND status = $2",
-            [orderId, 'pending_confirmation']
-        );
-        if (orderCheck.rows.length === 0) {
-            return res.status(404).json({ success: false, error: "Order not found or already confirmed" });
-        }
-        const order = orderCheck.rows[0];
-        const companyId = order.company_id;
-        
-        let additionalAmount = 0;
-        for (const item of items) {
-            const productResult = await client.query(
-                "SELECT price, company_id, name FROM products WHERE id = $1",
-                [item.product_id]
-            );
-            if (productResult.rows[0].company_id !== companyId) {
-                throw new Error(`Product ${item.product_id} does not belong to this company`);
-            }
-            const unitPrice = parseFloat(productResult.rows[0].price);
-            const itemTotal = unitPrice * item.quantity;
-            additionalAmount += itemTotal;
-            await client.query(`
-                INSERT INTO order_items (order_id, product_id, quantity, unit_price, total_price)
-                VALUES ($1, $2, $3, $4, $5)
-            `, [orderId, item.product_id, item.quantity, unitPrice, itemTotal]);
-        }
-        const newTotal = parseFloat(order.total_amount) + additionalAmount;
-        await client.query(`
-            UPDATE orders SET total_amount = $1, updated_at = NOW() WHERE id = $2
-        `, [newTotal, orderId]);
-        await client.query("COMMIT");
-        res.json({ success: true, message: "Items added to order", additional_amount: additionalAmount, new_total: newTotal });
-    } catch (err) {
-        await client.query("ROLLBACK");
-        console.error("Customer add items error:", err);
-        res.status(500).json({ success: false, error: err.message });
-    } finally {
-        client.release();
-    }
-});
-
 export default router;
 === FILE: C:\Users\dell\Desktop\restaurant\server\src\routes\products.js ===
 import express from "express";
@@ -44008,6 +44210,8 @@ router.get("/ingredients/low-stock", authorizeBranch, allowManager, getLowStockI
 
 export default router;
 === FILE: C:\Users\dell\Desktop\restaurant\server\src\routes\sales.js ===
+// server/src/routes/sales.js
+
 import express from 'express';
 import {
     createSale,
@@ -44016,6 +44220,7 @@ import {
     getTodaySales
 } from '../controllers/saleController.js';
 import { protect, allowCashier, allowManager } from '../middleware/auth.js';
+import { requireIdempotency, idempotent } from '../middleware/idempotency.js';
 
 const router = express.Router();
 
@@ -44026,10 +44231,10 @@ router.use(protect);
 // CASHIER ROUTES
 // ============================================
 
-// Cashier and above can create sales
-router.post('/', allowCashier, createSale);
+// ✅ FIX: Added idempotency protection to prevent duplicate sales
+router.post('/', allowCashier, requireIdempotency, idempotent, createSale);
 
-// Cashier and above can view sales (changed from allowManager)
+// Cashier and above can view sales
 router.get('/', allowCashier, getSales);
 router.get('/today', allowCashier, getTodaySales);
 router.get('/:id', allowCashier, getSaleById);
