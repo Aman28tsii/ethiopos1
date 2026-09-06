@@ -1,6 +1,6 @@
 ﻿// server/src/controllers/ingredientController.js
 
-import { query } from '../config/database.js';
+import { query, getClient } from '../config/database.js';
 import { AppError, catchAsync } from '../middleware/errorHandler.js';
 
 // ============================================================
@@ -157,7 +157,7 @@ export const getIngredientCategories = catchAsync(async (req, res) => {
 });
 
 // ============================================================
-// CREATE INGREDIENT (Branch-validated)
+// CREATE INGREDIENT (Branch-validated) - WITH OPENING STOCK AUDIT TRAIL (INV-004 FIX 3)
 // ============================================================
 export const createIngredient = catchAsync(async (req, res) => {
     const { 
@@ -177,28 +177,76 @@ export const createIngredient = catchAsync(async (req, res) => {
         throw new AppError('Name and unit are required', 400);
     }
     
-    const result = await query(`
-        INSERT INTO ingredients (
-            company_id, branch_id, name, unit, quantity, min_stock, unit_cost, 
-            category, supplier, default_wastage_percentage,
-            default_cooking_loss_percentage, safety_stock
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-        RETURNING id, name, unit, quantity, min_stock, unit_cost, 
-                  category, supplier, default_wastage_percentage,
-                  default_cooking_loss_percentage, safety_stock
-    `, [
-        companyId, branchId, name.trim(), unit, quantity || 0, min_stock || 0, 
-        unit_cost || 0, category, supplier,
-        default_wastage_percentage || 0,
-        default_cooking_loss_percentage || 0,
-        safety_stock || 0
-    ]);
+    // Parse initial quantity
+    const initialQuantity = parseFloat(quantity) || 0;
     
-    res.status(201).json({
-        success: true,
-        message: 'Ingredient created successfully',
-        data: result.rows[0]
-    });
+    const client = await getClient();
+    
+    try {
+        await client.query('BEGIN');
+        
+        // Create the ingredient
+        const result = await client.query(`
+            INSERT INTO ingredients (
+                company_id, branch_id, name, unit, quantity, min_stock, unit_cost, 
+                category, supplier, default_wastage_percentage,
+                default_cooking_loss_percentage, safety_stock
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+            RETURNING id, name, unit, quantity, min_stock, unit_cost, 
+                      category, supplier, default_wastage_percentage,
+                      default_cooking_loss_percentage, safety_stock
+        `, [
+            companyId, branchId, name.trim(), unit, initialQuantity, min_stock || 0, 
+            unit_cost || 0, category, supplier,
+            default_wastage_percentage || 0,
+            default_cooking_loss_percentage || 0,
+            safety_stock || 0
+        ]);
+        
+        const ingredient = result.rows[0];
+        
+        // Fix 3: Create opening_stock transaction if initial quantity > 0
+        if (initialQuantity > 0) {
+            await client.query(`
+                INSERT INTO stock_transactions (
+                    ingredient_id,
+                    expected_quantity,
+                    actual_quantity,
+                    wastage_amount,
+                    wastage_percentage,
+                    transaction_type,
+                    notes,
+                    company_id,
+                    branch_id
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            `, [
+                ingredient.id,
+                initialQuantity,
+                initialQuantity,
+                0,
+                0,
+                'opening_stock',
+                `Initial stock for ${ingredient.name}`,
+                companyId,
+                branchId
+            ]);
+        }
+        
+        await client.query('COMMIT');
+        
+        res.status(201).json({
+            success: true,
+            message: 'Ingredient created successfully',
+            data: ingredient
+        });
+        
+    } catch (error) {
+        await client.query('ROLLBACK');
+        console.error('Create ingredient error:', error);
+        throw error;
+    } finally {
+        client.release();
+    }
 });
 
 // ============================================================
@@ -293,7 +341,7 @@ export const deleteIngredient = catchAsync(async (req, res) => {
 });
 
 // ============================================================
-// ADJUST STOCK (Branch-validated)
+// ADJUST STOCK (Branch-validated) - WITH ROW-LEVEL LOCKING & ZERO AMOUNT VALIDATION (INV-004 FIX 1 & 2)
 // ============================================================
 export const adjustStock = catchAsync(async (req, res) => {
     const { id } = req.params;
@@ -306,46 +354,100 @@ export const adjustStock = catchAsync(async (req, res) => {
     const companyId = req.user.company_id;
     const branchId = req.user.branch_id;
     
-    // Verify ingredient exists in this branch
-    const currentIngredient = await query(
-        'SELECT name, quantity, unit FROM ingredients WHERE id = $1 AND company_id = $2 AND branch_id = $3',
-        [id, companyId, branchId]
-    );
-    
-    if (currentIngredient.rows.length === 0) {
-        throw new AppError('Ingredient not found', 404);
+    // Fix 2: Validate amount is a valid non-zero number
+    if (amount === undefined || amount === null || amount === '') {
+        throw new AppError('Amount is required', 400);
     }
     
-    const currentQuantity = parseFloat(currentIngredient.rows[0].quantity);
-    const newQuantity = currentQuantity + parseFloat(amount);
+    const numericAmount = parseFloat(amount);
     
-    if (newQuantity < 0) {
-        throw new AppError('Cannot reduce stock below zero', 400);
+    if (isNaN(numericAmount) || !isFinite(numericAmount)) {
+        throw new AppError('Amount must be a valid number', 400);
     }
     
-    const result = await query(`
-        UPDATE ingredients 
-        SET quantity = $1,
-            updated_at = CURRENT_TIMESTAMP
-        WHERE id = $2 AND company_id = $3 AND branch_id = $4
-        RETURNING *
-    `, [newQuantity, id, companyId, branchId]);
+    if (numericAmount === 0) {
+        throw new AppError('Adjustment amount cannot be zero', 400);
+    }
     
-    // Record stock transaction
-    const transactionType = amount > 0 ? 'adjustment_add' : 'adjustment_remove';
-    await query(`
-        INSERT INTO stock_transactions (
-            ingredient_id, branch_id, expected_quantity, actual_quantity,
-            wastage_amount, wastage_percentage, transaction_type, notes
-        ) VALUES ($1, $2, $3, $4, 0, 0, $5, $6)
-    `, [id, branchId, Math.abs(amount), Math.abs(amount), transactionType, reason || 'Manual adjustment']);
+    const client = await getClient();
     
-    const action = amount > 0 ? 'added to' : 'removed from';
-    const absAmount = Math.abs(amount);
-    
-    res.json({
-        success: true,
-        message: `${absAmount} ${result.rows[0].unit} ${action} ${result.rows[0].name}`,
-        data: result.rows[0]
-    });
+    try {
+        await client.query('BEGIN');
+        
+        // Fix 1: Row-level lock using FOR UPDATE
+        const lockResult = await client.query(`
+            SELECT id, name, quantity, unit, unit_cost, company_id, branch_id
+            FROM ingredients
+            WHERE id = $1 AND company_id = $2 AND branch_id = $3
+            FOR UPDATE
+        `, [id, companyId, branchId]);
+        
+        if (lockResult.rows.length === 0) {
+            throw new AppError('Ingredient not found', 404);
+        }
+        
+        const ingredient = lockResult.rows[0];
+        const currentQuantity = parseFloat(ingredient.quantity);
+        const newQuantity = currentQuantity + numericAmount;
+        
+        // Prevent negative stock
+        if (newQuantity < 0) {
+            throw new AppError(`Cannot reduce stock below zero. Current: ${currentQuantity}, Requested reduction: ${Math.abs(numericAmount)}`, 400);
+        }
+        
+        // Update the stock
+        const updateResult = await client.query(`
+            UPDATE ingredients 
+            SET quantity = $1,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = $2 AND company_id = $3 AND branch_id = $4
+            RETURNING *
+        `, [newQuantity, id, companyId, branchId]);
+        
+        // Determine transaction type
+        const transactionType = numericAmount > 0 ? 'adjustment_add' : 'adjustment_remove';
+        const absAmount = Math.abs(numericAmount);
+        
+        // Record stock transaction
+        await client.query(`
+            INSERT INTO stock_transactions (
+                ingredient_id,
+                expected_quantity,
+                actual_quantity,
+                wastage_amount,
+                wastage_percentage,
+                transaction_type,
+                notes,
+                company_id,
+                branch_id
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        `, [
+            id,
+            absAmount,
+            absAmount,
+            0,
+            0,
+            transactionType,
+            reason || (numericAmount > 0 ? 'Manual stock addition' : 'Manual stock removal'),
+            companyId,
+            branchId
+        ]);
+        
+        await client.query('COMMIT');
+        
+        const action = numericAmount > 0 ? 'added to' : 'removed from';
+        
+        res.json({
+            success: true,
+            message: `${absAmount} ${ingredient.unit} ${action} ${ingredient.name}`,
+            data: updateResult.rows[0]
+        });
+        
+    } catch (error) {
+        await client.query('ROLLBACK');
+        console.error('Adjust stock error:', error);
+        throw error;
+    } finally {
+        client.release();
+    }
 });
