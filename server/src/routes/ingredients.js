@@ -51,8 +51,14 @@ router.put('/:id', authorizeBranch, allowOwner, updateIngredient);
 // Delete ingredient - validate branch ownership
 router.delete('/:id', authorizeBranch, allowOwner, deleteIngredient);
 
-// Adjust stock - validate branch ownership
-// ✅ FIX: Added idempotency protection
-router.put('/:id/adjust-stock', authorizeBranch, allowOwner, requireIdempotency, idempotent, adjustStock);
+// ✅ FIX: Adjust stock with idempotency - middleware order matters!
+// The order is: authorizeBranch → allowOwner → requireIdempotency → idempotent → adjustStock
+router.put('/:id/adjust-stock', 
+    authorizeBranch, 
+    allowOwner, 
+    requireIdempotency, 
+    idempotent, 
+    adjustStock
+);
 
 export default router;
