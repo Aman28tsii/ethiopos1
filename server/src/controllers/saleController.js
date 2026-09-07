@@ -4,7 +4,7 @@ import { query, getClient } from '../config/database.js';
 import { AppError, catchAsync } from '../middleware/errorHandler.js';
 
 // ============================================
-// GENERATE SALE NUMBER
+// HELPER: GENERATE SALE NUMBER
 // ============================================
 const generateSaleNumber = () => {
     const date = new Date();
@@ -14,7 +14,7 @@ const generateSaleNumber = () => {
 };
 
 // ============================================
-// CALCULATE PRODUCT COST
+// HELPER: CALCULATE PRODUCT COST
 // ============================================
 const calculateProductCost = async (productId, quantity, client) => {
     const recipeResult = await client.query(
@@ -39,10 +39,9 @@ const calculateProductCost = async (productId, quantity, client) => {
 };
 
 // ============================================
-// DEDUCT INGREDIENTS - WITH STOCK_TRANSACTIONS FIX
+// HELPER: DEDUCT INGREDIENTS
 // ============================================
 const deductIngredients = async (productId, quantity, saleId, companyId, branchId, client) => {
-    // Normalize and validate quantity
     const saleQuantity = Number(quantity);
     
     if (!Number.isFinite(saleQuantity) || saleQuantity <= 0) {
@@ -65,7 +64,6 @@ const deductIngredients = async (productId, quantity, saleId, companyId, branchI
         const currentQuantity = parseFloat(item.current_stock) || 0;
         const unitCost = parseFloat(item.unit_cost) || 0;
 
-        // Calculate required amount with wastage and cooking loss
         const expectedQuantity = qtyRequired * saleQuantity;
         const requiredAmount = expectedQuantity * (1 + wastagePct / 100) * (1 + cookingLossPct / 100);
         const wastageAmount = requiredAmount - expectedQuantity;
@@ -80,13 +78,11 @@ const deductIngredients = async (productId, quantity, saleId, companyId, branchI
             );
         }
 
-        // Update ingredient stock
         await client.query(
             'UPDATE ingredients SET quantity = quantity - $1, updated_at = NOW() WHERE id = $2',
             [requiredAmount, item.ingredient_id]
         );
 
-        // ✅ FIX: Create stock_transactions record for audit trail with sale_id
         await client.query(`
             INSERT INTO stock_transactions (
                 ingredient_id,
@@ -104,7 +100,7 @@ const deductIngredients = async (productId, quantity, saleId, companyId, branchI
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
         `, [
             item.ingredient_id,
-            null,  // No order_id for direct sales
+            null,
             productId,
             parseFloat(expectedQuantity.toFixed(3)),
             parseFloat(requiredAmount.toFixed(3)),
@@ -119,9 +115,9 @@ const deductIngredients = async (productId, quantity, saleId, companyId, branchI
     }
 };
 
-// ============================================
-// CREATE SALE - FIXED WITH IDEMPOTENCY SUPPORT
-// ============================================
+// ============================================================
+// CREATE SALE (Direct sale — Cashier)
+// ============================================================
 export const createSale = catchAsync(async (req, res) => {
     const { items, payment_method, customer_name, customer_phone } = req.body;
     const userId = req.user.id;
@@ -145,7 +141,6 @@ export const createSale = catchAsync(async (req, res) => {
         let totalCost = 0;
         const saleItems = [];
         
-        // Process each item
         for (const item of items) {
             const quantity = Number(item.quantity);
             
@@ -181,7 +176,6 @@ export const createSale = catchAsync(async (req, res) => {
             });
         }
         
-        // Create sale record first (need sale_id for stock_transactions)
         const saleNumber = generateSaleNumber();
         const profit = totalAmount - totalCost;
         const profitMargin = totalAmount > 0 ? (profit / totalAmount) * 100 : 0;
@@ -195,17 +189,15 @@ export const createSale = catchAsync(async (req, res) => {
         
         const saleId = saleResult.rows[0].id;
         
-        // ✅ FIX: Deduct ingredients WITH stock_transactions
         for (const item of items) {
             await deductIngredients(item.product_id, item.quantity, saleId, companyId, branchId, client);
         }
         
-        // Create sale_items
         for (const item of saleItems) {
             await client.query(
-                `INSERT INTO sale_items (sale_id, product_id, quantity, unit_price, total_price)
-                 VALUES ($1, $2, $3, $4, $5)`,
-                [saleId, item.product_id, item.quantity, item.unit_price, item.total_price]
+                `INSERT INTO sale_items (sale_id, product_id, quantity, unit_price, total_price, total_cost, profit, company_id, branch_id)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+                [saleId, item.product_id, item.quantity, item.unit_price, item.total_price, item.cost, item.total_price - item.cost, companyId, branchId]
             );
         }
         
@@ -235,9 +227,9 @@ export const createSale = catchAsync(async (req, res) => {
     }
 });
 
-// ============================================
+// ============================================================
 // GET ALL SALES
-// ============================================
+// ============================================================
 export const getSales = catchAsync(async (req, res) => {
     const { startDate, endDate, page = 1, limit = 20 } = req.query;
     
@@ -251,7 +243,8 @@ export const getSales = catchAsync(async (req, res) => {
     
     let sql = `
         SELECT s.*, u.name as cashier_name,
-               COUNT(si.id) as item_count
+               COUNT(si.id) as item_count,
+               COALESCE(SUM(si.total_price), 0) as items_total
         FROM sales s
         LEFT JOIN users u ON s.user_id = u.id
         LEFT JOIN sale_items si ON s.id = si.sale_id
@@ -293,9 +286,9 @@ export const getSales = catchAsync(async (req, res) => {
     });
 });
 
-// ============================================
+// ============================================================
 // GET SALE BY ID
-// ============================================
+// ============================================================
 export const getSaleById = catchAsync(async (req, res) => {
     const { id } = req.params;
     
@@ -335,9 +328,9 @@ export const getSaleById = catchAsync(async (req, res) => {
     });
 });
 
-// ============================================
+// ============================================================
 // GET TODAY'S SALES
-// ============================================
+// ============================================================
 export const getTodaySales = catchAsync(async (req, res) => {
     if (!req.user?.company_id || !req.user?.branch_id) {
         throw new AppError('Authentication required', 401);
@@ -351,6 +344,7 @@ export const getTodaySales = catchAsync(async (req, res) => {
         `SELECT 
            COUNT(*) as total_orders,
            COALESCE(SUM(total_amount), 0) as total_revenue,
+           COALESCE(SUM(total_cost), 0) as total_cost,
            COALESCE(SUM(profit), 0) as total_profit,
            COALESCE(AVG(total_amount), 0) as average_order,
            CASE 
