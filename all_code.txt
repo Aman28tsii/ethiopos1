@@ -40913,7 +40913,7 @@ import { query, getClient } from '../config/database.js';
 import { AppError, catchAsync } from '../middleware/errorHandler.js';
 
 // ============================================
-// GENERATE SALE NUMBER
+// HELPER: GENERATE SALE NUMBER
 // ============================================
 const generateSaleNumber = () => {
     const date = new Date();
@@ -40923,7 +40923,7 @@ const generateSaleNumber = () => {
 };
 
 // ============================================
-// CALCULATE PRODUCT COST
+// HELPER: CALCULATE PRODUCT COST
 // ============================================
 const calculateProductCost = async (productId, quantity, client) => {
     const recipeResult = await client.query(
@@ -40948,10 +40948,9 @@ const calculateProductCost = async (productId, quantity, client) => {
 };
 
 // ============================================
-// DEDUCT INGREDIENTS - WITH STOCK_TRANSACTIONS FIX
+// HELPER: DEDUCT INGREDIENTS
 // ============================================
 const deductIngredients = async (productId, quantity, saleId, companyId, branchId, client) => {
-    // Normalize and validate quantity
     const saleQuantity = Number(quantity);
     
     if (!Number.isFinite(saleQuantity) || saleQuantity <= 0) {
@@ -40974,7 +40973,6 @@ const deductIngredients = async (productId, quantity, saleId, companyId, branchI
         const currentQuantity = parseFloat(item.current_stock) || 0;
         const unitCost = parseFloat(item.unit_cost) || 0;
 
-        // Calculate required amount with wastage and cooking loss
         const expectedQuantity = qtyRequired * saleQuantity;
         const requiredAmount = expectedQuantity * (1 + wastagePct / 100) * (1 + cookingLossPct / 100);
         const wastageAmount = requiredAmount - expectedQuantity;
@@ -40989,13 +40987,11 @@ const deductIngredients = async (productId, quantity, saleId, companyId, branchI
             );
         }
 
-        // Update ingredient stock
         await client.query(
             'UPDATE ingredients SET quantity = quantity - $1, updated_at = NOW() WHERE id = $2',
             [requiredAmount, item.ingredient_id]
         );
 
-        // ✅ FIX: Create stock_transactions record for audit trail with sale_id
         await client.query(`
             INSERT INTO stock_transactions (
                 ingredient_id,
@@ -41013,7 +41009,7 @@ const deductIngredients = async (productId, quantity, saleId, companyId, branchI
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
         `, [
             item.ingredient_id,
-            null,  // No order_id for direct sales
+            null,
             productId,
             parseFloat(expectedQuantity.toFixed(3)),
             parseFloat(requiredAmount.toFixed(3)),
@@ -41028,9 +41024,9 @@ const deductIngredients = async (productId, quantity, saleId, companyId, branchI
     }
 };
 
-// ============================================
-// CREATE SALE - FIXED WITH IDEMPOTENCY SUPPORT
-// ============================================
+// ============================================================
+// CREATE SALE (Direct sale — Cashier)
+// ============================================================
 export const createSale = catchAsync(async (req, res) => {
     const { items, payment_method, customer_name, customer_phone } = req.body;
     const userId = req.user.id;
@@ -41054,7 +41050,6 @@ export const createSale = catchAsync(async (req, res) => {
         let totalCost = 0;
         const saleItems = [];
         
-        // Process each item
         for (const item of items) {
             const quantity = Number(item.quantity);
             
@@ -41090,7 +41085,6 @@ export const createSale = catchAsync(async (req, res) => {
             });
         }
         
-        // Create sale record first (need sale_id for stock_transactions)
         const saleNumber = generateSaleNumber();
         const profit = totalAmount - totalCost;
         const profitMargin = totalAmount > 0 ? (profit / totalAmount) * 100 : 0;
@@ -41104,17 +41098,15 @@ export const createSale = catchAsync(async (req, res) => {
         
         const saleId = saleResult.rows[0].id;
         
-        // ✅ FIX: Deduct ingredients WITH stock_transactions
         for (const item of items) {
             await deductIngredients(item.product_id, item.quantity, saleId, companyId, branchId, client);
         }
         
-        // Create sale_items
         for (const item of saleItems) {
             await client.query(
-                `INSERT INTO sale_items (sale_id, product_id, quantity, unit_price, total_price)
-                 VALUES ($1, $2, $3, $4, $5)`,
-                [saleId, item.product_id, item.quantity, item.unit_price, item.total_price]
+                `INSERT INTO sale_items (sale_id, product_id, quantity, unit_price, total_price, total_cost, profit, company_id, branch_id)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+                [saleId, item.product_id, item.quantity, item.unit_price, item.total_price, item.cost, item.total_price - item.cost, companyId, branchId]
             );
         }
         
@@ -41144,9 +41136,9 @@ export const createSale = catchAsync(async (req, res) => {
     }
 });
 
-// ============================================
+// ============================================================
 // GET ALL SALES
-// ============================================
+// ============================================================
 export const getSales = catchAsync(async (req, res) => {
     const { startDate, endDate, page = 1, limit = 20 } = req.query;
     
@@ -41160,7 +41152,8 @@ export const getSales = catchAsync(async (req, res) => {
     
     let sql = `
         SELECT s.*, u.name as cashier_name,
-               COUNT(si.id) as item_count
+               COUNT(si.id) as item_count,
+               COALESCE(SUM(si.total_price), 0) as items_total
         FROM sales s
         LEFT JOIN users u ON s.user_id = u.id
         LEFT JOIN sale_items si ON s.id = si.sale_id
@@ -41202,9 +41195,9 @@ export const getSales = catchAsync(async (req, res) => {
     });
 });
 
-// ============================================
+// ============================================================
 // GET SALE BY ID
-// ============================================
+// ============================================================
 export const getSaleById = catchAsync(async (req, res) => {
     const { id } = req.params;
     
@@ -41244,9 +41237,9 @@ export const getSaleById = catchAsync(async (req, res) => {
     });
 });
 
-// ============================================
+// ============================================================
 // GET TODAY'S SALES
-// ============================================
+// ============================================================
 export const getTodaySales = catchAsync(async (req, res) => {
     if (!req.user?.company_id || !req.user?.branch_id) {
         throw new AppError('Authentication required', 401);
@@ -41260,6 +41253,7 @@ export const getTodaySales = catchAsync(async (req, res) => {
         `SELECT 
            COUNT(*) as total_orders,
            COALESCE(SUM(total_amount), 0) as total_revenue,
+           COALESCE(SUM(total_cost), 0) as total_cost,
            COALESCE(SUM(profit), 0) as total_profit,
            COALESCE(AVG(total_amount), 0) as average_order,
            CASE 
@@ -43576,13 +43570,6 @@ const trackLimiter = rateLimit({
     message: { success: false, error: "Too many requests. Please wait." }
 });
 
-const generateSaleNumber = () => {
-    const date = new Date();
-    const timestamp = date.getTime().toString().slice(-8);
-    const random = Math.floor(Math.random() * 1000).toString().padStart(3, "0");
-    return `SALE-${timestamp}${random}`;
-};
-
 const generateOrderNumber = () => {
     const date = new Date();
     const timestamp = date.getTime().toString().slice(-8);
@@ -43590,9 +43577,12 @@ const generateOrderNumber = () => {
     return `ORD-${timestamp}${random}`;
 };
 
-// ============================================
-// HELPER: CALCULATE PRODUCT COST
-// ============================================
+const generateSaleNumber = () => {
+    const date = new Date();
+    const timestamp = date.getTime().toString().slice(-8);
+    const random = Math.floor(Math.random() * 1000).toString().padStart(3, "0");
+    return `SALE-${timestamp}${random}`;
+};
 
 const calculateProductCost = async (productId, quantity, client) => {
     const recipeResult = await client.query(
@@ -43617,10 +43607,6 @@ const calculateProductCost = async (productId, quantity, client) => {
     return totalCost;
 };
 
-// ============================================
-// HELPER: CALCULATE ORDER TOTAL COST
-// ============================================
-
 const calculateOrderTotalCost = async (orderId, client) => {
     const itemsResult = await client.query(
         `SELECT oi.product_id, oi.quantity
@@ -43637,9 +43623,7 @@ const calculateOrderTotalCost = async (orderId, client) => {
     return totalCost;
 };
 
-// ============================================================
-// PUBLIC ROUTES
-// ============================================================
+// ==================== PUBLIC ROUTES ====================
 
 router.get("/track/:orderNumber", trackLimiter, async (req, res) => {
     const { orderNumber } = req.params;
@@ -43674,10 +43658,6 @@ router.get("/track/:orderNumber", trackLimiter, async (req, res) => {
         res.status(500).json({ success: false, error: err.message });
     }
 });
-
-// ============================================================
-// QR ORDER ROUTES (Public)
-// ============================================================
 
 router.post("/qr-order", async (req, res) => {
     try {
@@ -43779,10 +43759,6 @@ router.post("/qr-order", async (req, res) => {
     }
 });
 
-// ============================================================
-// QR CUSTOMER ADD ITEMS (Public)
-// ============================================================
-
 router.post("/:orderId/customer-add-items", async (req, res) => {
     const { orderId } = req.params;
     const { items } = req.body;
@@ -43860,15 +43836,9 @@ router.post("/:orderId/customer-add-items", async (req, res) => {
     }
 });
 
-// ============================================================
-// PROTECTED ROUTES
-// ============================================================
+// ==================== PROTECTED ROUTES ====================
 
 router.use(protect);
-
-// ============================================================
-// WAITER ROUTES
-// ============================================================
 
 router.get("/", authorizeBranch, allowWaiter, async (req, res) => {
     try {
@@ -44024,10 +43994,73 @@ router.post("/", authorizeBranch, allowWaiter, requireIdempotency, idempotent, a
     }
 });
 
-// ============================================================
-// CASHIER ROUTES
-// ============================================================
+router.put("/confirm/:orderId", authorizeBranch, allowWaiter, async (req, res) => {
+    const { orderId } = req.params;
+    const userId = req.user.id;
+    const branchId = req.user.branch_id;
+    const companyId = req.user.company_id;
+    
+    const client = await pool.connect();
+    try {
+        await client.query("BEGIN");
+        
+        const orderCheck = await client.query(`
+            SELECT o.id, o.status, o.table_id, o.customer_name, o.order_number, o.waiter_id
+            FROM orders o
+            WHERE o.id = $1 AND o.status = 'pending_confirmation' AND o.branch_id = $2 AND o.company_id = $3
+        `, [orderId, branchId, companyId]);
+        
+        if (orderCheck.rows.length === 0) {
+            return res.status(404).json({ success: false, error: "Order not found or already confirmed" });
+        }
+        
+        const order = orderCheck.rows[0];
+        
+        if (!order.waiter_id) {
+            await client.query("UPDATE orders SET waiter_id = $1 WHERE id = $2", [userId, orderId]);
+            order.waiter_id = userId;
+        }
+        
+        if (order.waiter_id && order.waiter_id !== userId) {
+            return res.status(403).json({ success: false, error: "This order is not assigned to you" });
+        }
+        
+        await client.query(`
+            UPDATE orders 
+            SET status = 'pending', confirmed_by = $1, confirmed_at = NOW(), updated_at = NOW()
+            WHERE id = $2
+        `, [userId, orderId]);
+        
+        await client.query(`
+            INSERT INTO kitchen_orders (order_id, status, notes)
+            VALUES ($1, 'pending', $2)
+        `, [orderId, "Order confirmed by waiter"]);
+        
+        if (order.table_id) {
+            await client.query(`
+                UPDATE tables 
+                SET status = 'occupied', current_order_id = $1, pending_order_id = NULL, updated_at = NOW()
+                WHERE id = $2
+            `, [orderId, order.table_id]);
+        }
+        
+        await client.query("COMMIT");
+        
+        res.json({ 
+            success: true, 
+            message: "Order confirmed and sent to kitchen", 
+            data: { order_id: orderId, status: 'pending' } 
+        });
+    } catch (err) {
+        await client.query("ROLLBACK");
+        console.error("Confirm order error:", err);
+        res.status(500).json({ success: false, error: err.message });
+    } finally {
+        client.release();
+    }
+});
 
+// ==================== âœ… FIXED: READY ORDERS ENDPOINT ====================
 router.get("/ready", protect, async (req, res) => {
     try {
         const branchId = req.user?.branch_id || 1;
@@ -44035,20 +44068,23 @@ router.get("/ready", protect, async (req, res) => {
         
         const result = await pool.query(`
             SELECT 
-                id, 
-                order_number, 
-                total_amount, 
-                customer_name, 
-                table_id,
-                created_at,
-                status,
-                payment_status
-            FROM orders 
-            WHERE payment_status = 'pending'
-                AND status = 'pending'
-                AND branch_id = $1
-                AND company_id = $2
-            ORDER BY created_at ASC
+                o.id, 
+                o.order_number, 
+                o.total_amount, 
+                o.customer_name, 
+                o.table_id,
+                o.created_at,
+                o.status,
+                o.payment_status,
+                ko.status as kitchen_status
+            FROM orders o
+            JOIN kitchen_orders ko ON o.id = ko.order_id
+            WHERE o.payment_status = 'pending'
+                AND o.status = 'pending'
+                AND ko.status = 'ready'
+                AND o.branch_id = $1
+                AND o.company_id = $2
+            ORDER BY o.created_at ASC
         `, [branchId, companyId]);
         
         res.json({ success: true, data: result.rows });
@@ -44058,10 +44094,7 @@ router.get("/ready", protect, async (req, res) => {
     }
 });
 
-// ============================================================
-// âœ… FIXED: PAYMENT ROUTE WITH COST CALCULATION
-// ============================================================
-
+// ==================== PAYMENT ENDPOINT ====================
 router.post("/:orderId/pay", authorizeBranch, allowCashier, requireIdempotency, idempotent, async (req, res) => {
     const { orderId } = req.params;
     const { payment_method } = req.body;
@@ -44072,7 +44105,6 @@ router.post("/:orderId/pay", authorizeBranch, allowCashier, requireIdempotency, 
     try {
         await client.query("BEGIN");
         
-        // Get order details
         const orderResult = await client.query(`
             SELECT o.*, ko.status as kitchen_status 
             FROM orders o
@@ -44085,7 +44117,6 @@ router.post("/:orderId/pay", authorizeBranch, allowCashier, requireIdempotency, 
         }
         const order = orderResult.rows[0];
         
-        // Check if order is ready for payment
         if (order.kitchen_status !== 'ready') {
             throw new Error("Order is not ready for payment");
         }
@@ -44093,18 +44124,15 @@ router.post("/:orderId/pay", authorizeBranch, allowCashier, requireIdempotency, 
             throw new Error("Order already paid");
         }
         
-        // âœ… FIX: Calculate total cost for this order
         const totalCost = await calculateOrderTotalCost(orderId, client);
         const profit = parseFloat(order.total_amount) - totalCost;
         
-        // Update order status
         await client.query(`
             UPDATE orders 
             SET payment_status = 'paid', payment_method = $1, status = 'completed', updated_at = NOW()
             WHERE id = $2
         `, [payment_method, orderId]);
         
-        // Update table status if dine-in
         if (order.table_id) {
             await client.query(`
                 UPDATE tables 
@@ -44113,7 +44141,6 @@ router.post("/:orderId/pay", authorizeBranch, allowCashier, requireIdempotency, 
             `, [order.table_id]);
         }
         
-        // âœ… FIX: Create sale with calculated cost and profit
         const saleNumber = generateSaleNumber();
         const saleResult = await client.query(`
             INSERT INTO sales (
@@ -44138,7 +44165,6 @@ router.post("/:orderId/pay", authorizeBranch, allowCashier, requireIdempotency, 
         
         const sale = saleResult.rows[0];
         
-        // âœ… FIX: Create sale items with cost breakdown
         const orderItems = await client.query(`
             SELECT oi.product_id, oi.quantity, oi.unit_price, oi.total_price, p.name as product_name
             FROM order_items oi
@@ -44169,7 +44195,6 @@ router.post("/:orderId/pay", authorizeBranch, allowCashier, requireIdempotency, 
         
         await client.query("COMMIT");
         
-        // Calculate profit margin for response
         const profitMargin = sale.total_amount > 0 ? (sale.profit / sale.total_amount) * 100 : 0;
         
         res.json({
@@ -44195,10 +44220,6 @@ router.post("/:orderId/pay", authorizeBranch, allowCashier, requireIdempotency, 
         client.release();
     }
 });
-
-// ============================================================
-// WAITER ROUTES - WITH :orderId PARAM
-// ============================================================
 
 router.get("/:orderId", authorizeBranch, allowWaiter, async (req, res) => {
     const { orderId } = req.params;
@@ -44316,9 +44337,101 @@ router.post("/:orderId/add-items", authorizeBranch, allowWaiter, async (req, res
     }
 });
 
-// ============================================================
-// ORDER CANCELLATION - WITH STOCK RESTORATION
-// ============================================================
+router.get("/my-orders", authorizeBranch, allowWaiter, async (req, res) => {
+    const userId = req.user.id;
+    const branchId = req.user.branch_id;
+    const companyId = req.user.company_id;
+    try {
+        const result = await pool.query(`
+            SELECT o.id, o.order_number, o.total_amount, o.status, o.payment_status,
+                   o.customer_name, o.table_id, o.created_at,
+                   t.table_number,
+                   COALESCE(
+                       json_agg(
+                           json_build_object(
+                               "name", p.name,
+                               "quantity", oi.quantity,
+                               "price", oi.unit_price
+                           )
+                       ) FILTER (WHERE p.id IS NOT NULL), 
+                       '[]'
+                   ) as items
+            FROM orders o
+            JOIN tables t ON o.table_id = t.id
+            LEFT JOIN order_items oi ON o.id = oi.order_id
+            LEFT JOIN products p ON oi.product_id = p.id
+            WHERE o.waiter_id = $1
+              AND o.branch_id = $2
+              AND o.company_id = $3
+              AND o.status NOT IN ('completed', 'cancelled', 'pending_confirmation')
+            GROUP BY o.id, t.table_number
+            ORDER BY o.created_at DESC
+        `, [userId, branchId, companyId]);
+        res.json({ success: true, data: result.rows });
+    } catch (err) {
+        console.error("Get waiter orders error:", err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+router.get("/pending-confirmation", authorizeBranch, allowWaiter, async (req, res) => {
+    const waiterId = req.user.id;
+    const branchId = req.user.branch_id;
+    const companyId = req.user.company_id;
+    try {
+        const result = await pool.query(`
+            SELECT o.id, o.order_number, o.total_amount, o.customer_name, o.customer_phone, 
+                   o.table_id, o.notes, o.created_at, o.status,
+                   t.table_number,
+                   COALESCE(
+                       json_agg(
+                           json_build_object(
+                               "name", p.name,
+                               "quantity", oi.quantity,
+                               "price", oi.unit_price
+                           )
+                       ) FILTER (WHERE p.id IS NOT NULL), 
+                       '[]'
+                   ) as items
+            FROM orders o
+            JOIN tables t ON o.table_id = t.id
+            LEFT JOIN order_items oi ON o.id = oi.order_id
+            LEFT JOIN products p ON oi.product_id = p.id
+            WHERE o.status = 'pending_confirmation' 
+              AND o.branch_id = $1
+              AND o.company_id = $2
+              AND (o.waiter_id = $3 OR o.waiter_id IS NULL)
+              AND o.source = 'qr_menu'
+            GROUP BY o.id, t.table_number
+            ORDER BY o.created_at ASC
+        `, [branchId, companyId, waiterId]);
+        res.json({ success: true, data: result.rows });
+    } catch (err) {
+        console.error("Get pending confirmations error:", err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+router.get("/table/:tableId/active-order", authorizeBranch, allowWaiter, async (req, res) => {
+    const { tableId } = req.params;
+    const branchId = req.user.branch_id;
+    const companyId = req.user.company_id;
+    try {
+        const result = await pool.query(`
+            SELECT id, order_number, total_amount, status, payment_status, created_at
+            FROM orders 
+            WHERE table_id = $1 AND branch_id = $2 AND company_id = $3
+              AND status NOT IN ('completed', 'cancelled')
+              AND payment_status != 'paid'
+            ORDER BY created_at DESC 
+            LIMIT 1
+        `, [tableId, branchId, companyId]);
+        res.json({ success: true, data: result.rows[0] || null });
+    } catch (err) {
+        console.error("Get active order error:", err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
 
 router.put("/:orderId/cancel", authorizeBranch, allowWaiter, async (req, res) => {
     const { orderId } = req.params;
@@ -44371,7 +44484,6 @@ router.put("/:orderId/cancel", authorizeBranch, allowWaiter, async (req, res) =>
             throw new Error("Cannot cancel a paid order");
         }
         
-        // Restore stock
         const orderItemsResult = await client.query(`
             SELECT 
                 oi.product_id,
@@ -44522,158 +44634,6 @@ router.put("/:orderId/cancel", authorizeBranch, allowWaiter, async (req, res) =>
         res.status(500).json({ success: false, error: error.message });
     } finally {
         client.release();
-    }
-});
-
-router.put("/confirm/:orderId", authorizeBranch, allowWaiter, async (req, res) => {
-    const { orderId } = req.params;
-    const userId = req.user.id;
-    const branchId = req.user.branch_id;
-    const companyId = req.user.company_id;
-    
-    const client = await pool.connect();
-    try {
-        await client.query("BEGIN");
-        const orderCheck = await client.query(`
-            SELECT o.id, o.status, o.table_id, o.customer_name, o.order_number, o.waiter_id
-            FROM orders o
-            WHERE o.id = $1 AND o.status = 'pending_confirmation' AND o.branch_id = $2 AND o.company_id = $3
-        `, [orderId, branchId, companyId]);
-        if (orderCheck.rows.length === 0) {
-            return res.status(404).json({ success: false, error: "Order not found or already confirmed" });
-        }
-        const order = orderCheck.rows[0];
-        if (!order.waiter_id) {
-            await client.query("UPDATE orders SET waiter_id = $1 WHERE id = $2", [userId, orderId]);
-            order.waiter_id = userId;
-        }
-        if (order.waiter_id && order.waiter_id !== userId) {
-            return res.status(403).json({ success: false, error: "This order is not assigned to you" });
-        }
-        await client.query(`
-            UPDATE orders 
-            SET status = 'pending', confirmed_by = $1, confirmed_at = NOW(), updated_at = NOW()
-            WHERE id = $2
-        `, [userId, orderId]);
-        await client.query(`
-            INSERT INTO kitchen_orders (order_id, status, notes)
-            VALUES ($1, 'pending', $2)
-        `, [orderId, "Order confirmed by waiter"]);
-        if (order.table_id) {
-            await client.query(`
-                UPDATE tables 
-                SET status = 'occupied', current_order_id = $1, pending_order_id = NULL, updated_at = NOW()
-                WHERE id = $2
-            `, [orderId, order.table_id]);
-        }
-        await client.query("COMMIT");
-        res.json({ success: true, message: "Order confirmed and sent to kitchen", data: { order_id: orderId, status: 'pending' } });
-    } catch (err) {
-        await client.query("ROLLBACK");
-        console.error("Confirm order error:", err);
-        res.status(500).json({ success: false, error: err.message });
-    } finally {
-        client.release();
-    }
-});
-
-router.get("/pending-confirmation", authorizeBranch, allowWaiter, async (req, res) => {
-    const waiterId = req.user.id;
-    const branchId = req.user.branch_id;
-    const companyId = req.user.company_id;
-    try {
-        const result = await pool.query(`
-            SELECT o.id, o.order_number, o.total_amount, o.customer_name, o.customer_phone, 
-                   o.table_id, o.notes, o.created_at, o.status,
-                   t.table_number,
-                   COALESCE(
-                       json_agg(
-                           json_build_object(
-                               "name", p.name,
-                               "quantity", oi.quantity,
-                               "price", oi.unit_price
-                           )
-                       ) FILTER (WHERE p.id IS NOT NULL), 
-                       '[]'
-                   ) as items
-            FROM orders o
-            JOIN tables t ON o.table_id = t.id
-            LEFT JOIN order_items oi ON o.id = oi.order_id
-            LEFT JOIN products p ON oi.product_id = p.id
-            WHERE o.status = 'pending_confirmation' 
-              AND o.branch_id = $1
-              AND o.company_id = $2
-              AND (o.waiter_id = $3 OR o.waiter_id IS NULL)
-              AND o.source = 'qr_menu'
-            GROUP BY o.id, t.table_number
-            ORDER BY o.created_at ASC
-        `, [branchId, companyId, waiterId]);
-        res.json({ success: true, data: result.rows });
-    } catch (err) {
-        console.error("Get pending confirmations error:", err);
-        res.status(500).json({ success: false, error: err.message });
-    }
-});
-
-router.get("/my-orders", authorizeBranch, allowWaiter, async (req, res) => {
-    const userId = req.user.id;
-    const branchId = req.user.branch_id;
-    const companyId = req.user.company_id;
-    try {
-        const result = await pool.query(`
-            SELECT o.id, o.order_number, o.total_amount, o.status, o.payment_status,
-                   o.customer_name, o.table_id, o.created_at,
-                   t.table_number,
-                   COALESCE(
-                       json_agg(
-                           json_build_object(
-                               "name", p.name,
-                               "quantity", oi.quantity,
-                               "price", oi.unit_price
-                           )
-                       ) FILTER (WHERE p.id IS NOT NULL), 
-                       '[]'
-                   ) as items
-            FROM orders o
-            JOIN tables t ON o.table_id = t.id
-            LEFT JOIN order_items oi ON o.id = oi.order_id
-            LEFT JOIN products p ON oi.product_id = p.id
-            WHERE o.waiter_id = $1
-              AND o.branch_id = $2
-              AND o.company_id = $3
-              AND o.status NOT IN ('completed', 'cancelled', 'pending_confirmation')
-            GROUP BY o.id, t.table_number
-            ORDER BY o.created_at DESC
-        `, [userId, branchId, companyId]);
-        res.json({ success: true, data: result.rows });
-    } catch (err) {
-        console.error("Get waiter orders error:", err);
-        res.status(500).json({ success: false, error: err.message });
-    }
-});
-
-// ============================================================
-// UTILITY ROUTES
-// ============================================================
-
-router.get("/table/:tableId/active-order", authorizeBranch, allowWaiter, async (req, res) => {
-    const { tableId } = req.params;
-    const branchId = req.user.branch_id;
-    const companyId = req.user.company_id;
-    try {
-        const result = await pool.query(`
-            SELECT id, order_number, total_amount, status, payment_status, created_at
-            FROM orders 
-            WHERE table_id = $1 AND branch_id = $2 AND company_id = $3
-              AND status NOT IN ('completed', 'cancelled')
-              AND payment_status != 'paid'
-            ORDER BY created_at DESC 
-            LIMIT 1
-        `, [tableId, branchId, companyId]);
-        res.json({ success: true, data: result.rows[0] || null });
-    } catch (err) {
-        console.error("Get active order error:", err);
-        res.status(500).json({ success: false, error: err.message });
     }
 });
 

@@ -21,6 +21,7 @@ import waiterRoutes from "./routes/waiter.js";
 import categoryRoutes from "./routes/categories.js";
 import customerRoutes from "./routes/customers.js";
 import { errorHandler, notFound } from "./middleware/errorHandler.js";
+import companyRoutes from './routes/companies.js';
 import jwt from 'jsonwebtoken';
 
 dotenv.config();
@@ -149,6 +150,7 @@ app.use("/api/tables", tableRoutes);
 app.use("/api/waiter", waiterRoutes);
 app.use("/api/categories", categoryRoutes);
 app.use("/api/customers", customerRoutes);
+app.use("/api/companies", companyRoutes);
 
 // ============================================================
 // Health Check - With explicit CORS headers

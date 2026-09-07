@@ -40,6 +40,7 @@ const Sidebar = ({ user, onLogout }) => {
     { path: '/owner/print-qr', icon: QrCode, label: t('printQRCodes') },
     { path: '/owner/pending-approvals', icon: Clock, label: t('pendingApprovals') },
     { path: '/owner/settings', icon: Settings, label: t('settings') },
+      { path: '/owner/onboard', icon: Building2, label: 'Onboard Company' },
   ];
 
   // Manager menu items
