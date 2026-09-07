@@ -569,7 +569,7 @@ router.get("/ready", protect, async (req, res) => {
 });
 
 // ============================================================
-// PAY ORDER (Cashier) — FIXED WITH sale_items
+// PAY ORDER (Cashier) — FIXED: removed company_id and branch_id from sale_items
 // ============================================================
 router.post("/:orderId/pay", authorizeBranch, allowCashier, requireIdempotency, idempotent, async (req, res) => {
     const { orderId } = req.params;
@@ -648,6 +648,7 @@ router.post("/:orderId/pay", authorizeBranch, allowCashier, requireIdempotency, 
         const sale = saleResult.rows[0];
         
         // 7. Get order items and create sale_items with cost breakdown
+        //    FIXED: Removed company_id and branch_id from INSERT
         const orderItems = await client.query(`
             SELECT oi.product_id, oi.quantity, oi.unit_price, oi.total_price, p.name as product_name
             FROM order_items oi
@@ -662,9 +663,9 @@ router.post("/:orderId/pay", authorizeBranch, allowCashier, requireIdempotency, 
             await client.query(`
                 INSERT INTO sale_items (
                     sale_id, product_id, quantity, unit_price, total_price,
-                    total_cost, profit, company_id, branch_id
+                    total_cost, profit
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                VALUES ($1, $2, $3, $4, $5, $6, $7)
             `, [
                 sale.id,
                 item.product_id,
@@ -672,9 +673,7 @@ router.post("/:orderId/pay", authorizeBranch, allowCashier, requireIdempotency, 
                 item.unit_price,
                 item.total_price,
                 itemCost,
-                itemProfit,
-                companyId,
-                branchId
+                itemProfit
             ]);
         }
         
