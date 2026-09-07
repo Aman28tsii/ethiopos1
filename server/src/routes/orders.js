@@ -17,9 +17,6 @@ const trackLimiter = rateLimit({
     message: { success: false, error: "Too many requests. Please wait." }
 });
 
-// ============================================
-// HELPER: GENERATE ORDER NUMBER
-// ============================================
 const generateOrderNumber = () => {
     const date = new Date();
     const timestamp = date.getTime().toString().slice(-8);
@@ -27,9 +24,6 @@ const generateOrderNumber = () => {
     return `ORD-${timestamp}${random}`;
 };
 
-// ============================================
-// HELPER: GENERATE SALE NUMBER
-// ============================================
 const generateSaleNumber = () => {
     const date = new Date();
     const timestamp = date.getTime().toString().slice(-8);
@@ -37,9 +31,6 @@ const generateSaleNumber = () => {
     return `SALE-${timestamp}${random}`;
 };
 
-// ============================================
-// HELPER: CALCULATE PRODUCT COST
-// ============================================
 const calculateProductCost = async (productId, quantity, client) => {
     const recipeResult = await client.query(
         `SELECT ri.quantity_required, i.unit_cost,
@@ -63,9 +54,6 @@ const calculateProductCost = async (productId, quantity, client) => {
     return totalCost;
 };
 
-// ============================================
-// HELPER: CALCULATE ORDER TOTAL COST
-// ============================================
 const calculateOrderTotalCost = async (orderId, client) => {
     const itemsResult = await client.query(
         `SELECT oi.product_id, oi.quantity
@@ -82,11 +70,8 @@ const calculateOrderTotalCost = async (orderId, client) => {
     return totalCost;
 };
 
-// ============================================================
-// PUBLIC ROUTES
-// ============================================================
+// ==================== PUBLIC ROUTES ====================
 
-// Track order by number (public)
 router.get("/track/:orderNumber", trackLimiter, async (req, res) => {
     const { orderNumber } = req.params;
     try {
@@ -121,7 +106,6 @@ router.get("/track/:orderNumber", trackLimiter, async (req, res) => {
     }
 });
 
-// QR Order (public)
 router.post("/qr-order", async (req, res) => {
     try {
         const { items, table_id, customer_name, customer_phone, notes } = req.body;
@@ -222,7 +206,6 @@ router.post("/qr-order", async (req, res) => {
     }
 });
 
-// QR Customer Add Items (public)
 router.post("/:orderId/customer-add-items", async (req, res) => {
     const { orderId } = req.params;
     const { items } = req.body;
@@ -300,15 +283,10 @@ router.post("/:orderId/customer-add-items", async (req, res) => {
     }
 });
 
-// ============================================================
-// PROTECTED ROUTES
-// ============================================================
+// ==================== PROTECTED ROUTES ====================
 
 router.use(protect);
 
-// ============================================================
-// GET ALL ORDERS (Branch-isolated)
-// ============================================================
 router.get("/", authorizeBranch, allowWaiter, async (req, res) => {
     try {
         const companyId = req.user.company_id;
@@ -341,9 +319,6 @@ router.get("/", authorizeBranch, allowWaiter, async (req, res) => {
     }
 });
 
-// ============================================================
-// CREATE ORDER (Waiter)
-// ============================================================
 router.post("/", authorizeBranch, allowWaiter, requireIdempotency, idempotent, async (req, res) => {
     try {
         const { items, customer_name, customer_phone, table_id, order_type = 'dine_in', notes, source = 'waiter' } = req.body;
@@ -466,9 +441,6 @@ router.post("/", authorizeBranch, allowWaiter, requireIdempotency, idempotent, a
     }
 });
 
-// ============================================================
-// CONFIRM ORDER (Waiter)
-// ============================================================
 router.put("/confirm/:orderId", authorizeBranch, allowWaiter, async (req, res) => {
     const { orderId } = req.params;
     const userId = req.user.id;
@@ -535,9 +507,7 @@ router.put("/confirm/:orderId", authorizeBranch, allowWaiter, async (req, res) =
     }
 });
 
-// ============================================================
-// GET READY ORDERS (Cashier)
-// ============================================================
+// ==================== ✅ FIXED: READY ORDERS ENDPOINT ====================
 router.get("/ready", protect, async (req, res) => {
     try {
         const branchId = req.user?.branch_id || 1;
@@ -545,20 +515,23 @@ router.get("/ready", protect, async (req, res) => {
         
         const result = await pool.query(`
             SELECT 
-                id, 
-                order_number, 
-                total_amount, 
-                customer_name, 
-                table_id,
-                created_at,
-                status,
-                payment_status
-            FROM orders 
-            WHERE payment_status = 'pending'
-                AND status = 'pending'
-                AND branch_id = $1
-                AND company_id = $2
-            ORDER BY created_at ASC
+                o.id, 
+                o.order_number, 
+                o.total_amount, 
+                o.customer_name, 
+                o.table_id,
+                o.created_at,
+                o.status,
+                o.payment_status,
+                ko.status as kitchen_status
+            FROM orders o
+            JOIN kitchen_orders ko ON o.id = ko.order_id
+            WHERE o.payment_status = 'pending'
+                AND o.status = 'pending'
+                AND ko.status = 'ready'
+                AND o.branch_id = $1
+                AND o.company_id = $2
+            ORDER BY o.created_at ASC
         `, [branchId, companyId]);
         
         res.json({ success: true, data: result.rows });
@@ -568,9 +541,7 @@ router.get("/ready", protect, async (req, res) => {
     }
 });
 
-// ============================================================
-// PAY ORDER (Cashier)
-// ============================================================
+// ==================== PAYMENT ENDPOINT ====================
 router.post("/:orderId/pay", authorizeBranch, allowCashier, requireIdempotency, idempotent, async (req, res) => {
     const { orderId } = req.params;
     const { payment_method } = req.body;
@@ -697,9 +668,6 @@ router.post("/:orderId/pay", authorizeBranch, allowCashier, requireIdempotency, 
     }
 });
 
-// ============================================================
-// GET ORDER BY ID (Waiter)
-// ============================================================
 router.get("/:orderId", authorizeBranch, allowWaiter, async (req, res) => {
     const { orderId } = req.params;
     const branchId = req.user.branch_id;
@@ -735,9 +703,6 @@ router.get("/:orderId", authorizeBranch, allowWaiter, async (req, res) => {
     }
 });
 
-// ============================================================
-// ADD ITEMS TO ORDER (Waiter)
-// ============================================================
 router.post("/:orderId/add-items", authorizeBranch, allowWaiter, async (req, res) => {
     const { orderId } = req.params;
     const { items } = req.body;
@@ -819,9 +784,6 @@ router.post("/:orderId/add-items", authorizeBranch, allowWaiter, async (req, res
     }
 });
 
-// ============================================================
-// GET MY ORDERS (Waiter)
-// ============================================================
 router.get("/my-orders", authorizeBranch, allowWaiter, async (req, res) => {
     const userId = req.user.id;
     const branchId = req.user.branch_id;
@@ -859,9 +821,6 @@ router.get("/my-orders", authorizeBranch, allowWaiter, async (req, res) => {
     }
 });
 
-// ============================================================
-// GET PENDING CONFIRMATIONS (Waiter)
-// ============================================================
 router.get("/pending-confirmation", authorizeBranch, allowWaiter, async (req, res) => {
     const waiterId = req.user.id;
     const branchId = req.user.branch_id;
@@ -900,9 +859,6 @@ router.get("/pending-confirmation", authorizeBranch, allowWaiter, async (req, re
     }
 });
 
-// ============================================================
-// GET ACTIVE ORDER FOR TABLE (Waiter)
-// ============================================================
 router.get("/table/:tableId/active-order", authorizeBranch, allowWaiter, async (req, res) => {
     const { tableId } = req.params;
     const branchId = req.user.branch_id;
@@ -924,9 +880,6 @@ router.get("/table/:tableId/active-order", authorizeBranch, allowWaiter, async (
     }
 });
 
-// ============================================================
-// CANCEL ORDER (Waiter)
-// ============================================================
 router.put("/:orderId/cancel", authorizeBranch, allowWaiter, async (req, res) => {
     const { orderId } = req.params;
     const { reason } = req.body;
@@ -978,7 +931,6 @@ router.put("/:orderId/cancel", authorizeBranch, allowWaiter, async (req, res) =>
             throw new Error("Cannot cancel a paid order");
         }
         
-        // Restore stock
         const orderItemsResult = await client.query(`
             SELECT 
                 oi.product_id,
