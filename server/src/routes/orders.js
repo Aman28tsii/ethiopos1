@@ -467,7 +467,7 @@ router.post("/", authorizeBranch, allowWaiter, requireIdempotency, idempotent, a
 });
 
 // ============================================================
-// CONFIRM ORDER (Waiter) — MOVED HERE (BEFORE /:orderId)
+// CONFIRM ORDER (Waiter)
 // ============================================================
 router.put("/confirm/:orderId", authorizeBranch, allowWaiter, async (req, res) => {
     const { orderId } = req.params;
@@ -698,7 +698,7 @@ router.post("/:orderId/pay", authorizeBranch, allowCashier, requireIdempotency, 
 });
 
 // ============================================================
-// GET ORDER BY ID (Waiter) — MOVED HERE (AFTER confirm)
+// GET ORDER BY ID (Waiter)
 // ============================================================
 router.get("/:orderId", authorizeBranch, allowWaiter, async (req, res) => {
     const { orderId } = req.params;
