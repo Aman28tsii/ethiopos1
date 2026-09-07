@@ -7,6 +7,7 @@ import { idempotent, requireIdempotency } from "../middleware/idempotency.js";
 import { pool } from "../config/database.js";
 import rateLimit from "express-rate-limit";
 import { processOrderStockDeduction } from "../controllers/recipeController.js";
+import { AppError } from "../middleware/errorHandler.js";
 
 const router = express.Router();
 
@@ -28,6 +29,53 @@ const generateOrderNumber = () => {
     const timestamp = date.getTime().toString().slice(-8);
     const random = Math.floor(Math.random() * 1000).toString().padStart(3, "0");
     return `ORD-${timestamp}${random}`;
+};
+
+// ============================================
+// HELPER: CALCULATE PRODUCT COST
+// ============================================
+
+const calculateProductCost = async (productId, quantity, client) => {
+    const recipeResult = await client.query(
+        `SELECT ri.quantity_required, i.unit_cost,
+                ri.wastage_percentage, ri.cooking_loss_percentage
+         FROM recipe_ingredients ri
+         JOIN ingredients i ON ri.ingredient_id = i.id
+         WHERE ri.recipe_id IN (SELECT id FROM recipes WHERE product_id = $1)`,
+        [productId]
+    );
+    
+    let totalCost = 0;
+    for (const item of recipeResult.rows) {
+        const qtyRequired = parseFloat(item.quantity_required) || 0;
+        const wastagePct = parseFloat(item.wastage_percentage) || 0;
+        const cookingLossPct = parseFloat(item.cooking_loss_percentage) || 0;
+        const unitCost = parseFloat(item.unit_cost) || 0;
+        
+        const effectiveQty = qtyRequired * quantity * (1 + wastagePct / 100) * (1 + cookingLossPct / 100);
+        totalCost += effectiveQty * unitCost;
+    }
+    return totalCost;
+};
+
+// ============================================
+// HELPER: CALCULATE ORDER TOTAL COST
+// ============================================
+
+const calculateOrderTotalCost = async (orderId, client) => {
+    const itemsResult = await client.query(
+        `SELECT oi.product_id, oi.quantity
+         FROM order_items oi
+         WHERE oi.order_id = $1`,
+        [orderId]
+    );
+    
+    let totalCost = 0;
+    for (const item of itemsResult.rows) {
+        const itemCost = await calculateProductCost(item.product_id, item.quantity, client);
+        totalCost += itemCost;
+    }
+    return totalCost;
 };
 
 // ============================================================
@@ -452,7 +500,7 @@ router.get("/ready", protect, async (req, res) => {
 });
 
 // ============================================================
-// PAYMENT ROUTE - WITH IDEMPOTENCY
+// ✅ FIXED: PAYMENT ROUTE WITH COST CALCULATION
 // ============================================================
 
 router.post("/:orderId/pay", authorizeBranch, allowCashier, requireIdempotency, idempotent, async (req, res) => {
@@ -464,27 +512,40 @@ router.post("/:orderId/pay", authorizeBranch, allowCashier, requireIdempotency, 
     const client = await pool.connect();
     try {
         await client.query("BEGIN");
+        
+        // Get order details
         const orderResult = await client.query(`
             SELECT o.*, ko.status as kitchen_status 
             FROM orders o
             JOIN kitchen_orders ko ON o.id = ko.order_id
             WHERE o.id = $1 AND o.branch_id = $2 AND o.company_id = $3
         `, [orderId, branchId, companyId]);
+        
         if (orderResult.rows.length === 0) {
             throw new Error("Order not found");
         }
         const order = orderResult.rows[0];
+        
+        // Check if order is ready for payment
         if (order.kitchen_status !== 'ready') {
             throw new Error("Order is not ready for payment");
         }
         if (order.payment_status === 'paid') {
             throw new Error("Order already paid");
         }
+        
+        // ✅ FIX: Calculate total cost for this order
+        const totalCost = await calculateOrderTotalCost(orderId, client);
+        const profit = parseFloat(order.total_amount) - totalCost;
+        
+        // Update order status
         await client.query(`
             UPDATE orders 
             SET payment_status = 'paid', payment_method = $1, status = 'completed', updated_at = NOW()
             WHERE id = $2
         `, [payment_method, orderId]);
+        
+        // Update table status if dine-in
         if (order.table_id) {
             await client.query(`
                 UPDATE tables 
@@ -492,13 +553,81 @@ router.post("/:orderId/pay", authorizeBranch, allowCashier, requireIdempotency, 
                 WHERE id = $1
             `, [order.table_id]);
         }
+        
+        // ✅ FIX: Create sale with calculated cost and profit
         const saleNumber = generateSaleNumber();
-        await client.query(`
-            INSERT INTO sales (sale_number, order_id, total_amount, payment_method, status, branch_id, company_id, created_at)
-            VALUES ($1, $2, $3, $4, 'completed', $5, $6, NOW())
-        `, [saleNumber, orderId, order.total_amount, payment_method, branchId, companyId]);
+        const saleResult = await client.query(`
+            INSERT INTO sales (
+                sale_number, order_id, total_amount, total_cost, profit, 
+                payment_method, status, branch_id, company_id, created_at,
+                customer_name, customer_phone
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, 'completed', $7, $8, NOW(), $9, $10)
+            RETURNING id, sale_number, total_amount, total_cost, profit
+        `, [
+            saleNumber, 
+            orderId, 
+            order.total_amount, 
+            totalCost, 
+            profit,
+            payment_method, 
+            branchId, 
+            companyId,
+            order.customer_name || null,
+            order.customer_phone || null
+        ]);
+        
+        const sale = saleResult.rows[0];
+        
+        // ✅ FIX: Create sale items with cost breakdown
+        const orderItems = await client.query(`
+            SELECT oi.product_id, oi.quantity, oi.unit_price, oi.total_price, p.name as product_name
+            FROM order_items oi
+            JOIN products p ON oi.product_id = p.id
+            WHERE oi.order_id = $1
+        `, [orderId]);
+        
+        for (const item of orderItems.rows) {
+            const itemCost = await calculateProductCost(item.product_id, item.quantity, client);
+            const itemProfit = item.total_price - itemCost;
+            
+            await client.query(`
+                INSERT INTO sale_items (
+                    sale_id, product_id, quantity, unit_price, total_price,
+                    total_cost, profit
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, $7)
+            `, [
+                sale.id,
+                item.product_id,
+                item.quantity,
+                item.unit_price,
+                item.total_price,
+                itemCost,
+                itemProfit
+            ]);
+        }
+        
         await client.query("COMMIT");
-        res.json({ success: true, message: "Payment processed successfully", data: { sale_number: saleNumber, order_id: orderId, total_amount: order.total_amount } });
+        
+        // Calculate profit margin for response
+        const profitMargin = sale.total_amount > 0 ? (sale.profit / sale.total_amount) * 100 : 0;
+        
+        res.json({
+            success: true,
+            message: "Payment processed successfully",
+            data: {
+                sale_id: sale.id,
+                sale_number: sale.sale_number,
+                order_id: parseInt(orderId),
+                total_amount: parseFloat(sale.total_amount),
+                total_cost: parseFloat(sale.total_cost),
+                profit: parseFloat(sale.profit),
+                profit_margin: parseFloat(profitMargin.toFixed(2)),
+                payment_method: payment_method
+            }
+        });
+        
     } catch (err) {
         await client.query("ROLLBACK");
         console.error("Payment error:", err);
@@ -644,8 +773,8 @@ router.put("/:orderId/cancel", authorizeBranch, allowWaiter, async (req, res) =>
     try {
         await client.query("BEGIN");
         
-        const orderCheck = await client.query(
-            `SELECT o.id, o.status, o.payment_status, o.table_id, o.order_number, 
+        const orderCheck = await client.query(`
+            SELECT o.id, o.status, o.payment_status, o.table_id, o.order_number, 
                     o.company_id, o.branch_id, o.created_by, o.waiter_id
              FROM orders o
              WHERE o.id = $1 
@@ -683,10 +812,7 @@ router.put("/:orderId/cancel", authorizeBranch, allowWaiter, async (req, res) =>
             throw new Error("Cannot cancel a paid order");
         }
         
-        // ============================================================
-        // RESTORE STOCK FOR ALL ORDER ITEMS
-        // ============================================================
-        
+        // Restore stock
         const orderItemsResult = await client.query(`
             SELECT 
                 oi.product_id,
