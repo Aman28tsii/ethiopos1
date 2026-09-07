@@ -1,3 +1,5 @@
+// client/src/components/Sidebar.js
+
 import React, { useState, useEffect } from 'react';
 import { NavLink } from 'react-router-dom';
 import { 
@@ -5,7 +7,7 @@ import {
   ChevronLeft, ChevronRight, TrendingUp, Receipt, 
   ChefHat, Clock, LayoutDashboard, Settings, ClipboardList,
   Table as TableIcon, History, Menu, X, QrCode, Table,
-  Utensils
+  Utensils, Building2
 } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 
@@ -39,8 +41,8 @@ const Sidebar = ({ user, onLogout }) => {
     { path: '/owner/manage-tables', icon: Table, label: t('manageTables') },
     { path: '/owner/print-qr', icon: QrCode, label: t('printQRCodes') },
     { path: '/owner/pending-approvals', icon: Clock, label: t('pendingApprovals') },
+    { path: '/owner/onboard', icon: Building2, label: 'Onboard Company' },
     { path: '/owner/settings', icon: Settings, label: t('settings') },
-      { path: '/owner/onboard', icon: Building2, label: 'Onboard Company' },
   ];
 
   // Manager menu items
@@ -52,13 +54,13 @@ const Sidebar = ({ user, onLogout }) => {
     { path: '/manager/tables', icon: Table, label: t('manageTables') },
   ];
 
-  // Cashier menu items - ✅ FULLY TRANSLATED
+  // Cashier menu items
   const cashierMenu = [
     { path: '/cashier/pos', icon: ShoppingCart, label: t('posTerminal') },
     { path: '/cashier/manual-order', icon: ShoppingCart, label: t('manualOrder') },
   ];
 
-  // Waiter menu items - ✅ FULLY TRANSLATED
+  // Waiter menu items
   const waiterMenu = [
     { path: '/waiter/tables', icon: TableIcon, label: t('tableManagement') },
     { path: '/waiter/my-orders', icon: ClipboardList, label: t('myOrders') },
@@ -66,7 +68,7 @@ const Sidebar = ({ user, onLogout }) => {
     { path: '/waiter/table-status', icon: TableIcon, label: t('tableStatus') },
   ];
 
-  // Kitchen menu items - ✅ TRANSLATED
+  // Kitchen menu items
   const kitchenMenu = [
     { path: '/kitchen/orders', icon: ChefHat, label: t('kitchenOrders') },
   ];
