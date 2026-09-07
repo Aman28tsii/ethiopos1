@@ -467,7 +467,7 @@ router.post("/", authorizeBranch, allowWaiter, requireIdempotency, idempotent, a
 });
 
 // ============================================================
-// CONFIRM ORDER (Waiter)
+// CONFIRM ORDER (Waiter) — THIS IS THE ROUTE
 // ============================================================
 router.put("/confirm/:orderId", authorizeBranch, allowWaiter, async (req, res) => {
     const { orderId } = req.params;
@@ -569,7 +569,7 @@ router.get("/ready", protect, async (req, res) => {
 });
 
 // ============================================================
-// PAY ORDER (Cashier) — FIXED: removed company_id and branch_id from sale_items
+// PAY ORDER (Cashier)
 // ============================================================
 router.post("/:orderId/pay", authorizeBranch, allowCashier, requireIdempotency, idempotent, async (req, res) => {
     const { orderId } = req.params;
@@ -581,7 +581,6 @@ router.post("/:orderId/pay", authorizeBranch, allowCashier, requireIdempotency, 
     try {
         await client.query("BEGIN");
         
-        // 1. Get order details with kitchen status
         const orderResult = await client.query(`
             SELECT o.*, ko.status as kitchen_status 
             FROM orders o
@@ -594,7 +593,6 @@ router.post("/:orderId/pay", authorizeBranch, allowCashier, requireIdempotency, 
         }
         const order = orderResult.rows[0];
         
-        // 2. Validate order is ready for payment
         if (order.kitchen_status !== 'ready') {
             throw new Error("Order is not ready for payment");
         }
@@ -602,18 +600,15 @@ router.post("/:orderId/pay", authorizeBranch, allowCashier, requireIdempotency, 
             throw new Error("Order already paid");
         }
         
-        // 3. Calculate total cost for this order
         const totalCost = await calculateOrderTotalCost(orderId, client);
         const profit = parseFloat(order.total_amount) - totalCost;
         
-        // 4. Update order status
         await client.query(`
             UPDATE orders 
             SET payment_status = 'paid', payment_method = $1, status = 'completed', updated_at = NOW()
             WHERE id = $2
         `, [payment_method, orderId]);
         
-        // 5. Update table status if dine-in
         if (order.table_id) {
             await client.query(`
                 UPDATE tables 
@@ -622,7 +617,6 @@ router.post("/:orderId/pay", authorizeBranch, allowCashier, requireIdempotency, 
             `, [order.table_id]);
         }
         
-        // 6. Create sale record with calculated cost
         const saleNumber = generateSaleNumber();
         const saleResult = await client.query(`
             INSERT INTO sales (
@@ -647,8 +641,6 @@ router.post("/:orderId/pay", authorizeBranch, allowCashier, requireIdempotency, 
         
         const sale = saleResult.rows[0];
         
-        // 7. Get order items and create sale_items with cost breakdown
-        //    FIXED: Removed company_id and branch_id from INSERT
         const orderItems = await client.query(`
             SELECT oi.product_id, oi.quantity, oi.unit_price, oi.total_price, p.name as product_name
             FROM order_items oi
@@ -677,10 +669,8 @@ router.post("/:orderId/pay", authorizeBranch, allowCashier, requireIdempotency, 
             ]);
         }
         
-        // 8. Commit transaction
         await client.query("COMMIT");
         
-        // 9. Calculate profit margin for response
         const profitMargin = sale.total_amount > 0 ? (sale.profit / sale.total_amount) * 100 : 0;
         
         res.json({
@@ -935,7 +925,7 @@ router.get("/table/:tableId/active-order", authorizeBranch, allowWaiter, async (
 });
 
 // ============================================================
-// CANCEL ORDER (Waiter) — WITH STOCK RESTORATION
+// CANCEL ORDER (Waiter)
 // ============================================================
 router.put("/:orderId/cancel", authorizeBranch, allowWaiter, async (req, res) => {
     const { orderId } = req.params;
@@ -1142,5 +1132,4 @@ router.put("/:orderId/cancel", authorizeBranch, allowWaiter, async (req, res) =>
     }
 });
 
-export default router;/ /   t r i g g e r   d e p l o y m e n t  
- 
+export default router;
