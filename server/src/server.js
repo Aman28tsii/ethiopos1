@@ -24,7 +24,7 @@ import companyRoutes from "./routes/companies.js";
 import { errorHandler, notFound } from "./middleware/errorHandler.js";
 import { ensureIdempotencyTable } from "./middleware/idempotency.js";
 import jwt from 'jsonwebtoken';
-
+import { ensureRateLimitTable } from './middleware/rateLimiter.js';
 dotenv.config();
 
 const app = express();
@@ -255,6 +255,8 @@ server.listen(PORT, async () => {
         console.log("✅ Database connected successfully");
         // Initialize idempotency table
         await ensureIdempotencyTable();
+        // Initialize rate limit table
+        await ensureRateLimitTable();
     } else {
         console.log("❌ Database connection failed");
     }
