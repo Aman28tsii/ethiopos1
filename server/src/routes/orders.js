@@ -107,182 +107,288 @@ router.get("/track/:orderNumber", trackLimiter, async (req, res) => {
     }
 });
 
-router.post("/qr-order", async (req, res) => {
-    try {
-        const { items, table_id, customer_name, customer_phone, notes } = req.body;
+// ==================== FIXED QR ORDER ROUTE ====================
+router.post("/qr-order", 
+    mutationLimiter,
+    requireIdempotency,
+    idempotent,
+    async (req, res) => {
+        console.log('[QR ORDER] ====== START ======');
+        console.log('[QR ORDER] Request body:', JSON.stringify(req.body, null, 2));
+        
+        try {
+            const { items, table_id, customer_name, customer_phone, notes } = req.body;
+            
+            if (!items || items.length === 0) {
+                console.log('[QR ORDER] ERROR: No items in order');
+                return res.status(400).json({ success: false, error: "No items in order" });
+            }
+            
+            console.log('[QR ORDER] Items:', JSON.stringify(items));
+            console.log('[QR ORDER] Table ID:', table_id);
+            
+            // Validate table_id
+            if (!table_id) {
+                console.log('[QR ORDER] ERROR: No table ID provided');
+                return res.status(400).json({ success: false, error: "Table ID is required" });
+            }
+            
+            const client = await pool.connect();
+            
+            try {
+                await client.query("BEGIN");
+                console.log('[QR ORDER] Transaction started');
+                
+                // Get table info
+                const tableResult = await client.query(
+                    "SELECT id, branch_id, waiter_id, company_id FROM tables WHERE id = $1",
+                    [table_id]
+                );
+                
+                if (tableResult.rows.length === 0) {
+                    console.log('[QR ORDER] ERROR: Table not found:', table_id);
+                    await client.query("ROLLBACK");
+                    return res.status(404).json({ success: false, error: "Table not found" });
+                }
+                
+                const table = tableResult.rows[0];
+                console.log('[QR ORDER] Table found:', JSON.stringify(table));
+                
+                const branchId = table.branch_id;
+                const companyId = table.company_id;
+                // If no waiter assigned, use NULL (will be assigned when waiter confirms)
+                const waiterId = table.waiter_id || null;
+                
+                // Get company ID from branch if not available on table
+                let finalCompanyId = companyId;
+                if (!finalCompanyId) {
+                    const branchResult = await client.query(
+                        "SELECT company_id FROM branches WHERE id = $1",
+                        [branchId]
+                    );
+                    if (branchResult.rows.length === 0) {
+                        console.log('[QR ORDER] ERROR: Branch not found:', branchId);
+                        await client.query("ROLLBACK");
+                        return res.status(404).json({ success: false, error: "Branch not found" });
+                    }
+                    finalCompanyId = branchResult.rows[0].company_id;
+                }
+                
+                console.log('[QR ORDER] Context - Company:', finalCompanyId, 'Branch:', branchId, 'Waiter:', waiterId);
+                
+                // Calculate total amount
+                let totalAmount = 0;
+                for (const item of items) {
+                    const productResult = await client.query(
+                        "SELECT price, company_id FROM products WHERE id = $1 AND is_available = true",
+                        [item.product_id]
+                    );
+                    if (productResult.rows.length === 0) {
+                        console.log('[QR ORDER] ERROR: Product not found:', item.product_id);
+                        await client.query("ROLLBACK");
+                        return res.status(404).json({ success: false, error: `Product ${item.product_id} not found` });
+                    }
+                    if (productResult.rows[0].company_id !== finalCompanyId) {
+                        console.log('[QR ORDER] ERROR: Product company mismatch:', productResult.rows[0].company_id, 'vs', finalCompanyId);
+                        await client.query("ROLLBACK");
+                        return res.status(403).json({ success: false, error: `Product ${item.product_id} does not belong to this company` });
+                    }
+                    totalAmount += parseFloat(productResult.rows[0].price) * item.quantity;
+                }
+                
+                console.log('[QR ORDER] Total amount:', totalAmount);
+                
+                // Generate order number
+                const orderNumber = `QR-${Date.now().toString().slice(-8)}${Math.floor(Math.random() * 1000)}`;
+                console.log('[QR ORDER] Order number:', orderNumber);
+                
+                // Insert order
+                const orderResult = await client.query(`
+                    INSERT INTO orders (
+                        order_number, total_amount, status, payment_status, 
+                        customer_name, customer_phone, table_id, order_type, notes, 
+                        source, waiter_id, company_id, branch_id
+                    ) VALUES ($1, $2, 'pending_confirmation', 'pending', $3, $4, $5, 'dine_in', $6, 'qr_menu', $7, $8, $9)
+                    RETURNING id, order_number, total_amount
+                `, [
+                    orderNumber, 
+                    totalAmount, 
+                    customer_name || null, 
+                    customer_phone || null, 
+                    table_id, 
+                    notes || null, 
+                    waiterId, 
+                    finalCompanyId, 
+                    branchId
+                ]);
+                
+                const orderId = orderResult.rows[0].id;
+                console.log('[QR ORDER] Order created with ID:', orderId);
+                
+                // Insert order items
+                for (const item of items) {
+                    const productResult = await client.query(
+                        "SELECT price, name FROM products WHERE id = $1",
+                        [item.product_id]
+                    );
+                    const itemTotal = parseFloat(productResult.rows[0].price) * item.quantity;
+                    await client.query(`
+                        INSERT INTO order_items (order_id, product_id, quantity, unit_price, total_price)
+                        VALUES ($1, $2, $3, $4, $5)
+                    `, [orderId, item.product_id, item.quantity, productResult.rows[0].price, itemTotal]);
+                    console.log('[QR ORDER] Item inserted:', item.product_id, 'x', item.quantity);
+                }
+                
+                // Stock deduction
+                let stockResult = { deductions: [], totalWastageCost: 0 };
+                try {
+                    stockResult = await processOrderStockDeduction(orderId, items, client, finalCompanyId, branchId);
+                    console.log('[QR ORDER] Stock deduction completed');
+                } catch (stockError) {
+                    console.error('[QR ORDER] Stock deduction failed:', stockError.message);
+                    await client.query('ROLLBACK');
+                    return res.status(409).json({ 
+                        success: false, 
+                        error: stockError.message || 'Insufficient stock for order' 
+                    });
+                }
+                
+                await client.query("COMMIT");
+                console.log('[QR ORDER] Transaction committed successfully');
+                
+                // Emit socket event for waiter
+                const io = req.app.get('io');
+                if (io) {
+                    const orderData = {
+                        order_id: orderId,
+                        order_number: orderNumber,
+                        total_amount: totalAmount,
+                        status: 'pending_confirmation',
+                        branch_id: branchId,
+                        company_id: finalCompanyId,
+                        table_id: table_id,
+                        source: 'qr_menu'
+                    };
+                    
+                    io.to(`waiter_${branchId}`).emit('new_pending_order', orderData);
+                    io.to(`branch_${finalCompanyId}_${branchId}`).emit('new_order_branch', orderData);
+                    console.log('[QR ORDER] Socket events emitted');
+                }
+                
+                res.status(201).json({
+                    success: true,
+                    message: "Order placed! Waiting for waiter confirmation.",
+                    data: { 
+                        order_id: orderId, 
+                        order_number: orderNumber, 
+                        total_amount: totalAmount, 
+                        status: 'pending_confirmation',
+                        stock_deductions: stockResult.deductions,
+                        total_wastage_cost: stockResult.totalWastageCost
+                    }
+                });
+                console.log('[QR ORDER] ====== SUCCESS ======');
+                
+            } catch (err) {
+                await client.query("ROLLBACK");
+                console.error('[QR ORDER] Transaction error:', err.message);
+                console.error('[QR ORDER] Stack:', err.stack);
+                throw err;
+            } finally {
+                client.release();
+            }
+        } catch (err) {
+            console.error('[QR ORDER] ERROR:', err.message);
+            console.error('[QR ORDER] Stack:', err.stack);
+            res.status(500).json({ 
+                success: false, 
+                error: err.message || 'Failed to place order' 
+            });
+        }
+    }
+);
+
+router.post("/:orderId/customer-add-items", 
+    mutationLimiter,
+    requireIdempotency,
+    idempotent,
+    async (req, res) => {
+        const { orderId } = req.params;
+        const { items } = req.body;
         
         if (!items || items.length === 0) {
-            return res.status(400).json({ success: false, error: "No items in order" });
+            return res.status(400).json({ success: false, error: "No items to add" });
         }
         
         const client = await pool.connect();
         try {
             await client.query("BEGIN");
             
-            const tableResult = await client.query(
-                "SELECT branch_id, waiter_id FROM tables WHERE id = $1",
-                [table_id]
+            const orderCheck = await client.query(
+                "SELECT id, status, total_amount, company_id, branch_id FROM orders WHERE id = $1 AND status = $2",
+                [orderId, 'pending_confirmation']
             );
-            if (tableResult.rows.length === 0) {
-                return res.status(404).json({ success: false, error: "Table not found" });
+            if (orderCheck.rows.length === 0) {
+                return res.status(404).json({ success: false, error: "Order not found or already confirmed" });
             }
-            const branchId = tableResult.rows[0].branch_id;
-            const waiterId = tableResult.rows[0].waiter_id;
+            const order = orderCheck.rows[0];
+            const companyId = order.company_id;
+            const branchId = order.branch_id;
             
-            const branchResult = await client.query(
-                "SELECT company_id FROM branches WHERE id = $1",
-                [branchId]
-            );
-            const companyId = branchResult.rows[0].company_id;
+            let additionalAmount = 0;
+            const newItems = [];
             
-            let totalAmount = 0;
             for (const item of items) {
                 const productResult = await client.query(
-                    "SELECT price, company_id FROM products WHERE id = $1",
+                    "SELECT price, company_id, name FROM products WHERE id = $1",
                     [item.product_id]
                 );
                 if (productResult.rows[0].company_id !== companyId) {
                     throw new Error(`Product ${item.product_id} does not belong to this company`);
                 }
-                totalAmount += parseFloat(productResult.rows[0].price) * item.quantity;
-            }
-            
-            const orderNumber = `QR-${Date.now().toString().slice(-8)}${Math.floor(Math.random() * 1000)}`;
-            
-            const orderResult = await client.query(`
-                INSERT INTO orders (
-                    order_number, total_amount, status, payment_status, 
-                    customer_name, customer_phone, table_id, order_type, notes, source, waiter_id,
-                    company_id, branch_id
-                ) VALUES ($1, $2, 'pending_confirmation', 'pending', $3, $4, $5, 'dine_in', $6, 'qr_menu', $7, $8, $9)
-                RETURNING id, order_number
-            `, [orderNumber, totalAmount, customer_name || null, customer_phone || null, table_id || null, notes || null, waiterId, companyId, branchId]);
-            
-            const orderId = orderResult.rows[0].id;
-            
-            for (const item of items) {
-                const productResult = await client.query(
-                    "SELECT price, name FROM products WHERE id = $1",
-                    [item.product_id]
-                );
-                const itemTotal = parseFloat(productResult.rows[0].price) * item.quantity;
+                const unitPrice = parseFloat(productResult.rows[0].price);
+                const itemTotal = unitPrice * item.quantity;
+                additionalAmount += itemTotal;
                 await client.query(`
                     INSERT INTO order_items (order_id, product_id, quantity, unit_price, total_price)
                     VALUES ($1, $2, $3, $4, $5)
-                `, [orderId, item.product_id, item.quantity, productResult.rows[0].price, itemTotal]);
+                `, [orderId, item.product_id, item.quantity, unitPrice, itemTotal]);
+                newItems.push(item);
             }
             
             let stockResult = { deductions: [], totalWastageCost: 0 };
             try {
-                stockResult = await processOrderStockDeduction(orderId, items, client, companyId, branchId);
+                stockResult = await processOrderStockDeduction(orderId, newItems, client, companyId, branchId);
             } catch (stockError) {
-                console.error('[QR ORDER] Stock deduction failed:', stockError.message);
+                console.error('[QR ADD ITEMS] Stock deduction failed:', stockError.message);
                 await client.query('ROLLBACK');
-                throw new Error(stockError.message || 'Insufficient stock for order');
+                throw new Error(stockError.message || 'Insufficient stock for additional items');
             }
+            
+            const newTotal = parseFloat(order.total_amount) + additionalAmount;
+            await client.query(`
+                UPDATE orders SET total_amount = $1, updated_at = NOW() WHERE id = $2
+            `, [newTotal, orderId]);
             
             await client.query("COMMIT");
             
-            res.status(201).json({
+            res.json({
                 success: true,
-                message: "Order placed! Waiting for waiter confirmation.",
-                data: { 
-                    order_id: orderId, 
-                    order_number: orderNumber, 
-                    total_amount: totalAmount, 
-                    status: 'pending_confirmation',
-                    stock_deductions: stockResult.deductions,
-                    total_wastage_cost: stockResult.totalWastageCost
-                }
+                message: "Items added to order",
+                additional_amount: additionalAmount,
+                new_total: newTotal,
+                stock_deductions: stockResult.deductions,
+                total_wastage_cost: stockResult.totalWastageCost
             });
         } catch (err) {
             await client.query("ROLLBACK");
-            throw err;
+            console.error("Customer add items error:", err);
+            res.status(500).json({ success: false, error: err.message });
         } finally {
             client.release();
         }
-    } catch (err) {
-        console.error("QR order error:", err);
-        res.status(500).json({ success: false, error: err.message });
     }
-});
-
-router.post("/:orderId/customer-add-items", async (req, res) => {
-    const { orderId } = req.params;
-    const { items } = req.body;
-    
-    if (!items || items.length === 0) {
-        return res.status(400).json({ success: false, error: "No items to add" });
-    }
-    
-    const client = await pool.connect();
-    try {
-        await client.query("BEGIN");
-        
-        const orderCheck = await client.query(
-            "SELECT id, status, total_amount, company_id, branch_id FROM orders WHERE id = $1 AND status = $2",
-            [orderId, 'pending_confirmation']
-        );
-        if (orderCheck.rows.length === 0) {
-            return res.status(404).json({ success: false, error: "Order not found or already confirmed" });
-        }
-        const order = orderCheck.rows[0];
-        const companyId = order.company_id;
-        const branchId = order.branch_id;
-        
-        let additionalAmount = 0;
-        const newItems = [];
-        
-        for (const item of items) {
-            const productResult = await client.query(
-                "SELECT price, company_id, name FROM products WHERE id = $1",
-                [item.product_id]
-            );
-            if (productResult.rows[0].company_id !== companyId) {
-                throw new Error(`Product ${item.product_id} does not belong to this company`);
-            }
-            const unitPrice = parseFloat(productResult.rows[0].price);
-            const itemTotal = unitPrice * item.quantity;
-            additionalAmount += itemTotal;
-            await client.query(`
-                INSERT INTO order_items (order_id, product_id, quantity, unit_price, total_price)
-                VALUES ($1, $2, $3, $4, $5)
-            `, [orderId, item.product_id, item.quantity, unitPrice, itemTotal]);
-            newItems.push(item);
-        }
-        
-        let stockResult = { deductions: [], totalWastageCost: 0 };
-        try {
-            stockResult = await processOrderStockDeduction(orderId, newItems, client, companyId, branchId);
-        } catch (stockError) {
-            console.error('[QR ADD ITEMS] Stock deduction failed:', stockError.message);
-            await client.query('ROLLBACK');
-            throw new Error(stockError.message || 'Insufficient stock for additional items');
-        }
-        
-        const newTotal = parseFloat(order.total_amount) + additionalAmount;
-        await client.query(`
-            UPDATE orders SET total_amount = $1, updated_at = NOW() WHERE id = $2
-        `, [newTotal, orderId]);
-        
-        await client.query("COMMIT");
-        
-        res.json({
-            success: true,
-            message: "Items added to order",
-            additional_amount: additionalAmount,
-            new_total: newTotal,
-            stock_deductions: stockResult.deductions,
-            total_wastage_cost: stockResult.totalWastageCost
-        });
-    } catch (err) {
-        await client.query("ROLLBACK");
-        console.error("Customer add items error:", err);
-        res.status(500).json({ success: false, error: err.message });
-    } finally {
-        client.release();
-    }
-});
+);
 
 // ==================== PROTECTED ROUTES ====================
 
