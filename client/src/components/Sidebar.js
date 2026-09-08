@@ -7,7 +7,7 @@ import {
   ChevronLeft, ChevronRight, TrendingUp, Receipt, 
   ChefHat, Clock, LayoutDashboard, Settings, ClipboardList,
   Table as TableIcon, History, Menu, X, QrCode, Table,
-  Utensils, Building2
+  Utensils, Building2  // ADDED Building2
 } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 
@@ -30,7 +30,7 @@ const Sidebar = ({ user, onLogout }) => {
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
-  // Owner menu items
+  // Owner menu items — ADDED Branch Management
   const ownerMenu = [
     { path: '/owner/dashboard', icon: LayoutDashboard, label: t('dashboard') },
     { path: '/owner/reports', icon: TrendingUp, label: t('profitReports') },
@@ -39,6 +39,7 @@ const Sidebar = ({ user, onLogout }) => {
     { path: '/owner/staff', icon: Users, label: t('staffManagement') },
     { path: '/owner/customers', icon: Users, label: t('customers') },
     { path: '/owner/manage-tables', icon: Table, label: t('manageTables') },
+    { path: '/owner/branches', icon: Building2, label: 'Branch Management' }, // ADDED
     { path: '/owner/print-qr', icon: QrCode, label: t('printQRCodes') },
     { path: '/owner/pending-approvals', icon: Clock, label: t('pendingApprovals') },
     { path: '/owner/onboard', icon: Building2, label: 'Onboard Company' },

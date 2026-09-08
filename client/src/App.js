@@ -3,7 +3,8 @@ import React, { useState, useEffect, Suspense, lazy, useCallback, useRef } from 
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
-import OnboardCompany from './pages/owner/OnboardCompany'; // ADDED: Import OnboardCompany
+import OnboardCompany from './pages/owner/OnboardCompany';
+import BranchManagement from './pages/owner/BranchManagement'; // ADDED
 import { LanguageProvider } from './context/LanguageContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { BranchProvider } from './context/BranchContext';
@@ -132,15 +133,11 @@ function App() {
             <Router>
               <Suspense fallback={<LoadingSpinner />}>
                 <Routes>
-                  {/* Public routes */}
                   <Route path="/qr-menu" element={<QRMenu />} />
                   <Route path="/track-order" element={<TrackOrder />} />
                   <Route path="/login" element={<Login onLogin={handleLogin} />} />
                   <Route path="/signup" element={<Signup />} />
-                  
-                  {/* ADDED: Public onboarding route - accessible without authentication */}
                   <Route path="/owner/onboard" element={<OnboardCompany />} />
-                  
                   <Route path="*" element={<Navigate to="/login" />} />
                 </Routes>
               </Suspense>
@@ -163,11 +160,10 @@ function App() {
                 <Router>
                   <Suspense fallback={<LoadingSpinner />}>
                     <Routes>
-                      {/* Public routes (accessible even when authenticated) */}
                       <Route path="/qr-menu" element={<QRMenu />} />
                       <Route path="/track-order" element={<TrackOrder />} />
                       
-                      {/* Owner Routes - Protected */}
+                      {/* Owner Routes */}
                       <Route path="/owner/*" element={
                         <RoleRoute allowedRoles={['owner', 'admin']} userRole={userRole}>
                           <OwnerLayout user={user} onLogout={handleLogout}>
@@ -185,6 +181,7 @@ function App() {
                                 <Route path="print-qr" element={<PrintQRCodes />} />
                                 <Route path="manage-tables" element={<ManageTables />} />
                                 <Route path="onboard" element={<Navigate to="/owner/onboard" />} />
+                                <Route path="branches" element={<BranchManagement />} /> {/* ADDED */}
                                 <Route path="*" element={<Navigate to="/owner/dashboard" />} />
                               </Routes>
                             </Suspense>
