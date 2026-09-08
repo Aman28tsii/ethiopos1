@@ -13,17 +13,15 @@ import { onboardLimiter } from '../middleware/rateLimiter.js';
 const router = express.Router();
 
 // ============================================================
-// ONBOARDING - WITH RATE LIMITING
+// ONBOARDING — PUBLIC (NO AUTH REQUIRED)
 // ============================================================
 router.post('/onboard', 
-    protect, 
-    allowOwner, 
-    onboardLimiter,  // 10 requests per hour
+    onboardLimiter,  // Rate limiting only — no authentication
     onboardCompany
 );
 
 // ============================================================
-// PROTECTED ROUTES
+// PROTECTED ROUTES — AUTH REQUIRED
 // ============================================================
 
 router.use(protect);
