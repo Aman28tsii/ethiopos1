@@ -21,10 +21,12 @@ import waiterRoutes from "./routes/waiter.js";
 import categoryRoutes from "./routes/categories.js";
 import customerRoutes from "./routes/customers.js";
 import companyRoutes from "./routes/companies.js";
+import branchRoutes from "./routes/branches.js";  // ADDED
 import { errorHandler, notFound } from "./middleware/errorHandler.js";
 import { ensureIdempotencyTable } from "./middleware/idempotency.js";
+import { ensureRateLimitTable } from "./middleware/rateLimiter.js";
 import jwt from 'jsonwebtoken';
-import { ensureRateLimitTable } from './middleware/rateLimiter.js';
+
 dotenv.config();
 
 const app = express();
@@ -154,6 +156,7 @@ app.use("/api/waiter", waiterRoutes);
 app.use("/api/categories", categoryRoutes);
 app.use("/api/customers", customerRoutes);
 app.use("/api/companies", companyRoutes);
+app.use("/api/branches", branchRoutes);  // ADDED
 
 // ============================================================
 // Health Check
@@ -253,9 +256,7 @@ server.listen(PORT, async () => {
     const dbConnected = await testConnection();
     if (dbConnected) {
         console.log("✅ Database connected successfully");
-        // Initialize idempotency table
         await ensureIdempotencyTable();
-        // Initialize rate limit table
         await ensureRateLimitTable();
     } else {
         console.log("❌ Database connection failed");
