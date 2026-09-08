@@ -2,9 +2,8 @@
 
 import express from 'express';
 import { protect, allowOwner } from '../middleware/auth.js';
-import { query, getClient } from '../config/database.js';
+import { query } from '../config/database.js';
 import { AppError, catchAsync } from '../middleware/errorHandler.js';
-import { authorizeBranch } from '../middleware/authorization.js';
 
 const router = express.Router();
 
@@ -73,7 +72,6 @@ router.get('/:id', catchAsync(async (req, res) => {
 router.post('/', catchAsync(async (req, res) => {
     const { name, address, phone } = req.body;
     const companyId = req.user.company_id;
-    const userId = req.user.id;
     
     if (!companyId) {
         throw new AppError('Company context not found. Please login again.', 401);
@@ -83,7 +81,7 @@ router.post('/', catchAsync(async (req, res) => {
         throw new AppError('Branch name is required', 400);
     }
     
-    // Check for duplicate branch name within the company
+    // FIX: Single query string, no concatenation issues
     const duplicateCheck = await query(
         'SELECT id FROM branches WHERE LOWER(name) = LOWER($1) AND company_id = $2',
         [name.trim(), companyId]
@@ -114,7 +112,6 @@ router.put('/:id', catchAsync(async (req, res) => {
     const { id } = req.params;
     const { name, address, phone, is_active } = req.body;
     const companyId = req.user.company_id;
-    const userId = req.user.id;
     
     if (!companyId) {
         throw new AppError('Company context not found. Please login again.', 401);
@@ -180,7 +177,6 @@ router.put('/:id', catchAsync(async (req, res) => {
 router.delete('/:id', catchAsync(async (req, res) => {
     const { id } = req.params;
     const companyId = req.user.company_id;
-    const userId = req.user.id;
     
     if (!companyId) {
         throw new AppError('Company context not found. Please login again.', 401);
@@ -197,8 +193,8 @@ router.delete('/:id', catchAsync(async (req, res) => {
     }
     
     // Check if branch has any dependencies
-    const dependencyChecks = await query(`
-        SELECT 
+    const dependencyChecks = await query(
+        `SELECT 
             (SELECT COUNT(*) FROM users WHERE branch_id = $1) as user_count,
             (SELECT COUNT(*) FROM tables WHERE branch_id = $1) as table_count,
             (SELECT COUNT(*) FROM orders WHERE branch_id = $1) as order_count,
@@ -207,8 +203,9 @@ router.delete('/:id', catchAsync(async (req, res) => {
             (SELECT COUNT(*) FROM expenses WHERE branch_id = $1) as expense_count,
             (SELECT COUNT(*) FROM stock_transactions WHERE branch_id = $1) as stock_transaction_count,
             (SELECT COUNT(*) FROM kitchen_orders WHERE branch_id = $1) as kitchen_order_count,
-            (SELECT COUNT(*) FROM idempotency_records WHERE branch_id = $1) as idempotency_count
-    `, [id]);
+            (SELECT COUNT(*) FROM idempotency_records WHERE branch_id = $1) as idempotency_count`,
+        [id]
+    );
     
     const deps = dependencyChecks.rows[0];
     

@@ -35,7 +35,8 @@ const BranchManagement = () => {
             setBranches(response.data || []);
         } catch (err) {
             console.error('Fetch branches error:', err);
-            setNotification({ type: 'error', message: err.response?.data?.error || 'Failed to load branches' });
+            const errorMessage = err.response?.data?.error || err.message || 'Failed to load branches';
+            setNotification({ type: 'error', message: errorMessage });
             setTimeout(() => setNotification(null), 5000);
         } finally {
             setLoading(false);
@@ -52,7 +53,6 @@ const BranchManagement = () => {
             } else {
                 await createBranch(formData);
                 setNotification({ type: 'success', message: `Branch "${formData.name}" created successfully` });
-                // Refresh branch selector context
                 await refreshBranches();
             }
             resetModal();
@@ -60,7 +60,8 @@ const BranchManagement = () => {
             setTimeout(() => setNotification(null), 5000);
         } catch (err) {
             console.error('Save branch error:', err);
-            setNotification({ type: 'error', message: err.response?.data?.error || 'Failed to save branch' });
+            const errorMessage = err.response?.data?.error || err.message || 'Failed to save branch';
+            setNotification({ type: 'error', message: errorMessage });
         } finally {
             setLoading(false);
         }
@@ -74,12 +75,12 @@ const BranchManagement = () => {
             setNotification({ type: 'success', message: `Branch "${deleteConfirm.name}" deleted successfully` });
             setDeleteConfirm(null);
             fetchBranches();
-            // Refresh branch selector context
             await refreshBranches();
             setTimeout(() => setNotification(null), 5000);
         } catch (err) {
             console.error('Delete branch error:', err);
-            setNotification({ type: 'error', message: err.response?.data?.error || 'Failed to delete branch' });
+            const errorMessage = err.response?.data?.error || err.message || 'Failed to delete branch';
+            setNotification({ type: 'error', message: errorMessage });
             setDeleteConfirm(null);
         } finally {
             setLoading(false);
@@ -273,6 +274,11 @@ const BranchManagement = () => {
                                     className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                                     placeholder="e.g., Bole Branch"
                                 />
+                                {!editingBranch && (
+                                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                        Tip: Use a unique name like "Bole Branch" or "Piassa Branch"
+                                    </p>
+                                )}
                             </div>
 
                             <div>
