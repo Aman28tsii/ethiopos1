@@ -16,7 +16,8 @@ export const authLimiter = rateLimit({
     standardHeaders: true,
     legacyHeaders: false,
     keyGenerator: (req) => {
-        return req.ip || req.connection.remoteAddress;
+        const forwarded = req.headers['x-forwarded-for'];
+        return forwarded ? forwarded.split(',')[0].trim() : req.ip || req.connection.remoteAddress;
     }
 });
 
@@ -34,12 +35,15 @@ export const mutationLimiter = rateLimit({
     standardHeaders: true,
     legacyHeaders: false,
     keyGenerator: (req) => {
-        // For authenticated users, use user ID + IP combination
-        // This prevents one user from flooding while allowing multiple
-        // users behind the same IP to have their own limits
+        // Use x-forwarded-for for proxy environments (Render, etc.)
+        const forwarded = req.headers['x-forwarded-for'];
+        const clientIp = forwarded ? forwarded.split(',')[0].trim() : req.ip || req.connection.remoteAddress;
         const userId = req.user?.id || 'anonymous';
-        const ip = req.ip || req.connection.remoteAddress;
-        return `${userId}_${ip}`;
+        return `${userId}_${clientIp}`;
+    },
+    // Skip rate limiting for health checks
+    skip: (req) => {
+        return req.path === '/health' || req.path === '/';
     }
 });
 
@@ -57,12 +61,13 @@ export const onboardLimiter = rateLimit({
     standardHeaders: true,
     legacyHeaders: false,
     keyGenerator: (req) => {
-        return req.ip || req.connection.remoteAddress;
+        const forwarded = req.headers['x-forwarded-for'];
+        return forwarded ? forwarded.split(',')[0].trim() : req.ip || req.connection.remoteAddress;
     }
 });
 
 // ============================================================
-// MEDIUM: Read Operations (Optional - for future use)
+// MEDIUM: Read Operations
 // ============================================================
 
 export const readLimiter = rateLimit({
@@ -75,12 +80,12 @@ export const readLimiter = rateLimit({
     standardHeaders: true,
     legacyHeaders: false,
     skip: (req) => {
-        // Skip rate limiting for health checks
-        return req.path === '/health';
+        return req.path === '/health' || req.path === '/';
     },
     keyGenerator: (req) => {
+        const forwarded = req.headers['x-forwarded-for'];
+        const clientIp = forwarded ? forwarded.split(',')[0].trim() : req.ip || req.connection.remoteAddress;
         const userId = req.user?.id || 'anonymous';
-        const ip = req.ip || req.connection.remoteAddress;
-        return `${userId}_${ip}`;
+        return `${userId}_${clientIp}`;
     }
 });

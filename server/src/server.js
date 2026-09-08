@@ -22,7 +22,7 @@ import categoryRoutes from "./routes/categories.js";
 import customerRoutes from "./routes/customers.js";
 import companyRoutes from "./routes/companies.js";
 import { errorHandler, notFound } from "./middleware/errorHandler.js";
-import { authLimiter, mutationLimiter, onboardLimiter } from "./middleware/rateLimiter.js";
+import { ensureIdempotencyTable } from "./middleware/idempotency.js";
 import jwt from 'jsonwebtoken';
 
 dotenv.config();
@@ -46,7 +46,7 @@ const allowedOrigins = [
 ];
 
 // ============================================================
-// ✅ CORS CONFIGURATION
+// CORS CONFIGURATION
 // ============================================================
 
 const corsOptions = {
@@ -80,10 +80,9 @@ app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
 
 // ============================================================
-// ✅ TRUST PROXY CONFIGURATION
+// TRUST PROXY CONFIGURATION
 // ============================================================
 
-// Required for Render load balancer - ensures correct client IP for rate limiting
 app.set('trust proxy', 1);
 
 // ============================================================
@@ -254,6 +253,8 @@ server.listen(PORT, async () => {
     const dbConnected = await testConnection();
     if (dbConnected) {
         console.log("✅ Database connected successfully");
+        // Initialize idempotency table
+        await ensureIdempotencyTable();
     } else {
         console.log("❌ Database connection failed");
     }

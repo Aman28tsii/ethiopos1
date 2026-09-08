@@ -29,6 +29,32 @@ const generateRequestHash = (body) => {
     return crypto.createHash('sha256').update(canonical).digest('hex');
 };
 
+// Ensure idempotency_records table exists
+export const ensureIdempotencyTable = async () => {
+    try {
+        await query(`
+            CREATE TABLE IF NOT EXISTS idempotency_records (
+                id SERIAL PRIMARY KEY,
+                idempotency_key VARCHAR(255) NOT NULL,
+                company_id INTEGER NOT NULL,
+                branch_id INTEGER NOT NULL,
+                resource_type VARCHAR(50) NOT NULL,
+                resource_id VARCHAR(255),
+                request_hash TEXT,
+                response_data JSONB,
+                status_code INTEGER,
+                status VARCHAR(20) DEFAULT 'processing',
+                created_at TIMESTAMP DEFAULT NOW(),
+                updated_at TIMESTAMP DEFAULT NOW(),
+                UNIQUE(idempotency_key, company_id, branch_id, resource_type)
+            )
+        `);
+        console.log('[IDEMPOTENCY] Table verified');
+    } catch (err) {
+        console.error('[IDEMPOTENCY] Table creation error:', err.message);
+    }
+};
+
 // Get cached result from database
 const getCachedResult = async (idempotencyKey, companyId, branchId, resourceType = 'order') => {
     try {
@@ -38,7 +64,8 @@ const getCachedResult = async (idempotencyKey, companyId, branchId, resourceType
              WHERE idempotency_key = $1 
                AND company_id = $2 
                AND branch_id = $3 
-               AND resource_type = $4`,
+               AND resource_type = $4
+               AND status = 'completed'`,
             [idempotencyKey, companyId, branchId, resourceType]
         );
         return result.rows[0] || null;
@@ -79,6 +106,10 @@ const claimIdempotencyKey = async (client, idempotencyKey, companyId, branchId, 
                         conflict: true 
                     };
                 }
+                // If status is still 'processing', wait a moment and retry
+                if (record.status === 'processing') {
+                    return { claimed: false, existing: null, processing: true };
+                }
                 return { claimed: false, existing: record };
             }
         }
@@ -88,62 +119,65 @@ const claimIdempotencyKey = async (client, idempotencyKey, companyId, branchId, 
 
 // Store result in database
 const storeResult = async (client, idempotencyKey, companyId, branchId, resourceType, resourceId, responseData, statusCode) => {
-    await client.query(
-        `UPDATE idempotency_records 
-         SET response_data = $1, 
-             status_code = $2, 
-             resource_id = $3,
-             status = 'completed',
-             updated_at = NOW()
-         WHERE idempotency_key = $4 
-           AND company_id = $5 
-           AND branch_id = $6 
-           AND resource_type = $7`,
-        [responseData, statusCode, resourceId, idempotencyKey, companyId, branchId, resourceType]
-    );
-    console.log(`[IDEMPOTENCY] Stored result for ${idempotencyKey}`);
+    try {
+        await client.query(
+            `UPDATE idempotency_records 
+             SET response_data = $1, 
+                 status_code = $2, 
+                 resource_id = $3,
+                 status = 'completed',
+                 updated_at = NOW()
+             WHERE idempotency_key = $4 
+               AND company_id = $5 
+               AND branch_id = $6 
+               AND resource_type = $7`,
+            [responseData, statusCode, resourceId, idempotencyKey, companyId, branchId, resourceType]
+        );
+        console.log(`[IDEMPOTENCY] Stored result for ${idempotencyKey}`);
+    } catch (err) {
+        console.error('[IDEMPOTENCY] Store result error:', err.message);
+        throw err;
+    }
 };
 
 // Mark as failed
 const markFailed = async (client, idempotencyKey, companyId, branchId, resourceType) => {
-    await client.query(
-        `UPDATE idempotency_records 
-         SET status = 'failed',
-             updated_at = NOW()
-         WHERE idempotency_key = $1 
-           AND company_id = $2 
-           AND branch_id = $3 
-           AND resource_type = $4`,
-        [idempotencyKey, companyId, branchId, resourceType]
-    );
+    try {
+        await client.query(
+            `UPDATE idempotency_records 
+             SET status = 'failed',
+                 updated_at = NOW()
+             WHERE idempotency_key = $1 
+               AND company_id = $2 
+               AND branch_id = $3 
+               AND resource_type = $4`,
+            [idempotencyKey, companyId, branchId, resourceType]
+        );
+        console.log(`[IDEMPOTENCY] Marked ${idempotencyKey} as failed`);
+    } catch (err) {
+        console.error('[IDEMPOTENCY] Mark failed error:', err.message);
+    }
 };
 
-// ✅ FIX: Improved resource type detection with exact matching
+// Get resource type from request path
 const getResourceType = (req) => {
     const path = req.path;
-    const method = req.method;
     
-    // Check for payment first (exact match on path ending with /pay)
     if (path.includes('/pay') && !path.includes('/payment')) {
         return 'payment';
     }
-    // Check for orders
     if (path.includes('/orders') || path.includes('/order')) {
         return 'order';
     }
-    // Check for sales
     if (path.includes('/sales') || path.includes('/sale')) {
         return 'sale';
     }
-    // Check for stock adjustment
     if (path.includes('/adjust-stock')) {
         return 'stock_adjustment';
     }
-    // Check for ingredients
     if (path.includes('/ingredients')) {
         return 'stock_adjustment';
     }
-    // Default
     return 'order';
 };
 
@@ -151,10 +185,7 @@ const getResourceType = (req) => {
 export const idempotent = (req, res, next) => {
     const idempotencyKey = req.headers[IDEMPOTENCY_HEADER];
     
-    console.log(`[IDEMPOTENCY] Request: ${req.method} ${req.path}, Key: ${idempotencyKey || 'none'}`);
-    
     if (!idempotencyKey) {
-        console.log('[IDEMPOTENCY] No key, skipping');
         return next();
     }
 
@@ -162,7 +193,6 @@ export const idempotent = (req, res, next) => {
     const branchId = req.user?.branch_id;
     
     if (!companyId || !branchId) {
-        console.log('[IDEMPOTENCY] No company/branch, rejecting');
         return res.status(401).json({
             success: false,
             error: 'Authentication required for idempotent operations'
@@ -170,15 +200,12 @@ export const idempotent = (req, res, next) => {
     }
 
     const resourceType = getResourceType(req);
-    console.log(`[IDEMPOTENCY] Resource type: ${resourceType} for path ${req.path}`);
-    
     const requestHash = generateRequestHash(req.body);
     const cacheKey = getCacheKey(idempotencyKey, companyId, branchId, resourceType);
 
     // Check memory cache first
     const cached = memoryCache.get(cacheKey);
     if (cached) {
-        console.log(`[IDEMPOTENCY] Memory cache hit for ${idempotencyKey}`);
         if (cached.requestHash === requestHash) {
             return res.status(cached.status).json(cached.data);
         } else {
@@ -190,111 +217,90 @@ export const idempotent = (req, res, next) => {
         }
     }
 
-    const clientPromise = getClient();
-    
-    clientPromise.then(async (client) => {
-        try {
-            await client.query('BEGIN');
-            
-            const claim = await claimIdempotencyKey(client, idempotencyKey, companyId, branchId, resourceType, requestHash);
-            
-            if (!claim.claimed && claim.existing) {
-                await client.query('COMMIT');
-                const record = claim.existing;
+    // Check database for cached result
+    getCachedResult(idempotencyKey, companyId, branchId, resourceType)
+        .then(async (cachedResult) => {
+            if (cachedResult) {
                 memoryCache.set(cacheKey, {
-                    status: record.status_code,
-                    data: record.response_data,
-                    requestHash: record.request_hash,
+                    status: cachedResult.status_code || 200,
+                    data: cachedResult.response_data,
+                    requestHash: cachedResult.request_hash,
                     timestamp: Date.now()
                 });
-                console.log(`[IDEMPOTENCY] Returning cached result for ${idempotencyKey}`);
-                return res.status(record.status_code).json(record.response_data);
+                return res.status(cachedResult.status_code || 200).json(cachedResult.response_data);
             }
-            
-            if (!claim.claimed && claim.conflict) {
-                await client.query('ROLLBACK');
-                console.log(`[IDEMPOTENCY] Conflict for ${idempotencyKey}`);
-                return res.status(409).json({
-                    success: false,
-                    error: 'Idempotency key reused with different request payload',
-                    idempotency_key: idempotencyKey
-                });
-            }
-            
-            console.log(`[IDEMPOTENCY] Claimed key ${idempotencyKey}, processing request`);
-            
-            // We have successfully claimed the key
-            const originalJson = res.json.bind(res);
-            const originalSend = res.send.bind(res);
-            const originalStatus = res.status.bind(res);
-            let statusCode = 200;
-            let responseSent = false;
 
-            res.status = function(code) {
-                statusCode = code;
-                return originalStatus(code);
-            };
-
-            res.json = function(data) {
-                if (!responseSent) {
-                    responseSent = true;
-                    // Extract resource ID from response
-                    let resourceId = null;
-                    if (data?.data?.sale_number) {
-                        // For payments, use sale_number as resource ID
-                        resourceId = data.data.sale_number;
-                    } else if (data?.data?.order_id) {
-                        resourceId = data.data.order_id;
-                    } else if (data?.data?.id) {
-                        resourceId = data.data.id;
-                    }
-                    
-                    if (statusCode >= 200 && statusCode < 300) {
-                        console.log(`[IDEMPOTENCY] Storing success result for ${idempotencyKey}, resourceId: ${resourceId}`);
-                        storeResult(client, idempotencyKey, companyId, branchId, resourceType, resourceId, data, statusCode)
-                            .then(() => client.query('COMMIT').catch(err => console.error('[IDEMPOTENCY] Commit error:', err)))
-                            .catch(async (err) => {
-                                console.error('[IDEMPOTENCY] Store result error:', err);
-                                await markFailed(client, idempotencyKey, companyId, branchId, resourceType);
-                                await client.query('ROLLBACK');
-                            });
-                        
-                        memoryCache.set(cacheKey, {
-                            status: statusCode,
-                            data: data,
-                            requestHash: requestHash,
-                            timestamp: Date.now()
-                        });
-                    } else {
-                        console.log(`[IDEMPOTENCY] Marking failed for ${idempotencyKey}`);
-                        markFailed(client, idempotencyKey, companyId, branchId, resourceType)
-                            .then(() => client.query('COMMIT').catch(err => console.error('[IDEMPOTENCY] Commit error:', err)))
-                            .catch(async (err) => {
-                                console.error('[IDEMPOTENCY] Mark failed error:', err);
-                                await client.query('ROLLBACK');
-                            });
-                    }
+            // No cached result, process the request
+            const client = await getClient();
+            
+            try {
+                await client.query('BEGIN');
+                
+                const claim = await claimIdempotencyKey(client, idempotencyKey, companyId, branchId, resourceType, requestHash);
+                
+                if (claim.conflict) {
+                    await client.query('ROLLBACK');
+                    return res.status(409).json({
+                        success: false,
+                        error: 'Idempotency key reused with different request payload',
+                        idempotency_key: idempotencyKey
+                    });
                 }
-                return originalJson(data);
-            };
+                
+                if (claim.processing) {
+                    // Wait a moment and try again (someone else is processing)
+                    await client.query('ROLLBACK');
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                    // Try once more with fresh context
+                    const retryResult = await getCachedResult(idempotencyKey, companyId, branchId, resourceType);
+                    if (retryResult) {
+                        return res.status(retryResult.status_code || 200).json(retryResult.response_data);
+                    }
+                    return res.status(409).json({
+                        success: false,
+                        error: 'Duplicate request is being processed',
+                        idempotency_key: idempotencyKey
+                    });
+                }
+                
+                if (claim.existing) {
+                    await client.query('COMMIT');
+                    const record = claim.existing;
+                    memoryCache.set(cacheKey, {
+                        status: record.status_code || 200,
+                        data: record.response_data,
+                        requestHash: record.request_hash,
+                        timestamp: Date.now()
+                    });
+                    return res.status(record.status_code || 200).json(record.response_data);
+                }
 
-            res.send = function(data) {
-                if (!responseSent) {
-                    responseSent = true;
-                    if (statusCode >= 200 && statusCode < 300) {
-                        try {
-                            const parsed = typeof data === 'string' ? JSON.parse(data) : data;
-                            let resourceId = null;
-                            if (parsed?.data?.sale_number) {
-                                resourceId = parsed.data.sale_number;
-                            } else if (parsed?.data?.order_id) {
-                                resourceId = parsed.data.order_id;
-                            } else if (parsed?.data?.id) {
-                                resourceId = parsed.data.id;
-                            }
-                            
-                            console.log(`[IDEMPOTENCY] Storing send result for ${idempotencyKey}, resourceId: ${resourceId}`);
-                            storeResult(client, idempotencyKey, companyId, branchId, resourceType, resourceId, parsed, statusCode)
+                // We have successfully claimed the key
+                const originalJson = res.json.bind(res);
+                const originalSend = res.send.bind(res);
+                const originalStatus = res.status.bind(res);
+                let statusCode = 200;
+                let responseSent = false;
+
+                res.status = function(code) {
+                    statusCode = code;
+                    return originalStatus(code);
+                };
+
+                res.json = function(data) {
+                    if (!responseSent) {
+                        responseSent = true;
+                        let resourceId = null;
+                        if (data?.data?.sale_number) {
+                            resourceId = data.data.sale_number;
+                        } else if (data?.data?.order_id) {
+                            resourceId = data.data.order_id;
+                        } else if (data?.data?.id) {
+                            resourceId = data.data.id;
+                        }
+                        
+                        if (statusCode >= 200 && statusCode < 300) {
+                            storeResult(client, idempotencyKey, companyId, branchId, resourceType, resourceId, data, statusCode)
                                 .then(() => client.query('COMMIT').catch(err => console.error('[IDEMPOTENCY] Commit error:', err)))
                                 .catch(async (err) => {
                                     console.error('[IDEMPOTENCY] Store result error:', err);
@@ -304,46 +310,86 @@ export const idempotent = (req, res, next) => {
                             
                             memoryCache.set(cacheKey, {
                                 status: statusCode,
-                                data: parsed,
+                                data: data,
                                 requestHash: requestHash,
                                 timestamp: Date.now()
                             });
-                        } catch (e) {
-                            console.log('[IDEMPOTENCY] Non-JSON response, committing');
-                            client.query('COMMIT').catch(err => console.error('[IDEMPOTENCY] Commit error:', err));
+                        } else {
+                            markFailed(client, idempotencyKey, companyId, branchId, resourceType)
+                                .then(() => client.query('COMMIT').catch(err => console.error('[IDEMPOTENCY] Commit error:', err)))
+                                .catch(async (err) => {
+                                    console.error('[IDEMPOTENCY] Mark failed error:', err);
+                                    await client.query('ROLLBACK');
+                                });
                         }
-                    } else {
-                        console.log(`[IDEMPOTENCY] Marking failed for ${idempotencyKey}`);
-                        markFailed(client, idempotencyKey, companyId, branchId, resourceType)
-                            .then(() => client.query('COMMIT').catch(err => console.error('[IDEMPOTENCY] Commit error:', err)))
-                            .catch(async (err) => {
-                                console.error('[IDEMPOTENCY] Mark failed error:', err);
-                                await client.query('ROLLBACK');
-                            });
                     }
-                }
-                return originalSend(data);
-            };
+                    return originalJson(data);
+                };
 
-            next();
+                res.send = function(data) {
+                    if (!responseSent) {
+                        responseSent = true;
+                        if (statusCode >= 200 && statusCode < 300) {
+                            try {
+                                const parsed = typeof data === 'string' ? JSON.parse(data) : data;
+                                let resourceId = null;
+                                if (parsed?.data?.sale_number) {
+                                    resourceId = parsed.data.sale_number;
+                                } else if (parsed?.data?.order_id) {
+                                    resourceId = parsed.data.order_id;
+                                } else if (parsed?.data?.id) {
+                                    resourceId = parsed.data.id;
+                                }
+                                
+                                storeResult(client, idempotencyKey, companyId, branchId, resourceType, resourceId, parsed, statusCode)
+                                    .then(() => client.query('COMMIT').catch(err => console.error('[IDEMPOTENCY] Commit error:', err)))
+                                    .catch(async (err) => {
+                                        console.error('[IDEMPOTENCY] Store result error:', err);
+                                        await markFailed(client, idempotencyKey, companyId, branchId, resourceType);
+                                        await client.query('ROLLBACK');
+                                    });
+                                
+                                memoryCache.set(cacheKey, {
+                                    status: statusCode,
+                                    data: parsed,
+                                    requestHash: requestHash,
+                                    timestamp: Date.now()
+                                });
+                            } catch (e) {
+                                client.query('COMMIT').catch(err => console.error('[IDEMPOTENCY] Commit error:', err));
+                            }
+                        } else {
+                            markFailed(client, idempotencyKey, companyId, branchId, resourceType)
+                                .then(() => client.query('COMMIT').catch(err => console.error('[IDEMPOTENCY] Commit error:', err)))
+                                .catch(async (err) => {
+                                    console.error('[IDEMPOTENCY] Mark failed error:', err);
+                                    await client.query('ROLLBACK');
+                                });
+                        }
+                    }
+                    return originalSend(data);
+                };
 
-        } catch (error) {
-            await client.query('ROLLBACK');
-            console.error('[IDEMPOTENCY] Transaction error:', error);
+                next();
+
+            } catch (error) {
+                await client.query('ROLLBACK');
+                console.error('[IDEMPOTENCY] Transaction error:', error);
+                res.status(500).json({
+                    success: false,
+                    error: 'Internal server error during idempotency processing'
+                });
+            } finally {
+                client.release();
+            }
+        })
+        .catch((err) => {
+            console.error('[IDEMPOTENCY] Processing error:', err);
             res.status(500).json({
                 success: false,
                 error: 'Internal server error during idempotency processing'
             });
-        } finally {
-            client.release();
-        }
-    }).catch((err) => {
-        console.error('[IDEMPOTENCY] Client connection error:', err);
-        res.status(500).json({
-            success: false,
-            error: 'Database connection error during idempotency processing'
         });
-    });
 };
 
 export const requireIdempotency = (req, res, next) => {
