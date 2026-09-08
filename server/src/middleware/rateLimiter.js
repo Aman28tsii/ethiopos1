@@ -17,14 +17,21 @@ class PostgresStore {
         const now = new Date();
         const windowStart = new Date(now.getTime() - this.windowMs);
         
-        // Use a transaction to ensure atomicity
+        // First, delete expired entries for this key
+        await query(
+            'DELETE FROM rate_limit_store WHERE key = $1 AND reset_at < $2',
+            [key, windowStart]
+        );
+        
+        // Then insert or update
         const result = await query(
-            `INSERT INTO rate_limit_store (key, count, reset_at)
-             VALUES ($1, 1, $2)
+            `INSERT INTO rate_limit_store (key, count, reset_at, created_at, updated_at)
+             VALUES ($1, 1, $2, NOW(), NOW())
              ON CONFLICT (key) DO UPDATE 
              SET count = rate_limit_store.count + 1,
-                 reset_at = $2
-             WHERE rate_limit_store.reset_at < $2 OR rate_limit_store.key = $1
+                 reset_at = $2,
+                 updated_at = NOW()
+             WHERE rate_limit_store.key = $1
              RETURNING count`,
             [key, windowStart]
         );
@@ -33,8 +40,7 @@ class PostgresStore {
         if (result.rows.length > 0) {
             count = parseInt(result.rows[0].count);
         } else {
-            // If no row returned, the conflict update may have failed
-            // Try a direct insert or select
+            // If no row returned, try selecting
             const selectResult = await query(
                 'SELECT count FROM rate_limit_store WHERE key = $1',
                 [key]
@@ -44,7 +50,7 @@ class PostgresStore {
             } else {
                 // Insert again
                 await query(
-                    'INSERT INTO rate_limit_store (key, count, reset_at) VALUES ($1, 1, $2)',
+                    'INSERT INTO rate_limit_store (key, count, reset_at, created_at, updated_at) VALUES ($1, 1, $2, NOW(), NOW())',
                     [key, windowStart]
                 );
                 count = 1;
@@ -59,7 +65,7 @@ class PostgresStore {
 
     async decrement(key) {
         await query(
-            'UPDATE rate_limit_store SET count = count - 1 WHERE key = $1 AND count > 0',
+            'UPDATE rate_limit_store SET count = count - 1, updated_at = NOW() WHERE key = $1 AND count > 0',
             [key]
         );
     }
