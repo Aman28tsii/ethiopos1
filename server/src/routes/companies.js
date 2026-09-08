@@ -8,32 +8,17 @@ import {
 } from '../controllers/companyController.js';
 import { protect, allowOwner } from '../middleware/auth.js';
 import { authorizeCompany, requireCompanyContext } from '../middleware/authorization.js';
-import rateLimit from 'express-rate-limit';
+import { onboardLimiter } from '../middleware/rateLimiter.js';
 
 const router = express.Router();
 
-// Rate limiting for onboarding
-const onboardLimiter = rateLimit({
-    windowMs: 60 * 60 * 1000, // 1 hour
-    max: 10, // 10 requests per hour
-    message: {
-        success: false,
-        error: 'Too many company creation requests. Please try again later.'
-    },
-    standardHeaders: true,
-    legacyHeaders: false
-});
-
 // ============================================================
-// PUBLIC ROUTES
+// ONBOARDING - WITH RATE LIMITING
 // ============================================================
-
-// Onboard new company (requires admin/owner auth)
-// POST /api/companies/onboard
 router.post('/onboard', 
-    protect,           // Must be authenticated
-    allowOwner,        // Must be admin or owner
-    onboardLimiter,    // Rate limit
+    protect, 
+    allowOwner, 
+    onboardLimiter,  // 10 requests per hour
     onboardCompany
 );
 

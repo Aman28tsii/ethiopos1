@@ -20,8 +20,9 @@ import tableRoutes from "./routes/tables.js";
 import waiterRoutes from "./routes/waiter.js";
 import categoryRoutes from "./routes/categories.js";
 import customerRoutes from "./routes/customers.js";
+import companyRoutes from "./routes/companies.js";
 import { errorHandler, notFound } from "./middleware/errorHandler.js";
-import companyRoutes from './routes/companies.js';
+import { authLimiter, mutationLimiter, onboardLimiter } from "./middleware/rateLimiter.js";
 import jwt from 'jsonwebtoken';
 
 dotenv.config();
@@ -45,18 +46,15 @@ const allowedOrigins = [
 ];
 
 // ============================================================
-// ✅ CORS CONFIGURATION - FIXED
+// ✅ CORS CONFIGURATION
 // ============================================================
 
 const corsOptions = {
     origin: function (origin, callback) {
-        // Allow requests with no origin (like mobile apps or curl)
         if (!origin) return callback(null, true);
-        
         if (allowedOrigins.indexOf(origin) !== -1) {
             callback(null, true);
         } else {
-            // Allow all in development, restrict in production
             if (process.env.NODE_ENV !== 'production') {
                 callback(null, true);
             } else {
@@ -71,16 +69,22 @@ const corsOptions = {
         "Content-Type",
         "Authorization",
         "Idempotency-Key",
-        "cache-control",      // ✅ FIXED - Added cache-control
+        "cache-control",
         "X-Requested-With",
         "Accept",
         "Origin"
     ]
 };
 
-// Apply CORS middleware
 app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
+
+// ============================================================
+// ✅ TRUST PROXY CONFIGURATION
+// ============================================================
+
+// Required for Render load balancer - ensures correct client IP for rate limiting
+app.set('trust proxy', 1);
 
 // ============================================================
 // Socket.IO with CORS
@@ -95,6 +99,8 @@ const io = new SocketServer(server, {
     pingInterval: 25000,
     cookie: false
 });
+
+app.set("io", io);
 
 // Socket.IO authentication middleware
 io.use((socket, next) => {
@@ -117,8 +123,6 @@ io.use((socket, next) => {
         return next(new Error('Invalid token'));
     }
 });
-
-app.set("io", io);
 
 // ============================================================
 // Middleware
@@ -153,7 +157,7 @@ app.use("/api/customers", customerRoutes);
 app.use("/api/companies", companyRoutes);
 
 // ============================================================
-// Health Check - With explicit CORS headers
+// Health Check
 // ============================================================
 
 app.get("/health", (req, res) => {
@@ -246,7 +250,6 @@ server.listen(PORT, async () => {
     console.log(`🔗 API: http://localhost:${PORT}/api`);
     console.log(`🔌 WebSocket: ws://localhost:${PORT}/socket.io`);
     console.log(`📡 CORS allowed origins: ${allowedOrigins.join(', ')}`);
-    console.log(`📡 CORS allowed headers: Content-Type, Authorization, cache-control`);
     
     const dbConnected = await testConnection();
     if (dbConnected) {

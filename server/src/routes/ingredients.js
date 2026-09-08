@@ -4,6 +4,7 @@ import express from 'express';
 import { protect, allowManager, allowOwner } from '../middleware/auth.js';
 import { authorizeCompany, authorizeBranch, requireCompanyContext } from '../middleware/authorization.js';
 import { requireIdempotency, idempotent } from '../middleware/idempotency.js';
+import { mutationLimiter } from '../middleware/rateLimiter.js';
 import {
     getAllIngredients,
     getIngredientById,
@@ -42,20 +43,15 @@ router.get('/categories', authorizeCompany, allowManager, getIngredientCategorie
 router.get('/:id', authorizeBranch, allowManager, getIngredientById);
 
 // Owner only for write operations
-// Create ingredient - branch_id from user context
 router.post('/', authorizeBranch, allowOwner, createIngredient);
-
-// Update ingredient - validate branch ownership
 router.put('/:id', authorizeBranch, allowOwner, updateIngredient);
-
-// Delete ingredient - validate branch ownership
 router.delete('/:id', authorizeBranch, allowOwner, deleteIngredient);
 
-// ✅ FIX: Adjust stock with idempotency - middleware order matters!
-// The order is: authorizeBranch → allowOwner → requireIdempotency → idempotent → adjustStock
+// ADJUST STOCK - WITH RATE LIMITING AND IDEMPOTENCY
 router.put('/:id/adjust-stock', 
     authorizeBranch, 
     allowOwner, 
+    mutationLimiter,
     requireIdempotency, 
     idempotent, 
     adjustStock

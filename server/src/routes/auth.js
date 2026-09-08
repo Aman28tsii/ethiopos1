@@ -28,6 +28,7 @@ import {
     getOwnerBranches
 } from '../middleware/authorization.js';
 import { pool } from '../config/database.js';
+import { authLimiter, mutationLimiter } from '../middleware/rateLimiter.js';
 
 const router = express.Router();
 
@@ -35,22 +36,14 @@ const router = express.Router();
 // RATE LIMITING FOR AUTH
 // ============================================================
 
-const authLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000,
-    max: 20,
-    message: { 
-        success: false, 
-        error: 'Too many login attempts. Please try again later.' 
-    },
-    standardHeaders: true,
-    legacyHeaders: false
-});
+// authLimiter is imported from rateLimiter.js
+// mutationLimiter is imported from rateLimiter.js
 
 // ============================================================
-// PUBLIC ROUTES
+// PUBLIC ROUTES - WITH RATE LIMITING
 // ============================================================
 router.post('/login', authLimiter, login);
-router.post('/signup', signup);
+router.post('/signup', authLimiter, signup);
 router.post('/verify', verifyToken);
 
 // ============================================================
@@ -104,19 +97,58 @@ router.get('/branches', protect, getOwnerBranches, async (req, res) => {
 router.post('/switch-branch', protect, allowOwner, switchBranch);
 
 // ============================================================
-// USER MANAGEMENT (Owner only)
+// USER MANAGEMENT (Owner only) - WITH RATE LIMITING ON MUTATIONS
 // ============================================================
+
+// Read operations (no rate limit needed for reads)
 router.get('/users', authorizeCompany, allowOwner, getAllUsers);
 router.get('/users/pending', authorizeCompany, allowOwner, getPendingUsers);
-router.put('/users/:id/approve', authorizeCompany, allowOwner, approveUser);
-router.delete('/users/:id/reject', authorizeCompany, allowOwner, rejectUser);
-router.put('/users/:id', authorizeCompany, allowOwner, updateUser);
-router.delete('/users/:id', authorizeCompany, allowOwner, deleteUser);
 
-// ✅ NEW: Enable/Disable user (Owner/Admin only)
-router.put('/users/:id/enable', authorizeCompany, allowOwner, enableUser);
-router.put('/users/:id/disable', authorizeCompany, allowOwner, disableUser);
+// MUTATION ENDPOINTS - WITH RATE LIMITING
+router.put('/users/:id/approve', 
+    authorizeCompany, 
+    allowOwner, 
+    mutationLimiter, 
+    approveUser
+);
 
+router.delete('/users/:id/reject', 
+    authorizeCompany, 
+    allowOwner, 
+    mutationLimiter, 
+    rejectUser
+);
+
+router.put('/users/:id', 
+    authorizeCompany, 
+    allowOwner, 
+    mutationLimiter, 
+    updateUser
+);
+
+router.delete('/users/:id', 
+    authorizeCompany, 
+    allowOwner, 
+    mutationLimiter, 
+    deleteUser
+);
+
+// Enable/Disable user with rate limiting
+router.put('/users/:id/enable', 
+    authorizeCompany, 
+    allowOwner, 
+    mutationLimiter, 
+    enableUser
+);
+
+router.put('/users/:id/disable', 
+    authorizeCompany, 
+    allowOwner, 
+    mutationLimiter, 
+    disableUser
+);
+
+// Staff performance (read-only)
 router.get('/performance', authorizeCompany, allowOwner, getStaffPerformance);
 
 // ============================================================

@@ -9,6 +9,7 @@ import {
 } from '../controllers/saleController.js';
 import { protect, allowCashier, allowManager } from '../middleware/auth.js';
 import { requireIdempotency, idempotent } from '../middleware/idempotency.js';
+import { mutationLimiter } from '../middleware/rateLimiter.js';
 
 const router = express.Router();
 
@@ -19,8 +20,14 @@ router.use(protect);
 // CASHIER ROUTES
 // ============================================
 
-// ✅ FIX: Added idempotency protection to prevent duplicate sales
-router.post('/', allowCashier, requireIdempotency, idempotent, createSale);
+// CREATE sale - WITH RATE LIMITING AND IDEMPOTENCY
+router.post('/', 
+    allowCashier, 
+    mutationLimiter,
+    requireIdempotency, 
+    idempotent, 
+    createSale
+);
 
 // Cashier and above can view sales
 router.get('/', allowCashier, getSales);
