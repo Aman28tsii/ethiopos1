@@ -34,7 +34,6 @@ const Login = ({ onLogin }) => {
         const user = response.data.user;
         const token = response.data.token;
         
-        // Store company_id and branch_id
         if (user.company_id) {
           localStorage.setItem('company_id', user.company_id);
         }
@@ -42,10 +41,8 @@ const Login = ({ onLogin }) => {
           localStorage.setItem('branch_id', user.branch_id);
         }
         
-        // Call the onLogin callback
         onLogin(user, token);
         
-        // Navigate based on role
         const role = user.role;
         if (role === 'admin' || role === 'owner') {
           navigate('/owner/dashboard');
@@ -144,20 +141,14 @@ const Login = ({ onLogin }) => {
           <div className="mt-6 text-center">
             <p className="text-gray-600 dark:text-gray-500 dark:text-gray-500 dark:text-gray-400 text-sm">
               {t('noAccount')}{' '}
-              <Link to="/signup" className="text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300">
+              {/* CHANGED: Link now goes to /owner/onboard for company registration */}
+              <Link to="/owner/onboard" className="text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-semibold">
                 {t('signUp')}
               </Link>
             </p>
           </div>
 
-          <div className="mt-6 text-center">
-            <p className="text-gray-500 dark:text-gray-500 text-sm">{t('demoAccounts')}:</p>
-            <p className="text-gray-600 dark:text-gray-500 dark:text-gray-500 dark:text-gray-400 text-xs mt-1">
-              admin@example.com / admin123 ({t('admin')})<br />
-              cashier@example.com / admin123 ({t('cashier')})<br />
-              kitchen@example.com / admin123 ({t('kitchen')})
-            </p>
-          </div>
+          {/* REMOVED: Demo accounts section */}
         </div>
       </div>
     </div>

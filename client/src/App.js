@@ -3,6 +3,7 @@ import React, { useState, useEffect, Suspense, lazy, useCallback, useRef } from 
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
+import OnboardCompany from './pages/owner/OnboardCompany'; // ADDED: Import OnboardCompany
 import { LanguageProvider } from './context/LanguageContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { BranchProvider } from './context/BranchContext';
@@ -41,7 +42,6 @@ const ManualOrder = lazy(() => import('./pages/cashier/ManualOrder'));
 const MyOrders = lazy(() => import('./pages/waiter/MyOrders'));
 const TableStatus = lazy(() => import('./pages/waiter/TableStatus'));
 const PendingConfirmations = lazy(() => import('./pages/waiter/PendingConfirmations'));
-const OnboardCompany = lazy(() => import('./pages/owner/OnboardCompany'));
 
 const LoadingSpinner = () => (
   <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
@@ -132,10 +132,15 @@ function App() {
             <Router>
               <Suspense fallback={<LoadingSpinner />}>
                 <Routes>
+                  {/* Public routes */}
                   <Route path="/qr-menu" element={<QRMenu />} />
                   <Route path="/track-order" element={<TrackOrder />} />
                   <Route path="/login" element={<Login onLogin={handleLogin} />} />
                   <Route path="/signup" element={<Signup />} />
+                  
+                  {/* ADDED: Public onboarding route - accessible without authentication */}
+                  <Route path="/owner/onboard" element={<OnboardCompany />} />
+                  
                   <Route path="*" element={<Navigate to="/login" />} />
                 </Routes>
               </Suspense>
@@ -158,10 +163,11 @@ function App() {
                 <Router>
                   <Suspense fallback={<LoadingSpinner />}>
                     <Routes>
+                      {/* Public routes (accessible even when authenticated) */}
                       <Route path="/qr-menu" element={<QRMenu />} />
                       <Route path="/track-order" element={<TrackOrder />} />
-
-                      {/* Owner Routes */}
+                      
+                      {/* Owner Routes - Protected */}
                       <Route path="/owner/*" element={
                         <RoleRoute allowedRoles={['owner', 'admin']} userRole={userRole}>
                           <OwnerLayout user={user} onLogout={handleLogout}>
@@ -178,7 +184,7 @@ function App() {
                                 <Route path="customers" element={<Customers />} />
                                 <Route path="print-qr" element={<PrintQRCodes />} />
                                 <Route path="manage-tables" element={<ManageTables />} />
-                                <Route path="onboard" element={<OnboardCompany />} />
+                                <Route path="onboard" element={<Navigate to="/owner/onboard" />} />
                                 <Route path="*" element={<Navigate to="/owner/dashboard" />} />
                               </Routes>
                             </Suspense>
