@@ -2,7 +2,10 @@
 
 import axios from 'axios';
 
-const API_URL = process.env.REACT_APP_API_URL || 'https://ethiopos1.onrender.com/api';
+// ✅ FIX: Use environment variable or fallback to the deployed backend
+// The backend is deployed as a separate Web Service on Render
+// Replace this with your actual backend URL
+const API_URL = process.env.REACT_APP_API_URL || 'https://ethiopos1-1.onrender.com/api';
 
 const API = axios.create({
   baseURL: API_URL,
