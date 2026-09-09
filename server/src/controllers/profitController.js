@@ -61,6 +61,9 @@ export const getProfitReport = catchAsync(async (req, res) => {
         ORDER BY date DESC
     `, [startDate, endDate, companyId, branchId]);
   
+    // ============================================================
+    // ✅ FIXED: TOP PRODUCTS - Uses real cost from sale_items
+    // ============================================================
     const topProductsResult = await query(`
         SELECT 
             p.id,
@@ -68,9 +71,13 @@ export const getProfitReport = catchAsync(async (req, res) => {
             p.category,
             COALESCE(SUM(si.quantity), 0) as quantity_sold,
             COALESCE(SUM(si.total_price), 0) as revenue,
-            0 as cost,
-            COALESCE(SUM(si.total_price), 0) as profit,
-            100 as profit_margin
+            COALESCE(SUM(si.total_cost), 0) as cost,
+            COALESCE(SUM(si.total_price) - SUM(si.total_cost), 0) as profit,
+            CASE 
+                WHEN COALESCE(SUM(si.total_price), 0) > 0 
+                THEN ROUND(((COALESCE(SUM(si.total_price), 0) - COALESCE(SUM(si.total_cost), 0)) / COALESCE(SUM(si.total_price), 0)) * 100, 2)
+                ELSE 0 
+            END as profit_margin
         FROM products p
         LEFT JOIN sale_items si ON p.id = si.product_id
         LEFT JOIN sales s ON si.sale_id = s.id 
