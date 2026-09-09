@@ -243,6 +243,118 @@ API.interceptors.response.use(
 );
 
 export default API;
+=== FILE: C:\Users\dell\Desktop\restaurant\client\src\api\branches.js ===
+// client/src/api/branches.js
+
+import API from './axios';
+
+// ============================================
+// GET ALL BRANCHES FOR CURRENT COMPANY
+// ============================================
+export const getBranches = async () => {
+    try {
+        const response = await API.get('/branches');
+        return response.data;
+    } catch (error) {
+        console.error('Get branches error:', error);
+        throw error;
+    }
+};
+
+// ============================================
+// GET SINGLE BRANCH BY ID
+// ============================================
+export const getBranch = async (id) => {
+    try {
+        const response = await API.get(`/branches/${id}`);
+        return response.data;
+    } catch (error) {
+        console.error('Get branch error:', error);
+        throw error;
+    }
+};
+
+// ============================================
+// CREATE BRANCH
+// ============================================
+export const createBranch = async (data) => {
+    try {
+        const response = await API.post('/branches', data);
+        return response.data;
+    } catch (error) {
+        console.error('Create branch error:', error);
+        throw error;
+    }
+};
+
+// ============================================
+// UPDATE BRANCH
+// ============================================
+export const updateBranch = async (id, data) => {
+    try {
+        const response = await API.put(`/branches/${id}`, data);
+        return response.data;
+    } catch (error) {
+        console.error('Update branch error:', error);
+        throw error;
+    }
+};
+
+// ============================================
+// DELETE BRANCH
+// ============================================
+export const deleteBranch = async (id) => {
+    try {
+        const response = await API.delete(`/branches/${id}`);
+        return response.data;
+    } catch (error) {
+        console.error('Delete branch error:', error);
+        throw error;
+    }
+};
+=== FILE: C:\Users\dell\Desktop\restaurant\client\src\api\companies.js ===
+// client/src/api/companies.js
+
+import API from './axios';
+
+// ============================================
+// ONBOARD NEW COMPANY
+// ============================================
+export const onboardCompany = async (data) => {
+    try {
+        const response = await API.post('/companies/onboard', data);
+        return response.data;
+    } catch (error) {
+        console.error('Onboard company error:', error);
+        throw error;
+    }
+};
+
+// ============================================
+// GET COMPANY INFO
+// ============================================
+export const getCompanyInfo = async (companyId) => {
+    try {
+        const response = await API.get(`/companies/${companyId}`);
+        return response.data;
+    } catch (error) {
+        console.error('Get company info error:', error);
+        throw error;
+    }
+};
+
+// ============================================
+// LIST ALL COMPANIES
+// ============================================
+export const listCompanies = async () => {
+    try {
+        const response = await API.get('/companies');
+        return response.data;
+    } catch (error) {
+        console.error('List companies error:', error);
+        throw error;
+    }
+};
 === FILE: C:\Users\dell\Desktop\restaurant\client\src\api\inventory.js ===
 import API from './axios';
 
@@ -2083,6 +2195,8 @@ const ResponsiveTable = ({ headers, data, renderRow, emptyMessage }) => {
 
 export default ResponsiveTable;
 === FILE: C:\Users\dell\Desktop\restaurant\client\src\components\Sidebar.js ===
+// client/src/components/Sidebar.js
+
 import React, { useState, useEffect } from 'react';
 import { NavLink } from 'react-router-dom';
 import { 
@@ -2090,7 +2204,7 @@ import {
   ChevronLeft, ChevronRight, TrendingUp, Receipt, 
   ChefHat, Clock, LayoutDashboard, Settings, ClipboardList,
   Table as TableIcon, History, Menu, X, QrCode, Table,
-  Utensils
+  Utensils, Building2  // ADDED Building2
 } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 
@@ -2113,7 +2227,7 @@ const Sidebar = ({ user, onLogout }) => {
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
-  // Owner menu items
+  // Owner menu items â€” ADDED Branch Management
   const ownerMenu = [
     { path: '/owner/dashboard', icon: LayoutDashboard, label: t('dashboard') },
     { path: '/owner/reports', icon: TrendingUp, label: t('profitReports') },
@@ -2122,8 +2236,10 @@ const Sidebar = ({ user, onLogout }) => {
     { path: '/owner/staff', icon: Users, label: t('staffManagement') },
     { path: '/owner/customers', icon: Users, label: t('customers') },
     { path: '/owner/manage-tables', icon: Table, label: t('manageTables') },
+    { path: '/owner/branches', icon: Building2, label: 'Branch Management' }, // ADDED
     { path: '/owner/print-qr', icon: QrCode, label: t('printQRCodes') },
     { path: '/owner/pending-approvals', icon: Clock, label: t('pendingApprovals') },
+    { path: '/owner/onboard', icon: Building2, label: 'Onboard Company' },
     { path: '/owner/settings', icon: Settings, label: t('settings') },
   ];
 
@@ -2136,13 +2252,13 @@ const Sidebar = ({ user, onLogout }) => {
     { path: '/manager/tables', icon: Table, label: t('manageTables') },
   ];
 
-  // Cashier menu items - âœ… FULLY TRANSLATED
+  // Cashier menu items
   const cashierMenu = [
     { path: '/cashier/pos', icon: ShoppingCart, label: t('posTerminal') },
     { path: '/cashier/manual-order', icon: ShoppingCart, label: t('manualOrder') },
   ];
 
-  // Waiter menu items - âœ… FULLY TRANSLATED
+  // Waiter menu items
   const waiterMenu = [
     { path: '/waiter/tables', icon: TableIcon, label: t('tableManagement') },
     { path: '/waiter/my-orders', icon: ClipboardList, label: t('myOrders') },
@@ -2150,7 +2266,7 @@ const Sidebar = ({ user, onLogout }) => {
     { path: '/waiter/table-status', icon: TableIcon, label: t('tableStatus') },
   ];
 
-  // Kitchen menu items - âœ… TRANSLATED
+  // Kitchen menu items
   const kitchenMenu = [
     { path: '/kitchen/orders', icon: ChefHat, label: t('kitchenOrders') },
   ];
@@ -7417,6 +7533,383 @@ const AssignWaiters = () => {
 };
 
 export default AssignWaiters;
+=== FILE: C:\Users\dell\Desktop\restaurant\client\src\pages\owner\BranchManagement.js ===
+// client/src/pages/owner/BranchManagement.js
+
+import React, { useState, useEffect } from 'react';
+import { 
+    Building2, Plus, Edit2, Trash2, X, Loader2, 
+    RefreshCw, CheckCircle, AlertCircle, MapPin, Phone
+} from 'lucide-react';
+import { useLanguage } from '../../context/LanguageContext';
+import { useBranch } from '../../context/BranchContext';
+import { getBranches, createBranch, updateBranch, deleteBranch } from '../../api/branches';
+
+const BranchManagement = () => {
+    const { t } = useLanguage();
+    const { selectedBranch, refreshBranches } = useBranch();
+    const [branches, setBranches] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [showModal, setShowModal] = useState(false);
+    const [editingBranch, setEditingBranch] = useState(null);
+    const [notification, setNotification] = useState(null);
+    const [formData, setFormData] = useState({
+        name: '',
+        address: '',
+        phone: ''
+    });
+    const [deleteConfirm, setDeleteConfirm] = useState(null);
+
+    useEffect(() => {
+        fetchBranches();
+    }, []);
+
+    const fetchBranches = async () => {
+        setLoading(true);
+        try {
+            const response = await getBranches();
+            setBranches(response.data || []);
+        } catch (err) {
+            console.error('Fetch branches error:', err);
+            const errorMessage = err.response?.data?.error || err.message || 'Failed to load branches';
+            setNotification({ type: 'error', message: errorMessage });
+            setTimeout(() => setNotification(null), 5000);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        setLoading(true);
+        try {
+            if (editingBranch) {
+                await updateBranch(editingBranch.id, formData);
+                setNotification({ type: 'success', message: `Branch "${formData.name}" updated successfully` });
+            } else {
+                await createBranch(formData);
+                setNotification({ type: 'success', message: `Branch "${formData.name}" created successfully` });
+                await refreshBranches();
+            }
+            resetModal();
+            fetchBranches();
+            setTimeout(() => setNotification(null), 5000);
+        } catch (err) {
+            console.error('Save branch error:', err);
+            const errorMessage = err.response?.data?.error || err.message || 'Failed to save branch';
+            setNotification({ type: 'error', message: errorMessage });
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleDelete = async () => {
+        if (!deleteConfirm) return;
+        setLoading(true);
+        try {
+            await deleteBranch(deleteConfirm.id);
+            setNotification({ type: 'success', message: `Branch "${deleteConfirm.name}" deleted successfully` });
+            setDeleteConfirm(null);
+            fetchBranches();
+            await refreshBranches();
+            setTimeout(() => setNotification(null), 5000);
+        } catch (err) {
+            console.error('Delete branch error:', err);
+            const errorMessage = err.response?.data?.error || err.message || 'Failed to delete branch';
+            setNotification({ type: 'error', message: errorMessage });
+            setDeleteConfirm(null);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const resetModal = () => {
+        setShowModal(false);
+        setEditingBranch(null);
+        setFormData({ name: '', address: '', phone: '' });
+    };
+
+    const openCreateModal = () => {
+        setEditingBranch(null);
+        setFormData({ name: '', address: '', phone: '' });
+        setShowModal(true);
+    };
+
+    const openEditModal = (branch) => {
+        setEditingBranch(branch);
+        setFormData({
+            name: branch.name,
+            address: branch.address || '',
+            phone: branch.phone || ''
+        });
+        setShowModal(true);
+    };
+
+    const formatDate = (dateString) => {
+        if (!dateString) return 'N/A';
+        return new Date(dateString).toLocaleDateString() + ' ' + new Date(dateString).toLocaleTimeString();
+    };
+
+    if (loading && branches.length === 0) {
+        return (
+            <div className="flex justify-center items-center h-full min-h-[400px]">
+                <Loader2 className="animate-spin text-blue-500" size={40} />
+            </div>
+        );
+    }
+
+    return (
+        <div className="space-y-6">
+            {/* Header */}
+            <div className="flex justify-between items-center flex-wrap gap-4">
+                <div>
+                    <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                        <Building2 size={24} className="text-blue-600 dark:text-blue-400" />
+                        Branch Management
+                    </h1>
+                    <p className="text-gray-500 dark:text-gray-400 mt-1">
+                        Manage the branches belonging to your company
+                    </p>
+                </div>
+                <div className="flex gap-3">
+                    <button
+                        onClick={fetchBranches}
+                        className="bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 px-4 py-2 rounded-xl flex items-center gap-2 transition"
+                    >
+                        <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
+                        Refresh
+                    </button>
+                    <button
+                        onClick={openCreateModal}
+                        className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl flex items-center gap-2 transition"
+                    >
+                        <Plus size={18} />
+                        Add Branch
+                    </button>
+                </div>
+            </div>
+
+            {/* Notification */}
+            {notification && (
+                <div className={`rounded-xl p-4 flex items-center gap-3 ${
+                    notification.type === 'success' 
+                        ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 border border-green-200 dark:border-green-800'
+                        : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 border border-red-200 dark:border-red-800'
+                }`}>
+                    {notification.type === 'success' ? <CheckCircle size={20} /> : <AlertCircle size={20} />}
+                    <span>{notification.message}</span>
+                    <button onClick={() => setNotification(null)} className="ml-auto">
+                        <X size={18} />
+                    </button>
+                </div>
+            )}
+
+            {/* Current Branch Indicator */}
+            {selectedBranch && (
+                <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl px-4 py-3 flex items-center gap-2 text-blue-700 dark:text-blue-400 text-sm">
+                    <Building2 size={16} />
+                    <span className="font-semibold">Currently viewing:</span>
+                    <span>{selectedBranch.name}</span>
+                </div>
+            )}
+
+            {/* Branches Grid */}
+            {branches.length === 0 ? (
+                <div className="bg-white dark:bg-gray-800 rounded-xl p-12 text-center border border-gray-200 dark:border-gray-700">
+                    <Building2 size={48} className="mx-auto text-gray-400 mb-3" />
+                    <p className="text-gray-500 dark:text-gray-400 text-lg">No branches found</p>
+                    <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">Click "Add Branch" to create your first branch</p>
+                </div>
+            ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {branches.map((branch) => (
+                        <div key={branch.id} className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden hover:border-blue-500/50 transition-all shadow-sm hover:shadow-md">
+                            <div className="p-5">
+                                <div className="flex justify-between items-start mb-3">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-10 h-10 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
+                                            <Building2 size={20} className="text-blue-600 dark:text-blue-400" />
+                                        </div>
+                                        <div>
+                                            <h3 className="font-bold text-gray-900 dark:text-white text-lg">{branch.name}</h3>
+                                            <span className={`text-xs px-2 py-0.5 rounded-full ${
+                                                branch.is_active !== false
+                                                    ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400'
+                                                    : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'
+                                            }`}>
+                                                {branch.is_active !== false ? 'Active' : 'Inactive'}
+                                            </span>
+                                        </div>
+                                    </div>
+                                    <div className="flex gap-2">
+                                        <button
+                                            onClick={() => openEditModal(branch)}
+                                            className="text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition p-1"
+                                            title="Edit branch"
+                                        >
+                                            <Edit2 size={16} />
+                                        </button>
+                                        <button
+                                            onClick={() => setDeleteConfirm({ id: branch.id, name: branch.name })}
+                                            className="text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 transition p-1"
+                                            title="Delete branch"
+                                        >
+                                            <Trash2 size={16} />
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div className="space-y-2 text-sm">
+                                    {branch.address && (
+                                        <div className="flex items-center gap-2 text-gray-600 dark:text-gray-400">
+                                            <MapPin size={14} />
+                                            <span>{branch.address}</span>
+                                        </div>
+                                    )}
+                                    {branch.phone && (
+                                        <div className="flex items-center gap-2 text-gray-600 dark:text-gray-400">
+                                            <Phone size={14} />
+                                            <span>{branch.phone}</span>
+                                        </div>
+                                    )}
+                                    <div className="flex items-center gap-2 text-gray-500 dark:text-gray-500 text-xs mt-2 pt-2 border-t border-gray-100 dark:border-gray-700">
+                                        <span>ID: {branch.id}</span>
+                                        <span>â€¢</span>
+                                        <span>Created: {formatDate(branch.created_at)}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
+
+            {/* Add/Edit Branch Modal */}
+            {showModal && (
+                <div className="fixed inset-0 bg-black/50 dark:bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+                    <div className="bg-white dark:bg-gray-800 rounded-2xl w-full max-w-md border border-gray-200 dark:border-gray-700 shadow-xl">
+                        <div className="p-5 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
+                            <h2 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                                <Building2 size={20} className="text-blue-600 dark:text-blue-400" />
+                                {editingBranch ? 'Edit Branch' : 'Add New Branch'}
+                            </h2>
+                            <button onClick={resetModal} className="text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+                                <X size={24} />
+                            </button>
+                        </div>
+                        <form onSubmit={handleSubmit} className="p-5 space-y-4">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                    Branch Name *
+                                </label>
+                                <input
+                                    type="text"
+                                    required
+                                    value={formData.name}
+                                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                                    className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    placeholder="e.g., Bole Branch"
+                                />
+                                {!editingBranch && (
+                                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                        Tip: Use a unique name like "Bole Branch" or "Piassa Branch"
+                                    </p>
+                                )}
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                    Address
+                                </label>
+                                <input
+                                    type="text"
+                                    value={formData.address}
+                                    onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                                    className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    placeholder="Bole, Addis Ababa"
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                    Phone
+                                </label>
+                                <input
+                                    type="tel"
+                                    value={formData.phone}
+                                    onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                                    className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    placeholder="+251-XXX-XXX-XXX"
+                                />
+                            </div>
+
+                            <div className="flex gap-3 pt-4">
+                                <button
+                                    type="submit"
+                                    disabled={loading}
+                                    className="flex-1 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold transition disabled:opacity-50 flex items-center justify-center gap-2"
+                                >
+                                    {loading && <Loader2 className="animate-spin" size={18} />}
+                                    {editingBranch ? 'Update Branch' : 'Create Branch'}
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={resetModal}
+                                    className="flex-1 py-2 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-xl font-semibold transition"
+                                >
+                                    Cancel
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {/* Delete Confirmation Modal */}
+            {deleteConfirm && (
+                <div className="fixed inset-0 bg-black/50 dark:bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+                    <div className="bg-white dark:bg-gray-800 rounded-2xl w-full max-w-md border border-gray-200 dark:border-gray-700 shadow-xl">
+                        <div className="p-5 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
+                            <h2 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2 text-red-600 dark:text-red-400">
+                                <Trash2 size={20} />
+                                Delete Branch
+                            </h2>
+                            <button onClick={() => setDeleteConfirm(null)} className="text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+                                <X size={24} />
+                            </button>
+                        </div>
+                        <div className="p-5">
+                            <p className="text-gray-700 dark:text-gray-300 text-center">
+                                Are you sure you want to delete <strong className="text-gray-900 dark:text-white">"{deleteConfirm.name}"</strong>?
+                            </p>
+                            <p className="text-gray-500 dark:text-gray-400 text-sm text-center mt-2">
+                                This will permanently remove the branch from your company.
+                            </p>
+                            <div className="flex gap-3 mt-6">
+                                <button
+                                    onClick={handleDelete}
+                                    disabled={loading}
+                                    className="flex-1 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl font-semibold transition flex items-center justify-center gap-2 disabled:opacity-50"
+                                >
+                                    {loading && <Loader2 className="animate-spin" size={18} />}
+                                    Yes, Delete
+                                </button>
+                                <button
+                                    onClick={() => setDeleteConfirm(null)}
+                                    className="flex-1 py-2 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-xl font-semibold transition"
+                                >
+                                    Cancel
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
+export default BranchManagement;
 === FILE: C:\Users\dell\Desktop\restaurant\client\src\pages\owner\Categories.js ===
 // client/src/pages/owner/Categories.js
 import React, { useState, useEffect } from 'react';
@@ -7813,6 +8306,248 @@ const Categories = () => {
 };
 
 export default Categories;
+=== FILE: C:\Users\dell\Desktop\restaurant\client\src\pages\owner\OnboardCompany.js ===
+// client/src/pages/owner/OnboardCompany.jsx
+
+import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Building2, MapPin, Phone, User, Mail, Lock, Loader2 } from 'lucide-react';
+import { onboardCompany } from '../../api/companies';
+import { useLanguage } from '../../context/LanguageContext';
+
+const OnboardCompany = () => {
+    const { t } = useLanguage();
+    const navigate = useNavigate();
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState('');
+    const [formData, setFormData] = useState({
+        company: {
+            name: ''
+        },
+        branch: {
+            name: '',
+            address: '',
+            phone: ''
+        },
+        owner: {
+            name: '',
+            email: '',
+            password: '',
+            phone: ''
+        }
+    });
+
+    const handleChange = (section, field, value) => {
+        setFormData(prev => ({
+            ...prev,
+            [section]: {
+                ...prev[section],
+                [field]: value
+            }
+        }));
+    };
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        setLoading(true);
+        setError('');
+
+        try {
+            const result = await onboardCompany(formData);
+            
+            if (result.success) {
+                // Store the token and user info
+                localStorage.setItem('token', result.data.token);
+                localStorage.setItem('user', JSON.stringify(result.data.owner));
+                
+                // Navigate to owner dashboard
+                navigate('/owner/dashboard');
+            }
+        } catch (err) {
+            setError(err.response?.data?.error || 'Failed to onboard company');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    return (
+        <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-12 px-4">
+            <div className="max-w-2xl mx-auto">
+                <div className="text-center mb-8">
+                    <Building2 size={48} className="mx-auto text-blue-600 dark:text-blue-400 mb-4" />
+                    <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
+                        Onboard New Company
+                    </h1>
+                    <p className="text-gray-500 dark:text-gray-400 mt-2">
+                        Create a new restaurant company with its first branch and owner
+                    </p>
+                </div>
+
+                {error && (
+                    <div className="mb-6 p-4 bg-red-100 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-xl text-red-700 dark:text-red-400">
+                        {error}
+                    </div>
+                )}
+
+                <form onSubmit={handleSubmit} className="bg-white dark:bg-gray-800 rounded-2xl p-6 border border-gray-200 dark:border-gray-700 shadow-lg">
+                    {/* Company Section */}
+                    <div className="mb-6">
+                        <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+                            <Building2 size={20} className="text-blue-600 dark:text-blue-400" />
+                            Company Information
+                        </h2>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                Company Name *
+                            </label>
+                            <input
+                                type="text"
+                                required
+                                minLength="2"
+                                value={formData.company.name}
+                                onChange={(e) => handleChange('company', 'name', e.target.value)}
+                                className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-xl text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                placeholder="e.g., ABC Restaurant"
+                            />
+                        </div>
+                    </div>
+
+                    {/* Branch Section */}
+                    <div className="mb-6 border-t border-gray-200 dark:border-gray-700 pt-6">
+                        <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+                            <MapPin size={20} className="text-green-600 dark:text-green-400" />
+                            First Branch
+                        </h2>
+                        <div className="space-y-4">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                    Branch Name *
+                                </label>
+                                <input
+                                    type="text"
+                                    required
+                                    value={formData.branch.name}
+                                    onChange={(e) => handleChange('branch', 'name', e.target.value)}
+                                    className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-xl text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    placeholder="e.g., Main Branch"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                    Address
+                                </label>
+                                <input
+                                    type="text"
+                                    value={formData.branch.address}
+                                    onChange={(e) => handleChange('branch', 'address', e.target.value)}
+                                    className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-xl text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    placeholder="Addis Ababa, Ethiopia"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                    Phone
+                                </label>
+                                <input
+                                    type="tel"
+                                    value={formData.branch.phone}
+                                    onChange={(e) => handleChange('branch', 'phone', e.target.value)}
+                                    className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-xl text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    placeholder="+251-XXX-XXX-XXX"
+                                />
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Owner Section */}
+                    <div className="mb-6 border-t border-gray-200 dark:border-gray-700 pt-6">
+                        <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+                            <User size={20} className="text-purple-600 dark:text-purple-400" />
+                            Owner Account
+                        </h2>
+                        <div className="space-y-4">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                    Full Name *
+                                </label>
+                                <input
+                                    type="text"
+                                    required
+                                    minLength="2"
+                                    value={formData.owner.name}
+                                    onChange={(e) => handleChange('owner', 'name', e.target.value)}
+                                    className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-xl text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    placeholder="John Doe"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                    Email Address *
+                                </label>
+                                <input
+                                    type="email"
+                                    required
+                                    value={formData.owner.email}
+                                    onChange={(e) => handleChange('owner', 'email', e.target.value)}
+                                    className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-xl text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    placeholder="owner@restaurant.com"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                    Password *
+                                </label>
+                                <input
+                                    type="password"
+                                    required
+                                    minLength="6"
+                                    value={formData.owner.password}
+                                    onChange={(e) => handleChange('owner', 'password', e.target.value)}
+                                    className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-xl text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    placeholder="Min 6 characters"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                    Phone
+                                </label>
+                                <input
+                                    type="tel"
+                                    value={formData.owner.phone}
+                                    onChange={(e) => handleChange('owner', 'phone', e.target.value)}
+                                    className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-xl text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    placeholder="+251-XXX-XXX-XXX"
+                                />
+                            </div>
+                        </div>
+                    </div>
+
+                    <button
+                        type="submit"
+                        disabled={loading}
+                        className="w-full py-4 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white rounded-xl font-bold text-lg transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                    >
+                        {loading ? (
+                            <>
+                                <Loader2 className="animate-spin" size={20} />
+                                Creating Company...
+                            </>
+                        ) : (
+                            'Create Company'
+                        )}
+                    </button>
+
+                    <p className="text-xs text-gray-500 dark:text-gray-400 text-center mt-4">
+                        This will create a new company with its first branch and owner account.
+                        The owner will have full access to manage the company.
+                    </p>
+                </form>
+            </div>
+        </div>
+    );
+};
+
+export default OnboardCompany;
 === FILE: C:\Users\dell\Desktop\restaurant\client\src\pages\owner\OwnerDashboard.js ===
 // client/src/pages/owner/OwnerDashboard.js
 
@@ -12588,7 +13323,6 @@ const Login = ({ onLogin }) => {
         const user = response.data.user;
         const token = response.data.token;
         
-        // Store company_id and branch_id
         if (user.company_id) {
           localStorage.setItem('company_id', user.company_id);
         }
@@ -12596,10 +13330,8 @@ const Login = ({ onLogin }) => {
           localStorage.setItem('branch_id', user.branch_id);
         }
         
-        // Call the onLogin callback
         onLogin(user, token);
         
-        // Navigate based on role
         const role = user.role;
         if (role === 'admin' || role === 'owner') {
           navigate('/owner/dashboard');
@@ -12698,20 +13430,14 @@ const Login = ({ onLogin }) => {
           <div className="mt-6 text-center">
             <p className="text-gray-600 dark:text-gray-500 dark:text-gray-500 dark:text-gray-400 text-sm">
               {t('noAccount')}{' '}
-              <Link to="/signup" className="text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300">
+              {/* CHANGED: Link now goes to /owner/onboard for company registration */}
+              <Link to="/owner/onboard" className="text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-semibold">
                 {t('signUp')}
               </Link>
             </p>
           </div>
 
-          <div className="mt-6 text-center">
-            <p className="text-gray-500 dark:text-gray-500 text-sm">{t('demoAccounts')}:</p>
-            <p className="text-gray-600 dark:text-gray-500 dark:text-gray-500 dark:text-gray-400 text-xs mt-1">
-              admin@example.com / admin123 ({t('admin')})<br />
-              cashier@example.com / admin123 ({t('cashier')})<br />
-              kitchen@example.com / admin123 ({t('kitchen')})
-            </p>
-          </div>
+          {/* REMOVED: Demo accounts section */}
         </div>
       </div>
     </div>
@@ -18206,6 +18932,8 @@ import React, { useState, useEffect, Suspense, lazy, useCallback, useRef } from 
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
+import OnboardCompany from './pages/owner/OnboardCompany';
+import BranchManagement from './pages/owner/BranchManagement'; // ADDED
 import { LanguageProvider } from './context/LanguageContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { BranchProvider } from './context/BranchContext';
@@ -18338,6 +19066,7 @@ function App() {
                   <Route path="/track-order" element={<TrackOrder />} />
                   <Route path="/login" element={<Login onLogin={handleLogin} />} />
                   <Route path="/signup" element={<Signup />} />
+                  <Route path="/owner/onboard" element={<OnboardCompany />} />
                   <Route path="*" element={<Navigate to="/login" />} />
                 </Routes>
               </Suspense>
@@ -18362,7 +19091,8 @@ function App() {
                     <Routes>
                       <Route path="/qr-menu" element={<QRMenu />} />
                       <Route path="/track-order" element={<TrackOrder />} />
-
+                      
+                      {/* Owner Routes */}
                       <Route path="/owner/*" element={
                         <RoleRoute allowedRoles={['owner', 'admin']} userRole={userRole}>
                           <OwnerLayout user={user} onLogout={handleLogout}>
@@ -18379,6 +19109,8 @@ function App() {
                                 <Route path="customers" element={<Customers />} />
                                 <Route path="print-qr" element={<PrintQRCodes />} />
                                 <Route path="manage-tables" element={<ManageTables />} />
+                                <Route path="onboard" element={<Navigate to="/owner/onboard" />} />
+                                <Route path="branches" element={<BranchManagement />} /> {/* ADDED */}
                                 <Route path="*" element={<Navigate to="/owner/dashboard" />} />
                               </Routes>
                             </Suspense>
@@ -18386,6 +19118,7 @@ function App() {
                         </RoleRoute>
                       } />
 
+                      {/* Manager Routes */}
                       <Route path="/manager/*" element={
                         <RoleRoute allowedRoles={['manager', 'owner', 'admin']} userRole={userRole}>
                           <ManagerLayout user={user} onLogout={handleLogout}>
@@ -18404,6 +19137,7 @@ function App() {
                         </RoleRoute>
                       } />
 
+                      {/* Cashier Routes */}
                       <Route path="/cashier/*" element={
                         <RoleRoute allowedRoles={['cashier', 'manager', 'owner', 'admin']} userRole={userRole}>
                           <CashierLayout user={user} onLogout={handleLogout}>
@@ -18418,6 +19152,7 @@ function App() {
                         </RoleRoute>
                       } />
 
+                      {/* Waiter Routes */}
                       <Route path="/waiter/*" element={
                         <RoleRoute allowedRoles={['waiter', 'cashier', 'manager', 'owner', 'admin']} userRole={userRole}>
                           <WaiterLayout user={user} onLogout={handleLogout}>
@@ -18434,6 +19169,7 @@ function App() {
                         </RoleRoute>
                       } />
 
+                      {/* Kitchen Routes */}
                       <Route path="/kitchen/*" element={
                         <RoleRoute allowedRoles={['kitchen', 'manager', 'owner', 'admin']} userRole={userRole}>
                           <KitchenLayout user={user} onLogout={handleLogout}>
@@ -18447,6 +19183,7 @@ function App() {
                         </RoleRoute>
                       } />
 
+                      {/* Default Routes */}
                       <Route path="/" element={<Navigate to={getDefaultRoute(userRole)} replace />} />
                       <Route path="*" element={<Navigate to={getDefaultRoute(userRole)} replace />} />
                     </Routes>
@@ -38535,6 +39272,297 @@ export const switchBranch = catchAsync(async (req, res) => {
         }
     });
 });
+=== FILE: C:\Users\dell\Desktop\restaurant\server\src\controllers\companyController.js ===
+// server/src/controllers/companyController.js
+
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
+import { query, getClient } from '../config/database.js';
+import { AppError, catchAsync } from '../middleware/errorHandler.js';
+import { ALLOWED_ROLES } from '../middleware/auth.js';
+
+const JWT_SECRET = process.env.JWT_SECRET || 'your_super_secret_key';
+const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
+
+const isValidEmail = (email) => {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+};
+
+// ============================================================
+// ONBOARD COMPANY (Company â†’ Branch â†’ Owner)
+// ============================================================
+export const onboardCompany = catchAsync(async (req, res) => {
+    const { company, branch, owner } = req.body;
+    
+    // ============================================
+    // STEP 1: VALIDATION (Before BEGIN)
+    // ============================================
+    
+    // Validate company
+    if (!company?.name || company.name.trim().length < 2) {
+        throw new AppError('Company name must be at least 2 characters', 400);
+    }
+    const companyName = company.name.trim();
+    
+    // Validate branch
+    if (!branch?.name || branch.name.trim().length < 1) {
+        throw new AppError('Branch name is required', 400);
+    }
+    const branchName = branch.name.trim();
+    const branchAddress = branch.address?.trim() || null;
+    const branchPhone = branch.phone?.trim() || null;
+    
+    // Validate owner
+    if (!owner?.name || owner.name.trim().length < 2) {
+        throw new AppError('Owner name must be at least 2 characters', 400);
+    }
+    if (!owner?.email) {
+        throw new AppError('Owner email is required', 400);
+    }
+    if (!isValidEmail(owner.email)) {
+        throw new AppError('Invalid email address', 400);
+    }
+    if (!owner?.password || owner.password.length < 6) {
+        throw new AppError('Password must be at least 6 characters', 400);
+    }
+    
+    const ownerName = owner.name.trim();
+    const ownerEmail = owner.email.toLowerCase().trim();
+    const ownerPhone = owner.phone?.trim() || null;
+    
+    // ============================================
+    // STEP 2: UNIQUENESS CHECKS (Before BEGIN)
+    // ============================================
+    
+    // Check email uniqueness
+    const existingEmail = await query(
+        'SELECT id FROM users WHERE LOWER(email) = LOWER($1)',
+        [ownerEmail]
+    );
+    if (existingEmail.rows.length > 0) {
+        throw new AppError('Email already registered', 409);
+    }
+    
+    // Check company name uniqueness
+    const existingCompany = await query(
+        'SELECT id FROM companies WHERE LOWER(name) = LOWER($1)',
+        [companyName]
+    );
+    if (existingCompany.rows.length > 0) {
+        throw new AppError('Company name already exists', 409);
+    }
+    
+    // ============================================
+    // STEP 3: BEGIN TRANSACTION
+    // ============================================
+    
+    const client = await getClient();
+    
+    try {
+        await client.query('BEGIN');
+        
+        // ============================================
+        // STEP 4: CREATE COMPANY
+        // ============================================
+        
+        const companyResult = await client.query(
+            `INSERT INTO companies (name, created_at, updated_at)
+             VALUES ($1, NOW(), NOW())
+             RETURNING id, name, created_at`,
+            [companyName]
+        );
+        const companyId = companyResult.rows[0].id;
+        
+        // ============================================
+        // STEP 5: CREATE BRANCH
+        // ============================================
+        
+        const branchResult = await client.query(
+            `INSERT INTO branches (company_id, name, address, phone, is_active, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, true, NOW(), NOW())
+             RETURNING id, name, address, phone, company_id`,
+            [companyId, branchName, branchAddress, branchPhone]
+        );
+        const branchId = branchResult.rows[0].id;
+        
+        // ============================================
+        // STEP 6: HASH OWNER PASSWORD
+        // ============================================
+        
+        const hashedPassword = await bcrypt.hash(owner.password, 12);
+        
+        // ============================================
+        // STEP 7: CREATE OWNER
+        // ============================================
+        
+        // Use business_id = 1 for compatibility (legacy field)
+        const userResult = await client.query(
+            `INSERT INTO users (
+                business_id, company_id, branch_id, name, email, password,
+                role, phone, status, is_active, created_at, updated_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'active', true, NOW(), NOW())
+            RETURNING id, name, email, role, status, company_id, branch_id, created_at`,
+            [1, companyId, branchId, ownerName, ownerEmail, hashedPassword, 'owner', ownerPhone]
+        );
+        const userId = userResult.rows[0].id;
+        
+        // ============================================
+        // STEP 8: RELATIONSHIP VERIFICATION
+        // ============================================
+        
+        const verifyResult = await client.query(
+            `SELECT 
+                c.id as company_id, c.name as company_name,
+                b.id as branch_id, b.name as branch_name,
+                u.id as user_id, u.name as user_name, u.email, u.role
+             FROM companies c
+             JOIN branches b ON b.company_id = c.id
+             JOIN users u ON u.company_id = c.id AND u.branch_id = b.id
+             WHERE c.id = $1 AND b.id = $2 AND u.id = $3
+             AND u.role = 'owner' AND u.status = 'active' AND u.is_active = true`,
+            [companyId, branchId, userId]
+        );
+        
+        if (verifyResult.rows.length === 0) {
+            throw new Error('Relationship verification failed - owner not correctly linked');
+        }
+        
+        // ============================================
+        // STEP 9: COMMIT
+        // ============================================
+        
+        await client.query('COMMIT');
+        
+        // ============================================
+        // STEP 10: GENERATE JWT (After COMMIT)
+        // ============================================
+        
+        const user = userResult.rows[0];
+        const token = jwt.sign(
+            {
+                id: user.id,
+                email: user.email,
+                role: user.role,
+                name: user.name,
+                company_id: user.company_id,
+                branch_id: user.branch_id
+            },
+            JWT_SECRET,
+            { expiresIn: JWT_EXPIRES_IN }
+        );
+        
+        // ============================================
+        // STEP 11: SUCCESS RESPONSE
+        // ============================================
+        
+        res.status(201).json({
+            success: true,
+            message: 'Company onboarded successfully',
+            data: {
+                company: {
+                    id: companyId,
+                    name: companyResult.rows[0].name
+                },
+                branch: {
+                    id: branchId,
+                    name: branchResult.rows[0].name,
+                    address: branchResult.rows[0].address,
+                    phone: branchResult.rows[0].phone
+                },
+                owner: {
+                    id: user.id,
+                    name: user.name,
+                    email: user.email,
+                    role: user.role,
+                    status: user.status,
+                    company_id: user.company_id,
+                    branch_id: user.branch_id
+                },
+                token: token
+            }
+        });
+        
+    } catch (error) {
+        await client.query('ROLLBACK');
+        console.error('[ONBOARD] Transaction failed:', error);
+        throw error;
+    } finally {
+        client.release();
+    }
+});
+
+// ============================================================
+// GET COMPANY BY ID (With branch and owner info)
+// ============================================================
+export const getCompanyInfo = catchAsync(async (req, res) => {
+    const { id } = req.params;
+    const companyId = parseInt(id);
+    
+    if (!companyId || isNaN(companyId)) {
+        throw new AppError('Invalid company ID', 400);
+    }
+    
+    // Verify company exists
+    const companyResult = await query(
+        'SELECT id, name, created_at, updated_at FROM companies WHERE id = $1',
+        [companyId]
+    );
+    
+    if (companyResult.rows.length === 0) {
+        throw new AppError('Company not found', 404);
+    }
+    
+    // Get branches
+    const branchesResult = await query(
+        `SELECT id, name, address, phone, is_active, created_at
+         FROM branches WHERE company_id = $1
+         ORDER BY name`,
+        [companyId]
+    );
+    
+    // Get owner users
+    const ownersResult = await query(
+        `SELECT id, name, email, phone, status, created_at
+         FROM users WHERE company_id = $1 AND role = 'owner'
+         ORDER BY created_at ASC`,
+        [companyId]
+    );
+    
+    res.json({
+        success: true,
+        data: {
+            company: companyResult.rows[0],
+            branches: branchesResult.rows,
+            owners: ownersResult.rows
+        }
+    });
+});
+
+// ============================================================
+// LIST ALL COMPANIES (Admin/Owner only)
+// ============================================================
+export const listCompanies = catchAsync(async (req, res) => {
+    // Only admins/owners can list all companies
+    if (!['admin', 'owner'].includes(req.user?.role)) {
+        throw new AppError('Access denied. Admin or owner role required.', 403);
+    }
+    
+    const result = await query(
+        `SELECT c.id, c.name, c.created_at, c.updated_at,
+                COUNT(DISTINCT b.id) as branch_count,
+                COUNT(DISTINCT u.id) as user_count
+         FROM companies c
+         LEFT JOIN branches b ON b.company_id = c.id
+         LEFT JOIN users u ON u.company_id = c.id
+         GROUP BY c.id
+         ORDER BY c.created_at DESC`
+    );
+    
+    res.json({
+        success: true,
+        data: result.rows
+    });
+});
 === FILE: C:\Users\dell\Desktop\restaurant\server\src\controllers\dashboardController.js ===
 // server/src/controllers/dashboardController.js
 
@@ -42201,6 +43229,32 @@ const generateRequestHash = (body) => {
     return crypto.createHash('sha256').update(canonical).digest('hex');
 };
 
+// Ensure idempotency_records table exists
+export const ensureIdempotencyTable = async () => {
+    try {
+        await query(`
+            CREATE TABLE IF NOT EXISTS idempotency_records (
+                id SERIAL PRIMARY KEY,
+                idempotency_key VARCHAR(255) NOT NULL,
+                company_id INTEGER NOT NULL,
+                branch_id INTEGER NOT NULL,
+                resource_type VARCHAR(50) NOT NULL,
+                resource_id VARCHAR(255),
+                request_hash TEXT,
+                response_data JSONB,
+                status_code INTEGER,
+                status VARCHAR(20) DEFAULT 'processing',
+                created_at TIMESTAMP DEFAULT NOW(),
+                updated_at TIMESTAMP DEFAULT NOW(),
+                UNIQUE(idempotency_key, company_id, branch_id, resource_type)
+            )
+        `);
+        console.log('[IDEMPOTENCY] Table verified');
+    } catch (err) {
+        console.error('[IDEMPOTENCY] Table creation error:', err.message);
+    }
+};
+
 // Get cached result from database
 const getCachedResult = async (idempotencyKey, companyId, branchId, resourceType = 'order') => {
     try {
@@ -42210,7 +43264,8 @@ const getCachedResult = async (idempotencyKey, companyId, branchId, resourceType
              WHERE idempotency_key = $1 
                AND company_id = $2 
                AND branch_id = $3 
-               AND resource_type = $4`,
+               AND resource_type = $4
+               AND status = 'completed'`,
             [idempotencyKey, companyId, branchId, resourceType]
         );
         return result.rows[0] || null;
@@ -42251,6 +43306,10 @@ const claimIdempotencyKey = async (client, idempotencyKey, companyId, branchId, 
                         conflict: true 
                     };
                 }
+                // If status is still 'processing', wait a moment and retry
+                if (record.status === 'processing') {
+                    return { claimed: false, existing: null, processing: true };
+                }
                 return { claimed: false, existing: record };
             }
         }
@@ -42260,62 +43319,65 @@ const claimIdempotencyKey = async (client, idempotencyKey, companyId, branchId, 
 
 // Store result in database
 const storeResult = async (client, idempotencyKey, companyId, branchId, resourceType, resourceId, responseData, statusCode) => {
-    await client.query(
-        `UPDATE idempotency_records 
-         SET response_data = $1, 
-             status_code = $2, 
-             resource_id = $3,
-             status = 'completed',
-             updated_at = NOW()
-         WHERE idempotency_key = $4 
-           AND company_id = $5 
-           AND branch_id = $6 
-           AND resource_type = $7`,
-        [responseData, statusCode, resourceId, idempotencyKey, companyId, branchId, resourceType]
-    );
-    console.log(`[IDEMPOTENCY] Stored result for ${idempotencyKey}`);
+    try {
+        await client.query(
+            `UPDATE idempotency_records 
+             SET response_data = $1, 
+                 status_code = $2, 
+                 resource_id = $3,
+                 status = 'completed',
+                 updated_at = NOW()
+             WHERE idempotency_key = $4 
+               AND company_id = $5 
+               AND branch_id = $6 
+               AND resource_type = $7`,
+            [responseData, statusCode, resourceId, idempotencyKey, companyId, branchId, resourceType]
+        );
+        console.log(`[IDEMPOTENCY] Stored result for ${idempotencyKey}`);
+    } catch (err) {
+        console.error('[IDEMPOTENCY] Store result error:', err.message);
+        throw err;
+    }
 };
 
 // Mark as failed
 const markFailed = async (client, idempotencyKey, companyId, branchId, resourceType) => {
-    await client.query(
-        `UPDATE idempotency_records 
-         SET status = 'failed',
-             updated_at = NOW()
-         WHERE idempotency_key = $1 
-           AND company_id = $2 
-           AND branch_id = $3 
-           AND resource_type = $4`,
-        [idempotencyKey, companyId, branchId, resourceType]
-    );
+    try {
+        await client.query(
+            `UPDATE idempotency_records 
+             SET status = 'failed',
+                 updated_at = NOW()
+             WHERE idempotency_key = $1 
+               AND company_id = $2 
+               AND branch_id = $3 
+               AND resource_type = $4`,
+            [idempotencyKey, companyId, branchId, resourceType]
+        );
+        console.log(`[IDEMPOTENCY] Marked ${idempotencyKey} as failed`);
+    } catch (err) {
+        console.error('[IDEMPOTENCY] Mark failed error:', err.message);
+    }
 };
 
-// âœ… FIX: Improved resource type detection with exact matching
+// Get resource type from request path
 const getResourceType = (req) => {
     const path = req.path;
-    const method = req.method;
     
-    // Check for payment first (exact match on path ending with /pay)
     if (path.includes('/pay') && !path.includes('/payment')) {
         return 'payment';
     }
-    // Check for orders
     if (path.includes('/orders') || path.includes('/order')) {
         return 'order';
     }
-    // Check for sales
     if (path.includes('/sales') || path.includes('/sale')) {
         return 'sale';
     }
-    // Check for stock adjustment
     if (path.includes('/adjust-stock')) {
         return 'stock_adjustment';
     }
-    // Check for ingredients
     if (path.includes('/ingredients')) {
         return 'stock_adjustment';
     }
-    // Default
     return 'order';
 };
 
@@ -42323,10 +43385,7 @@ const getResourceType = (req) => {
 export const idempotent = (req, res, next) => {
     const idempotencyKey = req.headers[IDEMPOTENCY_HEADER];
     
-    console.log(`[IDEMPOTENCY] Request: ${req.method} ${req.path}, Key: ${idempotencyKey || 'none'}`);
-    
     if (!idempotencyKey) {
-        console.log('[IDEMPOTENCY] No key, skipping');
         return next();
     }
 
@@ -42334,7 +43393,6 @@ export const idempotent = (req, res, next) => {
     const branchId = req.user?.branch_id;
     
     if (!companyId || !branchId) {
-        console.log('[IDEMPOTENCY] No company/branch, rejecting');
         return res.status(401).json({
             success: false,
             error: 'Authentication required for idempotent operations'
@@ -42342,15 +43400,12 @@ export const idempotent = (req, res, next) => {
     }
 
     const resourceType = getResourceType(req);
-    console.log(`[IDEMPOTENCY] Resource type: ${resourceType} for path ${req.path}`);
-    
     const requestHash = generateRequestHash(req.body);
     const cacheKey = getCacheKey(idempotencyKey, companyId, branchId, resourceType);
 
     // Check memory cache first
     const cached = memoryCache.get(cacheKey);
     if (cached) {
-        console.log(`[IDEMPOTENCY] Memory cache hit for ${idempotencyKey}`);
         if (cached.requestHash === requestHash) {
             return res.status(cached.status).json(cached.data);
         } else {
@@ -42362,111 +43417,90 @@ export const idempotent = (req, res, next) => {
         }
     }
 
-    const clientPromise = getClient();
-    
-    clientPromise.then(async (client) => {
-        try {
-            await client.query('BEGIN');
-            
-            const claim = await claimIdempotencyKey(client, idempotencyKey, companyId, branchId, resourceType, requestHash);
-            
-            if (!claim.claimed && claim.existing) {
-                await client.query('COMMIT');
-                const record = claim.existing;
+    // Check database for cached result
+    getCachedResult(idempotencyKey, companyId, branchId, resourceType)
+        .then(async (cachedResult) => {
+            if (cachedResult) {
                 memoryCache.set(cacheKey, {
-                    status: record.status_code,
-                    data: record.response_data,
-                    requestHash: record.request_hash,
+                    status: cachedResult.status_code || 200,
+                    data: cachedResult.response_data,
+                    requestHash: cachedResult.request_hash,
                     timestamp: Date.now()
                 });
-                console.log(`[IDEMPOTENCY] Returning cached result for ${idempotencyKey}`);
-                return res.status(record.status_code).json(record.response_data);
+                return res.status(cachedResult.status_code || 200).json(cachedResult.response_data);
             }
-            
-            if (!claim.claimed && claim.conflict) {
-                await client.query('ROLLBACK');
-                console.log(`[IDEMPOTENCY] Conflict for ${idempotencyKey}`);
-                return res.status(409).json({
-                    success: false,
-                    error: 'Idempotency key reused with different request payload',
-                    idempotency_key: idempotencyKey
-                });
-            }
-            
-            console.log(`[IDEMPOTENCY] Claimed key ${idempotencyKey}, processing request`);
-            
-            // We have successfully claimed the key
-            const originalJson = res.json.bind(res);
-            const originalSend = res.send.bind(res);
-            const originalStatus = res.status.bind(res);
-            let statusCode = 200;
-            let responseSent = false;
 
-            res.status = function(code) {
-                statusCode = code;
-                return originalStatus(code);
-            };
-
-            res.json = function(data) {
-                if (!responseSent) {
-                    responseSent = true;
-                    // Extract resource ID from response
-                    let resourceId = null;
-                    if (data?.data?.sale_number) {
-                        // For payments, use sale_number as resource ID
-                        resourceId = data.data.sale_number;
-                    } else if (data?.data?.order_id) {
-                        resourceId = data.data.order_id;
-                    } else if (data?.data?.id) {
-                        resourceId = data.data.id;
-                    }
-                    
-                    if (statusCode >= 200 && statusCode < 300) {
-                        console.log(`[IDEMPOTENCY] Storing success result for ${idempotencyKey}, resourceId: ${resourceId}`);
-                        storeResult(client, idempotencyKey, companyId, branchId, resourceType, resourceId, data, statusCode)
-                            .then(() => client.query('COMMIT').catch(err => console.error('[IDEMPOTENCY] Commit error:', err)))
-                            .catch(async (err) => {
-                                console.error('[IDEMPOTENCY] Store result error:', err);
-                                await markFailed(client, idempotencyKey, companyId, branchId, resourceType);
-                                await client.query('ROLLBACK');
-                            });
-                        
-                        memoryCache.set(cacheKey, {
-                            status: statusCode,
-                            data: data,
-                            requestHash: requestHash,
-                            timestamp: Date.now()
-                        });
-                    } else {
-                        console.log(`[IDEMPOTENCY] Marking failed for ${idempotencyKey}`);
-                        markFailed(client, idempotencyKey, companyId, branchId, resourceType)
-                            .then(() => client.query('COMMIT').catch(err => console.error('[IDEMPOTENCY] Commit error:', err)))
-                            .catch(async (err) => {
-                                console.error('[IDEMPOTENCY] Mark failed error:', err);
-                                await client.query('ROLLBACK');
-                            });
-                    }
+            // No cached result, process the request
+            const client = await getClient();
+            
+            try {
+                await client.query('BEGIN');
+                
+                const claim = await claimIdempotencyKey(client, idempotencyKey, companyId, branchId, resourceType, requestHash);
+                
+                if (claim.conflict) {
+                    await client.query('ROLLBACK');
+                    return res.status(409).json({
+                        success: false,
+                        error: 'Idempotency key reused with different request payload',
+                        idempotency_key: idempotencyKey
+                    });
                 }
-                return originalJson(data);
-            };
+                
+                if (claim.processing) {
+                    // Wait a moment and try again (someone else is processing)
+                    await client.query('ROLLBACK');
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                    // Try once more with fresh context
+                    const retryResult = await getCachedResult(idempotencyKey, companyId, branchId, resourceType);
+                    if (retryResult) {
+                        return res.status(retryResult.status_code || 200).json(retryResult.response_data);
+                    }
+                    return res.status(409).json({
+                        success: false,
+                        error: 'Duplicate request is being processed',
+                        idempotency_key: idempotencyKey
+                    });
+                }
+                
+                if (claim.existing) {
+                    await client.query('COMMIT');
+                    const record = claim.existing;
+                    memoryCache.set(cacheKey, {
+                        status: record.status_code || 200,
+                        data: record.response_data,
+                        requestHash: record.request_hash,
+                        timestamp: Date.now()
+                    });
+                    return res.status(record.status_code || 200).json(record.response_data);
+                }
 
-            res.send = function(data) {
-                if (!responseSent) {
-                    responseSent = true;
-                    if (statusCode >= 200 && statusCode < 300) {
-                        try {
-                            const parsed = typeof data === 'string' ? JSON.parse(data) : data;
-                            let resourceId = null;
-                            if (parsed?.data?.sale_number) {
-                                resourceId = parsed.data.sale_number;
-                            } else if (parsed?.data?.order_id) {
-                                resourceId = parsed.data.order_id;
-                            } else if (parsed?.data?.id) {
-                                resourceId = parsed.data.id;
-                            }
-                            
-                            console.log(`[IDEMPOTENCY] Storing send result for ${idempotencyKey}, resourceId: ${resourceId}`);
-                            storeResult(client, idempotencyKey, companyId, branchId, resourceType, resourceId, parsed, statusCode)
+                // We have successfully claimed the key
+                const originalJson = res.json.bind(res);
+                const originalSend = res.send.bind(res);
+                const originalStatus = res.status.bind(res);
+                let statusCode = 200;
+                let responseSent = false;
+
+                res.status = function(code) {
+                    statusCode = code;
+                    return originalStatus(code);
+                };
+
+                res.json = function(data) {
+                    if (!responseSent) {
+                        responseSent = true;
+                        let resourceId = null;
+                        if (data?.data?.sale_number) {
+                            resourceId = data.data.sale_number;
+                        } else if (data?.data?.order_id) {
+                            resourceId = data.data.order_id;
+                        } else if (data?.data?.id) {
+                            resourceId = data.data.id;
+                        }
+                        
+                        if (statusCode >= 200 && statusCode < 300) {
+                            storeResult(client, idempotencyKey, companyId, branchId, resourceType, resourceId, data, statusCode)
                                 .then(() => client.query('COMMIT').catch(err => console.error('[IDEMPOTENCY] Commit error:', err)))
                                 .catch(async (err) => {
                                     console.error('[IDEMPOTENCY] Store result error:', err);
@@ -42476,46 +43510,86 @@ export const idempotent = (req, res, next) => {
                             
                             memoryCache.set(cacheKey, {
                                 status: statusCode,
-                                data: parsed,
+                                data: data,
                                 requestHash: requestHash,
                                 timestamp: Date.now()
                             });
-                        } catch (e) {
-                            console.log('[IDEMPOTENCY] Non-JSON response, committing');
-                            client.query('COMMIT').catch(err => console.error('[IDEMPOTENCY] Commit error:', err));
+                        } else {
+                            markFailed(client, idempotencyKey, companyId, branchId, resourceType)
+                                .then(() => client.query('COMMIT').catch(err => console.error('[IDEMPOTENCY] Commit error:', err)))
+                                .catch(async (err) => {
+                                    console.error('[IDEMPOTENCY] Mark failed error:', err);
+                                    await client.query('ROLLBACK');
+                                });
                         }
-                    } else {
-                        console.log(`[IDEMPOTENCY] Marking failed for ${idempotencyKey}`);
-                        markFailed(client, idempotencyKey, companyId, branchId, resourceType)
-                            .then(() => client.query('COMMIT').catch(err => console.error('[IDEMPOTENCY] Commit error:', err)))
-                            .catch(async (err) => {
-                                console.error('[IDEMPOTENCY] Mark failed error:', err);
-                                await client.query('ROLLBACK');
-                            });
                     }
-                }
-                return originalSend(data);
-            };
+                    return originalJson(data);
+                };
 
-            next();
+                res.send = function(data) {
+                    if (!responseSent) {
+                        responseSent = true;
+                        if (statusCode >= 200 && statusCode < 300) {
+                            try {
+                                const parsed = typeof data === 'string' ? JSON.parse(data) : data;
+                                let resourceId = null;
+                                if (parsed?.data?.sale_number) {
+                                    resourceId = parsed.data.sale_number;
+                                } else if (parsed?.data?.order_id) {
+                                    resourceId = parsed.data.order_id;
+                                } else if (parsed?.data?.id) {
+                                    resourceId = parsed.data.id;
+                                }
+                                
+                                storeResult(client, idempotencyKey, companyId, branchId, resourceType, resourceId, parsed, statusCode)
+                                    .then(() => client.query('COMMIT').catch(err => console.error('[IDEMPOTENCY] Commit error:', err)))
+                                    .catch(async (err) => {
+                                        console.error('[IDEMPOTENCY] Store result error:', err);
+                                        await markFailed(client, idempotencyKey, companyId, branchId, resourceType);
+                                        await client.query('ROLLBACK');
+                                    });
+                                
+                                memoryCache.set(cacheKey, {
+                                    status: statusCode,
+                                    data: parsed,
+                                    requestHash: requestHash,
+                                    timestamp: Date.now()
+                                });
+                            } catch (e) {
+                                client.query('COMMIT').catch(err => console.error('[IDEMPOTENCY] Commit error:', err));
+                            }
+                        } else {
+                            markFailed(client, idempotencyKey, companyId, branchId, resourceType)
+                                .then(() => client.query('COMMIT').catch(err => console.error('[IDEMPOTENCY] Commit error:', err)))
+                                .catch(async (err) => {
+                                    console.error('[IDEMPOTENCY] Mark failed error:', err);
+                                    await client.query('ROLLBACK');
+                                });
+                        }
+                    }
+                    return originalSend(data);
+                };
 
-        } catch (error) {
-            await client.query('ROLLBACK');
-            console.error('[IDEMPOTENCY] Transaction error:', error);
+                next();
+
+            } catch (error) {
+                await client.query('ROLLBACK');
+                console.error('[IDEMPOTENCY] Transaction error:', error);
+                res.status(500).json({
+                    success: false,
+                    error: 'Internal server error during idempotency processing'
+                });
+            } finally {
+                client.release();
+            }
+        })
+        .catch((err) => {
+            console.error('[IDEMPOTENCY] Processing error:', err);
             res.status(500).json({
                 success: false,
                 error: 'Internal server error during idempotency processing'
             });
-        } finally {
-            client.release();
-        }
-    }).catch((err) => {
-        console.error('[IDEMPOTENCY] Client connection error:', err);
-        res.status(500).json({
-            success: false,
-            error: 'Database connection error during idempotency processing'
         });
-    });
 };
 
 export const requireIdempotency = (req, res, next) => {
@@ -42546,6 +43620,215 @@ export const cleanupIdempotencyRecords = async () => {
 };
 
 setInterval(cleanupIdempotencyRecords, 6 * 60 * 60 * 1000);
+=== FILE: C:\Users\dell\Desktop\restaurant\server\src\middleware\rateLimiter.js ===
+// server/src/middleware/rateLimiter.js
+
+import rateLimit from 'express-rate-limit';
+import { query } from '../config/database.js';
+
+// ============================================================
+// RATE LIMIT STORE â€” PostgreSQL-based shared store
+// ============================================================
+
+class PostgresStore {
+    constructor(options = {}) {
+        this.windowMs = options.windowMs || 60000;
+        this.prefix = options.prefix || 'ratelimit:';
+    }
+
+    async increment(key) {
+        const now = new Date();
+        const windowStart = new Date(now.getTime() - this.windowMs);
+        
+        // First, delete expired entries for this key
+        await query(
+            'DELETE FROM rate_limit_store WHERE key = $1 AND reset_at < $2',
+            [key, windowStart]
+        );
+        
+        // Then insert or update
+        const result = await query(
+            `INSERT INTO rate_limit_store (key, count, reset_at, created_at, updated_at)
+             VALUES ($1, 1, $2, NOW(), NOW())
+             ON CONFLICT (key) DO UPDATE 
+             SET count = rate_limit_store.count + 1,
+                 reset_at = $2,
+                 updated_at = NOW()
+             WHERE rate_limit_store.key = $1
+             RETURNING count`,
+            [key, windowStart]
+        );
+        
+        let count = 1;
+        if (result.rows.length > 0) {
+            count = parseInt(result.rows[0].count);
+        } else {
+            // If no row returned, try selecting
+            const selectResult = await query(
+                'SELECT count FROM rate_limit_store WHERE key = $1',
+                [key]
+            );
+            if (selectResult.rows.length > 0) {
+                count = parseInt(selectResult.rows[0].count);
+            } else {
+                // Insert again
+                await query(
+                    'INSERT INTO rate_limit_store (key, count, reset_at, created_at, updated_at) VALUES ($1, 1, $2, NOW(), NOW())',
+                    [key, windowStart]
+                );
+                count = 1;
+            }
+        }
+        
+        return {
+            totalHits: count,
+            resetTime: new Date(now.getTime() + this.windowMs)
+        };
+    }
+
+    async decrement(key) {
+        await query(
+            'UPDATE rate_limit_store SET count = count - 1, updated_at = NOW() WHERE key = $1 AND count > 0',
+            [key]
+        );
+    }
+
+    async resetKey(key) {
+        await query('DELETE FROM rate_limit_store WHERE key = $1', [key]);
+    }
+
+    async resetAll() {
+        await query('DELETE FROM rate_limit_store');
+    }
+}
+
+// ============================================================
+// ENSURE TABLE EXISTS
+// ============================================================
+
+export const ensureRateLimitTable = async () => {
+    try {
+        await query(`
+            CREATE TABLE IF NOT EXISTS rate_limit_store (
+                key VARCHAR(255) PRIMARY KEY,
+                count INTEGER DEFAULT 0,
+                reset_at TIMESTAMP,
+                created_at TIMESTAMP DEFAULT NOW(),
+                updated_at TIMESTAMP DEFAULT NOW()
+            )
+        `);
+        await query(`
+            CREATE INDEX IF NOT EXISTS idx_rate_limit_reset_at ON rate_limit_store(reset_at)
+        `);
+        console.log('[RATE_LIMIT] Table verified');
+    } catch (err) {
+        console.error('[RATE_LIMIT] Table creation error:', err.message);
+    }
+};
+
+// ============================================================
+// CLEANUP OLD RATE LIMIT RECORDS
+// ============================================================
+
+export const cleanupRateLimits = async () => {
+    try {
+        const result = await query(
+            'DELETE FROM rate_limit_store WHERE reset_at < NOW() - INTERVAL \'1 hour\''
+        );
+        if (result.rowCount > 0) {
+            console.log(`[RATE_LIMIT] Cleaned up ${result.rowCount} old records`);
+        }
+    } catch (err) {
+        console.error('[RATE_LIMIT] Cleanup error:', err.message);
+    }
+};
+
+// Run cleanup every hour
+setInterval(cleanupRateLimits, 60 * 60 * 1000);
+
+// ============================================================
+// RATE LIMITERS
+// ============================================================
+
+const store = new PostgresStore({ windowMs: 60 * 1000 });
+
+// CRITICAL: Authentication/Registration
+export const authLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 20,
+    store: store,
+    message: {
+        success: false,
+        error: 'Too many authentication attempts. Please try again later.'
+    },
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req) => {
+        const forwarded = req.headers['x-forwarded-for'];
+        return forwarded ? forwarded.split(',')[0].trim() : req.ip || req.connection.remoteAddress;
+    }
+});
+
+// HIGH: Mutations (Orders, Payments, Stock, User Management)
+export const mutationLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 30,
+    store: store,
+    message: {
+        success: false,
+        error: 'Too many requests. Please slow down and try again.'
+    },
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req) => {
+        const forwarded = req.headers['x-forwarded-for'];
+        const clientIp = forwarded ? forwarded.split(',')[0].trim() : req.ip || req.connection.remoteAddress;
+        const userId = req.user?.id || 'anonymous';
+        return `${userId}_${clientIp}`;
+    },
+    skip: (req) => {
+        return req.path === '/health' || req.path === '/';
+    }
+});
+
+// ONBOARDING: Company Creation
+export const onboardLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000,
+    max: 10,
+    store: store,
+    message: {
+        success: false,
+        error: 'Too many company creation requests. Please try again later.'
+    },
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req) => {
+        const forwarded = req.headers['x-forwarded-for'];
+        return forwarded ? forwarded.split(',')[0].trim() : req.ip || req.connection.remoteAddress;
+    }
+});
+
+// MEDIUM: Read Operations
+export const readLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 100,
+    store: store,
+    message: {
+        success: false,
+        error: 'Too many requests. Please slow down.'
+    },
+    standardHeaders: true,
+    legacyHeaders: false,
+    skip: (req) => {
+        return req.path === '/health' || req.path === '/';
+    },
+    keyGenerator: (req) => {
+        const forwarded = req.headers['x-forwarded-for'];
+        const clientIp = forwarded ? forwarded.split(',')[0].trim() : req.ip || req.connection.remoteAddress;
+        const userId = req.user?.id || 'anonymous';
+        return `${userId}_${clientIp}`;
+    }
+});
 === FILE: C:\Users\dell\Desktop\restaurant\server\src\middleware\validation.js ===
 import { AppError } from './errorHandler.js';
 
@@ -42600,6 +43883,7 @@ import {
     getOwnerBranches
 } from '../middleware/authorization.js';
 import { pool } from '../config/database.js';
+import { authLimiter, mutationLimiter } from '../middleware/rateLimiter.js';
 
 const router = express.Router();
 
@@ -42607,22 +43891,14 @@ const router = express.Router();
 // RATE LIMITING FOR AUTH
 // ============================================================
 
-const authLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000,
-    max: 20,
-    message: { 
-        success: false, 
-        error: 'Too many login attempts. Please try again later.' 
-    },
-    standardHeaders: true,
-    legacyHeaders: false
-});
+// authLimiter is imported from rateLimiter.js
+// mutationLimiter is imported from rateLimiter.js
 
 // ============================================================
-// PUBLIC ROUTES
+// PUBLIC ROUTES - WITH RATE LIMITING
 // ============================================================
 router.post('/login', authLimiter, login);
-router.post('/signup', signup);
+router.post('/signup', authLimiter, signup);
 router.post('/verify', verifyToken);
 
 // ============================================================
@@ -42676,25 +43952,312 @@ router.get('/branches', protect, getOwnerBranches, async (req, res) => {
 router.post('/switch-branch', protect, allowOwner, switchBranch);
 
 // ============================================================
-// USER MANAGEMENT (Owner only)
+// USER MANAGEMENT (Owner only) - WITH RATE LIMITING ON MUTATIONS
 // ============================================================
+
+// Read operations (no rate limit needed for reads)
 router.get('/users', authorizeCompany, allowOwner, getAllUsers);
 router.get('/users/pending', authorizeCompany, allowOwner, getPendingUsers);
-router.put('/users/:id/approve', authorizeCompany, allowOwner, approveUser);
-router.delete('/users/:id/reject', authorizeCompany, allowOwner, rejectUser);
-router.put('/users/:id', authorizeCompany, allowOwner, updateUser);
-router.delete('/users/:id', authorizeCompany, allowOwner, deleteUser);
 
-// ✅ NEW: Enable/Disable user (Owner/Admin only)
-router.put('/users/:id/enable', authorizeCompany, allowOwner, enableUser);
-router.put('/users/:id/disable', authorizeCompany, allowOwner, disableUser);
+// MUTATION ENDPOINTS - WITH RATE LIMITING
+router.put('/users/:id/approve', 
+    authorizeCompany, 
+    allowOwner, 
+    mutationLimiter, 
+    approveUser
+);
 
+router.delete('/users/:id/reject', 
+    authorizeCompany, 
+    allowOwner, 
+    mutationLimiter, 
+    rejectUser
+);
+
+router.put('/users/:id', 
+    authorizeCompany, 
+    allowOwner, 
+    mutationLimiter, 
+    updateUser
+);
+
+router.delete('/users/:id', 
+    authorizeCompany, 
+    allowOwner, 
+    mutationLimiter, 
+    deleteUser
+);
+
+// Enable/Disable user with rate limiting
+router.put('/users/:id/enable', 
+    authorizeCompany, 
+    allowOwner, 
+    mutationLimiter, 
+    enableUser
+);
+
+router.put('/users/:id/disable', 
+    authorizeCompany, 
+    allowOwner, 
+    mutationLimiter, 
+    disableUser
+);
+
+// Staff performance (read-only)
 router.get('/performance', authorizeCompany, allowOwner, getStaffPerformance);
 
 // ============================================================
 // LOGOUT
 // ============================================================
 router.post('/logout', logout);
+
+export default router;
+=== FILE: C:\Users\dell\Desktop\restaurant\server\src\routes\branches.js ===
+// server/src/routes/branches.js
+
+import express from 'express';
+import { protect, allowOwner } from '../middleware/auth.js';
+import { query } from '../config/database.js';
+import { AppError, catchAsync } from '../middleware/errorHandler.js';
+
+const router = express.Router();
+
+// ============================================================
+// ALL BRANCH ROUTES REQUIRE AUTHENTICATION AND OWNER ROLE
+// ============================================================
+router.use(protect);
+router.use(allowOwner);
+
+// ============================================================
+// GET ALL BRANCHES FOR CURRENT COMPANY
+// ============================================================
+router.get('/', catchAsync(async (req, res) => {
+    const companyId = req.user.company_id;
+    
+    if (!companyId) {
+        throw new AppError('Company context not found. Please login again.', 401);
+    }
+    
+    const result = await query(
+        `SELECT id, name, address, phone, is_active, created_at, updated_at
+         FROM branches
+         WHERE company_id = $1
+         ORDER BY name ASC`,
+        [companyId]
+    );
+    
+    res.json({
+        success: true,
+        data: result.rows,
+        company_id: companyId
+    });
+}));
+
+// ============================================================
+// GET SINGLE BRANCH BY ID (Company-scoped)
+// ============================================================
+router.get('/:id', catchAsync(async (req, res) => {
+    const { id } = req.params;
+    const companyId = req.user.company_id;
+    
+    if (!companyId) {
+        throw new AppError('Company context not found. Please login again.', 401);
+    }
+    
+    const result = await query(
+        `SELECT id, name, address, phone, is_active, created_at, updated_at
+         FROM branches
+         WHERE id = $1 AND company_id = $2`,
+        [id, companyId]
+    );
+    
+    if (result.rows.length === 0) {
+        throw new AppError('Branch not found or does not belong to your company', 404);
+    }
+    
+    res.json({
+        success: true,
+        data: result.rows[0]
+    });
+}));
+
+// ============================================================
+// CREATE BRANCH (Company-scoped)
+// ============================================================
+router.post('/', catchAsync(async (req, res) => {
+    const { name, address, phone } = req.body;
+    const companyId = req.user.company_id;
+    
+    if (!companyId) {
+        throw new AppError('Company context not found. Please login again.', 401);
+    }
+    
+    if (!name || name.trim().length < 1) {
+        throw new AppError('Branch name is required', 400);
+    }
+    
+    // FIX: Single query string, no concatenation issues
+    const duplicateCheck = await query(
+        'SELECT id FROM branches WHERE LOWER(name) = LOWER($1) AND company_id = $2',
+        [name.trim(), companyId]
+    );
+    
+    if (duplicateCheck.rows.length > 0) {
+        throw new AppError(`A branch named "${name.trim()}" already exists in your company`, 409);
+    }
+    
+    const result = await query(
+        `INSERT INTO branches (company_id, name, address, phone, is_active, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, true, NOW(), NOW())
+         RETURNING id, name, address, phone, is_active, created_at, updated_at`,
+        [companyId, name.trim(), address || null, phone || null]
+    );
+    
+    res.status(201).json({
+        success: true,
+        message: 'Branch created successfully',
+        data: result.rows[0]
+    });
+}));
+
+// ============================================================
+// UPDATE BRANCH (Company-scoped)
+// ============================================================
+router.put('/:id', catchAsync(async (req, res) => {
+    const { id } = req.params;
+    const { name, address, phone, is_active } = req.body;
+    const companyId = req.user.company_id;
+    
+    if (!companyId) {
+        throw new AppError('Company context not found. Please login again.', 401);
+    }
+    
+    // Verify branch exists and belongs to this company
+    const existingBranch = await query(
+        'SELECT id, name FROM branches WHERE id = $1 AND company_id = $2',
+        [id, companyId]
+    );
+    
+    if (existingBranch.rows.length === 0) {
+        throw new AppError('Branch not found or does not belong to your company', 404);
+    }
+    
+    // Build update query dynamically
+    const updates = [];
+    const params = [];
+    let paramIndex = 1;
+    
+    if (name !== undefined) {
+        updates.push(`name = $${paramIndex++}`);
+        params.push(name.trim());
+    }
+    if (address !== undefined) {
+        updates.push(`address = $${paramIndex++}`);
+        params.push(address || null);
+    }
+    if (phone !== undefined) {
+        updates.push(`phone = $${paramIndex++}`);
+        params.push(phone || null);
+    }
+    if (is_active !== undefined) {
+        updates.push(`is_active = $${paramIndex++}`);
+        params.push(is_active);
+    }
+    
+    if (updates.length === 0) {
+        throw new AppError('No fields to update', 400);
+    }
+    
+    updates.push(`updated_at = NOW()`);
+    params.push(id, companyId);
+    
+    const result = await query(
+        `UPDATE branches 
+         SET ${updates.join(', ')}
+         WHERE id = $${paramIndex} AND company_id = $${paramIndex + 1}
+         RETURNING id, name, address, phone, is_active, created_at, updated_at`,
+        params
+    );
+    
+    res.json({
+        success: true,
+        message: 'Branch updated successfully',
+        data: result.rows[0]
+    });
+}));
+
+// ============================================================
+// DELETE BRANCH (Company-scoped with safety checks)
+// ============================================================
+router.delete('/:id', catchAsync(async (req, res) => {
+    const { id } = req.params;
+    const companyId = req.user.company_id;
+    
+    if (!companyId) {
+        throw new AppError('Company context not found. Please login again.', 401);
+    }
+    
+    // Verify branch exists and belongs to this company
+    const existingBranch = await query(
+        'SELECT id, name FROM branches WHERE id = $1 AND company_id = $2',
+        [id, companyId]
+    );
+    
+    if (existingBranch.rows.length === 0) {
+        throw new AppError('Branch not found or does not belong to your company', 404);
+    }
+    
+    // Check if branch has any dependencies
+    const dependencyChecks = await query(
+        `SELECT 
+            (SELECT COUNT(*) FROM users WHERE branch_id = $1) as user_count,
+            (SELECT COUNT(*) FROM tables WHERE branch_id = $1) as table_count,
+            (SELECT COUNT(*) FROM orders WHERE branch_id = $1) as order_count,
+            (SELECT COUNT(*) FROM sales WHERE branch_id = $1) as sale_count,
+            (SELECT COUNT(*) FROM ingredients WHERE branch_id = $1) as ingredient_count,
+            (SELECT COUNT(*) FROM expenses WHERE branch_id = $1) as expense_count,
+            (SELECT COUNT(*) FROM stock_transactions WHERE branch_id = $1) as stock_transaction_count,
+            (SELECT COUNT(*) FROM kitchen_orders WHERE branch_id = $1) as kitchen_order_count,
+            (SELECT COUNT(*) FROM idempotency_records WHERE branch_id = $1) as idempotency_count`,
+        [id]
+    );
+    
+    const deps = dependencyChecks.rows[0];
+    
+    if (deps.user_count > 0 || deps.table_count > 0 || deps.order_count > 0 || 
+        deps.sale_count > 0 || deps.ingredient_count > 0 || deps.expense_count > 0 ||
+        deps.stock_transaction_count > 0 || deps.kitchen_order_count > 0 ||
+        deps.idempotency_count > 0) {
+        
+        const warnings = [];
+        if (deps.user_count > 0) warnings.push(`${deps.user_count} users`);
+        if (deps.table_count > 0) warnings.push(`${deps.table_count} tables`);
+        if (deps.order_count > 0) warnings.push(`${deps.order_count} orders`);
+        if (deps.sale_count > 0) warnings.push(`${deps.sale_count} sales`);
+        if (deps.ingredient_count > 0) warnings.push(`${deps.ingredient_count} ingredients`);
+        if (deps.expense_count > 0) warnings.push(`${deps.expense_count} expenses`);
+        if (deps.stock_transaction_count > 0) warnings.push(`${deps.stock_transaction_count} stock transactions`);
+        if (deps.kitchen_order_count > 0) warnings.push(`${deps.kitchen_order_count} kitchen orders`);
+        if (deps.idempotency_count > 0) warnings.push(`${deps.idempotency_count} idempotency records`);
+        
+        throw new AppError(
+            `Cannot delete branch "${existingBranch.rows[0].name}". It has associated data: ${warnings.join(', ')}. 
+             Consider deactivating the branch instead.`,
+            409
+        );
+    }
+    
+    // Safe to delete
+    await query(
+        'DELETE FROM branches WHERE id = $1 AND company_id = $2',
+        [id, companyId]
+    );
+    
+    res.json({
+        success: true,
+        message: `Branch "${existingBranch.rows[0].name}" deleted successfully`
+    });
+}));
 
 export default router;
 === FILE: C:\Users\dell\Desktop\restaurant\server\src\routes\categories.js ===
@@ -42885,6 +44448,43 @@ router.get("/:id/products", authorizeCompany, async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 });
+
+export default router;
+=== FILE: C:\Users\dell\Desktop\restaurant\server\src\routes\companies.js ===
+// server/src/routes/companies.js
+
+import express from 'express';
+import {
+    onboardCompany,
+    getCompanyInfo,
+    listCompanies
+} from '../controllers/companyController.js';
+import { protect, allowOwner } from '../middleware/auth.js';
+import { authorizeCompany, requireCompanyContext } from '../middleware/authorization.js';
+import { onboardLimiter } from '../middleware/rateLimiter.js';
+
+const router = express.Router();
+
+// ============================================================
+// ONBOARDING â€” PUBLIC (NO AUTH REQUIRED)
+// ============================================================
+router.post('/onboard', 
+    onboardLimiter,  // Rate limiting only â€” no authentication
+    onboardCompany
+);
+
+// ============================================================
+// PROTECTED ROUTES â€” AUTH REQUIRED
+// ============================================================
+
+router.use(protect);
+router.use(requireCompanyContext);
+
+// Get company info (with branches and owners)
+router.get('/:id', authorizeCompany, getCompanyInfo);
+
+// List all companies (admin/owner only)
+router.get('/', allowOwner, listCompanies);
 
 export default router;
 === FILE: C:\Users\dell\Desktop\restaurant\server\src\routes\customers.js ===
@@ -43116,6 +44716,7 @@ import express from 'express';
 import { protect, allowManager, allowOwner } from '../middleware/auth.js';
 import { authorizeCompany, authorizeBranch, requireCompanyContext } from '../middleware/authorization.js';
 import { requireIdempotency, idempotent } from '../middleware/idempotency.js';
+import { mutationLimiter } from '../middleware/rateLimiter.js';
 import {
     getAllIngredients,
     getIngredientById,
@@ -43154,20 +44755,15 @@ router.get('/categories', authorizeCompany, allowManager, getIngredientCategorie
 router.get('/:id', authorizeBranch, allowManager, getIngredientById);
 
 // Owner only for write operations
-// Create ingredient - branch_id from user context
 router.post('/', authorizeBranch, allowOwner, createIngredient);
-
-// Update ingredient - validate branch ownership
 router.put('/:id', authorizeBranch, allowOwner, updateIngredient);
-
-// Delete ingredient - validate branch ownership
 router.delete('/:id', authorizeBranch, allowOwner, deleteIngredient);
 
-// ✅ FIX: Adjust stock with idempotency - middleware order matters!
-// The order is: authorizeBranch → allowOwner → requireIdempotency → idempotent → adjustStock
+// ADJUST STOCK - WITH RATE LIMITING AND IDEMPOTENCY
 router.put('/:id/adjust-stock', 
     authorizeBranch, 
     allowOwner, 
+    mutationLimiter,
     requireIdempotency, 
     idempotent, 
     adjustStock
@@ -43561,6 +45157,7 @@ import { pool } from "../config/database.js";
 import rateLimit from "express-rate-limit";
 import { processOrderStockDeduction } from "../controllers/recipeController.js";
 import { AppError } from "../middleware/errorHandler.js";
+import { mutationLimiter } from "../middleware/rateLimiter.js";
 
 const router = express.Router();
 
@@ -43659,182 +45256,288 @@ router.get("/track/:orderNumber", trackLimiter, async (req, res) => {
     }
 });
 
-router.post("/qr-order", async (req, res) => {
-    try {
-        const { items, table_id, customer_name, customer_phone, notes } = req.body;
+// ==================== FIXED QR ORDER ROUTE ====================
+router.post("/qr-order", 
+    mutationLimiter,
+    requireIdempotency,
+    idempotent,
+    async (req, res) => {
+        console.log('[QR ORDER] ====== START ======');
+        console.log('[QR ORDER] Request body:', JSON.stringify(req.body, null, 2));
+        
+        try {
+            const { items, table_id, customer_name, customer_phone, notes } = req.body;
+            
+            if (!items || items.length === 0) {
+                console.log('[QR ORDER] ERROR: No items in order');
+                return res.status(400).json({ success: false, error: "No items in order" });
+            }
+            
+            console.log('[QR ORDER] Items:', JSON.stringify(items));
+            console.log('[QR ORDER] Table ID:', table_id);
+            
+            // Validate table_id
+            if (!table_id) {
+                console.log('[QR ORDER] ERROR: No table ID provided');
+                return res.status(400).json({ success: false, error: "Table ID is required" });
+            }
+            
+            const client = await pool.connect();
+            
+            try {
+                await client.query("BEGIN");
+                console.log('[QR ORDER] Transaction started');
+                
+                // Get table info
+                const tableResult = await client.query(
+                    "SELECT id, branch_id, waiter_id, company_id FROM tables WHERE id = $1",
+                    [table_id]
+                );
+                
+                if (tableResult.rows.length === 0) {
+                    console.log('[QR ORDER] ERROR: Table not found:', table_id);
+                    await client.query("ROLLBACK");
+                    return res.status(404).json({ success: false, error: "Table not found" });
+                }
+                
+                const table = tableResult.rows[0];
+                console.log('[QR ORDER] Table found:', JSON.stringify(table));
+                
+                const branchId = table.branch_id;
+                const companyId = table.company_id;
+                // If no waiter assigned, use NULL (will be assigned when waiter confirms)
+                const waiterId = table.waiter_id || null;
+                
+                // Get company ID from branch if not available on table
+                let finalCompanyId = companyId;
+                if (!finalCompanyId) {
+                    const branchResult = await client.query(
+                        "SELECT company_id FROM branches WHERE id = $1",
+                        [branchId]
+                    );
+                    if (branchResult.rows.length === 0) {
+                        console.log('[QR ORDER] ERROR: Branch not found:', branchId);
+                        await client.query("ROLLBACK");
+                        return res.status(404).json({ success: false, error: "Branch not found" });
+                    }
+                    finalCompanyId = branchResult.rows[0].company_id;
+                }
+                
+                console.log('[QR ORDER] Context - Company:', finalCompanyId, 'Branch:', branchId, 'Waiter:', waiterId);
+                
+                // Calculate total amount
+                let totalAmount = 0;
+                for (const item of items) {
+                    const productResult = await client.query(
+                        "SELECT price, company_id FROM products WHERE id = $1 AND is_available = true",
+                        [item.product_id]
+                    );
+                    if (productResult.rows.length === 0) {
+                        console.log('[QR ORDER] ERROR: Product not found:', item.product_id);
+                        await client.query("ROLLBACK");
+                        return res.status(404).json({ success: false, error: `Product ${item.product_id} not found` });
+                    }
+                    if (productResult.rows[0].company_id !== finalCompanyId) {
+                        console.log('[QR ORDER] ERROR: Product company mismatch:', productResult.rows[0].company_id, 'vs', finalCompanyId);
+                        await client.query("ROLLBACK");
+                        return res.status(403).json({ success: false, error: `Product ${item.product_id} does not belong to this company` });
+                    }
+                    totalAmount += parseFloat(productResult.rows[0].price) * item.quantity;
+                }
+                
+                console.log('[QR ORDER] Total amount:', totalAmount);
+                
+                // Generate order number
+                const orderNumber = `QR-${Date.now().toString().slice(-8)}${Math.floor(Math.random() * 1000)}`;
+                console.log('[QR ORDER] Order number:', orderNumber);
+                
+                // Insert order
+                const orderResult = await client.query(`
+                    INSERT INTO orders (
+                        order_number, total_amount, status, payment_status, 
+                        customer_name, customer_phone, table_id, order_type, notes, 
+                        source, waiter_id, company_id, branch_id
+                    ) VALUES ($1, $2, 'pending_confirmation', 'pending', $3, $4, $5, 'dine_in', $6, 'qr_menu', $7, $8, $9)
+                    RETURNING id, order_number, total_amount
+                `, [
+                    orderNumber, 
+                    totalAmount, 
+                    customer_name || null, 
+                    customer_phone || null, 
+                    table_id, 
+                    notes || null, 
+                    waiterId, 
+                    finalCompanyId, 
+                    branchId
+                ]);
+                
+                const orderId = orderResult.rows[0].id;
+                console.log('[QR ORDER] Order created with ID:', orderId);
+                
+                // Insert order items
+                for (const item of items) {
+                    const productResult = await client.query(
+                        "SELECT price, name FROM products WHERE id = $1",
+                        [item.product_id]
+                    );
+                    const itemTotal = parseFloat(productResult.rows[0].price) * item.quantity;
+                    await client.query(`
+                        INSERT INTO order_items (order_id, product_id, quantity, unit_price, total_price)
+                        VALUES ($1, $2, $3, $4, $5)
+                    `, [orderId, item.product_id, item.quantity, productResult.rows[0].price, itemTotal]);
+                    console.log('[QR ORDER] Item inserted:', item.product_id, 'x', item.quantity);
+                }
+                
+                // Stock deduction
+                let stockResult = { deductions: [], totalWastageCost: 0 };
+                try {
+                    stockResult = await processOrderStockDeduction(orderId, items, client, finalCompanyId, branchId);
+                    console.log('[QR ORDER] Stock deduction completed');
+                } catch (stockError) {
+                    console.error('[QR ORDER] Stock deduction failed:', stockError.message);
+                    await client.query('ROLLBACK');
+                    return res.status(409).json({ 
+                        success: false, 
+                        error: stockError.message || 'Insufficient stock for order' 
+                    });
+                }
+                
+                await client.query("COMMIT");
+                console.log('[QR ORDER] Transaction committed successfully');
+                
+                // Emit socket event for waiter
+                const io = req.app.get('io');
+                if (io) {
+                    const orderData = {
+                        order_id: orderId,
+                        order_number: orderNumber,
+                        total_amount: totalAmount,
+                        status: 'pending_confirmation',
+                        branch_id: branchId,
+                        company_id: finalCompanyId,
+                        table_id: table_id,
+                        source: 'qr_menu'
+                    };
+                    
+                    io.to(`waiter_${branchId}`).emit('new_pending_order', orderData);
+                    io.to(`branch_${finalCompanyId}_${branchId}`).emit('new_order_branch', orderData);
+                    console.log('[QR ORDER] Socket events emitted');
+                }
+                
+                res.status(201).json({
+                    success: true,
+                    message: "Order placed! Waiting for waiter confirmation.",
+                    data: { 
+                        order_id: orderId, 
+                        order_number: orderNumber, 
+                        total_amount: totalAmount, 
+                        status: 'pending_confirmation',
+                        stock_deductions: stockResult.deductions,
+                        total_wastage_cost: stockResult.totalWastageCost
+                    }
+                });
+                console.log('[QR ORDER] ====== SUCCESS ======');
+                
+            } catch (err) {
+                await client.query("ROLLBACK");
+                console.error('[QR ORDER] Transaction error:', err.message);
+                console.error('[QR ORDER] Stack:', err.stack);
+                throw err;
+            } finally {
+                client.release();
+            }
+        } catch (err) {
+            console.error('[QR ORDER] ERROR:', err.message);
+            console.error('[QR ORDER] Stack:', err.stack);
+            res.status(500).json({ 
+                success: false, 
+                error: err.message || 'Failed to place order' 
+            });
+        }
+    }
+);
+
+router.post("/:orderId/customer-add-items", 
+    mutationLimiter,
+    requireIdempotency,
+    idempotent,
+    async (req, res) => {
+        const { orderId } = req.params;
+        const { items } = req.body;
         
         if (!items || items.length === 0) {
-            return res.status(400).json({ success: false, error: "No items in order" });
+            return res.status(400).json({ success: false, error: "No items to add" });
         }
         
         const client = await pool.connect();
         try {
             await client.query("BEGIN");
             
-            const tableResult = await client.query(
-                "SELECT branch_id, waiter_id FROM tables WHERE id = $1",
-                [table_id]
+            const orderCheck = await client.query(
+                "SELECT id, status, total_amount, company_id, branch_id FROM orders WHERE id = $1 AND status = $2",
+                [orderId, 'pending_confirmation']
             );
-            if (tableResult.rows.length === 0) {
-                return res.status(404).json({ success: false, error: "Table not found" });
+            if (orderCheck.rows.length === 0) {
+                return res.status(404).json({ success: false, error: "Order not found or already confirmed" });
             }
-            const branchId = tableResult.rows[0].branch_id;
-            const waiterId = tableResult.rows[0].waiter_id;
+            const order = orderCheck.rows[0];
+            const companyId = order.company_id;
+            const branchId = order.branch_id;
             
-            const branchResult = await client.query(
-                "SELECT company_id FROM branches WHERE id = $1",
-                [branchId]
-            );
-            const companyId = branchResult.rows[0].company_id;
+            let additionalAmount = 0;
+            const newItems = [];
             
-            let totalAmount = 0;
             for (const item of items) {
                 const productResult = await client.query(
-                    "SELECT price, company_id FROM products WHERE id = $1",
+                    "SELECT price, company_id, name FROM products WHERE id = $1",
                     [item.product_id]
                 );
                 if (productResult.rows[0].company_id !== companyId) {
                     throw new Error(`Product ${item.product_id} does not belong to this company`);
                 }
-                totalAmount += parseFloat(productResult.rows[0].price) * item.quantity;
-            }
-            
-            const orderNumber = `QR-${Date.now().toString().slice(-8)}${Math.floor(Math.random() * 1000)}`;
-            
-            const orderResult = await client.query(`
-                INSERT INTO orders (
-                    order_number, total_amount, status, payment_status, 
-                    customer_name, customer_phone, table_id, order_type, notes, source, waiter_id,
-                    company_id, branch_id
-                ) VALUES ($1, $2, 'pending_confirmation', 'pending', $3, $4, $5, 'dine_in', $6, 'qr_menu', $7, $8, $9)
-                RETURNING id, order_number
-            `, [orderNumber, totalAmount, customer_name || null, customer_phone || null, table_id || null, notes || null, waiterId, companyId, branchId]);
-            
-            const orderId = orderResult.rows[0].id;
-            
-            for (const item of items) {
-                const productResult = await client.query(
-                    "SELECT price, name FROM products WHERE id = $1",
-                    [item.product_id]
-                );
-                const itemTotal = parseFloat(productResult.rows[0].price) * item.quantity;
+                const unitPrice = parseFloat(productResult.rows[0].price);
+                const itemTotal = unitPrice * item.quantity;
+                additionalAmount += itemTotal;
                 await client.query(`
                     INSERT INTO order_items (order_id, product_id, quantity, unit_price, total_price)
                     VALUES ($1, $2, $3, $4, $5)
-                `, [orderId, item.product_id, item.quantity, productResult.rows[0].price, itemTotal]);
+                `, [orderId, item.product_id, item.quantity, unitPrice, itemTotal]);
+                newItems.push(item);
             }
             
             let stockResult = { deductions: [], totalWastageCost: 0 };
             try {
-                stockResult = await processOrderStockDeduction(orderId, items, client, companyId, branchId);
+                stockResult = await processOrderStockDeduction(orderId, newItems, client, companyId, branchId);
             } catch (stockError) {
-                console.error('[QR ORDER] Stock deduction failed:', stockError.message);
+                console.error('[QR ADD ITEMS] Stock deduction failed:', stockError.message);
                 await client.query('ROLLBACK');
-                throw new Error(stockError.message || 'Insufficient stock for order');
+                throw new Error(stockError.message || 'Insufficient stock for additional items');
             }
+            
+            const newTotal = parseFloat(order.total_amount) + additionalAmount;
+            await client.query(`
+                UPDATE orders SET total_amount = $1, updated_at = NOW() WHERE id = $2
+            `, [newTotal, orderId]);
             
             await client.query("COMMIT");
             
-            res.status(201).json({
+            res.json({
                 success: true,
-                message: "Order placed! Waiting for waiter confirmation.",
-                data: { 
-                    order_id: orderId, 
-                    order_number: orderNumber, 
-                    total_amount: totalAmount, 
-                    status: 'pending_confirmation',
-                    stock_deductions: stockResult.deductions,
-                    total_wastage_cost: stockResult.totalWastageCost
-                }
+                message: "Items added to order",
+                additional_amount: additionalAmount,
+                new_total: newTotal,
+                stock_deductions: stockResult.deductions,
+                total_wastage_cost: stockResult.totalWastageCost
             });
         } catch (err) {
             await client.query("ROLLBACK");
-            throw err;
+            console.error("Customer add items error:", err);
+            res.status(500).json({ success: false, error: err.message });
         } finally {
             client.release();
         }
-    } catch (err) {
-        console.error("QR order error:", err);
-        res.status(500).json({ success: false, error: err.message });
     }
-});
-
-router.post("/:orderId/customer-add-items", async (req, res) => {
-    const { orderId } = req.params;
-    const { items } = req.body;
-    
-    if (!items || items.length === 0) {
-        return res.status(400).json({ success: false, error: "No items to add" });
-    }
-    
-    const client = await pool.connect();
-    try {
-        await client.query("BEGIN");
-        
-        const orderCheck = await client.query(
-            "SELECT id, status, total_amount, company_id, branch_id FROM orders WHERE id = $1 AND status = $2",
-            [orderId, 'pending_confirmation']
-        );
-        if (orderCheck.rows.length === 0) {
-            return res.status(404).json({ success: false, error: "Order not found or already confirmed" });
-        }
-        const order = orderCheck.rows[0];
-        const companyId = order.company_id;
-        const branchId = order.branch_id;
-        
-        let additionalAmount = 0;
-        const newItems = [];
-        
-        for (const item of items) {
-            const productResult = await client.query(
-                "SELECT price, company_id, name FROM products WHERE id = $1",
-                [item.product_id]
-            );
-            if (productResult.rows[0].company_id !== companyId) {
-                throw new Error(`Product ${item.product_id} does not belong to this company`);
-            }
-            const unitPrice = parseFloat(productResult.rows[0].price);
-            const itemTotal = unitPrice * item.quantity;
-            additionalAmount += itemTotal;
-            await client.query(`
-                INSERT INTO order_items (order_id, product_id, quantity, unit_price, total_price)
-                VALUES ($1, $2, $3, $4, $5)
-            `, [orderId, item.product_id, item.quantity, unitPrice, itemTotal]);
-            newItems.push(item);
-        }
-        
-        let stockResult = { deductions: [], totalWastageCost: 0 };
-        try {
-            stockResult = await processOrderStockDeduction(orderId, newItems, client, companyId, branchId);
-        } catch (stockError) {
-            console.error('[QR ADD ITEMS] Stock deduction failed:', stockError.message);
-            await client.query('ROLLBACK');
-            throw new Error(stockError.message || 'Insufficient stock for additional items');
-        }
-        
-        const newTotal = parseFloat(order.total_amount) + additionalAmount;
-        await client.query(`
-            UPDATE orders SET total_amount = $1, updated_at = NOW() WHERE id = $2
-        `, [newTotal, orderId]);
-        
-        await client.query("COMMIT");
-        
-        res.json({
-            success: true,
-            message: "Items added to order",
-            additional_amount: additionalAmount,
-            new_total: newTotal,
-            stock_deductions: stockResult.deductions,
-            total_wastage_cost: stockResult.totalWastageCost
-        });
-    } catch (err) {
-        await client.query("ROLLBACK");
-        console.error("Customer add items error:", err);
-        res.status(500).json({ success: false, error: err.message });
-    } finally {
-        client.release();
-    }
-});
+);
 
 // ==================== PROTECTED ROUTES ====================
 
@@ -43872,127 +45575,134 @@ router.get("/", authorizeBranch, allowWaiter, async (req, res) => {
     }
 });
 
-router.post("/", authorizeBranch, allowWaiter, requireIdempotency, idempotent, async (req, res) => {
-    try {
-        const { items, customer_name, customer_phone, table_id, order_type = 'dine_in', notes, source = 'waiter' } = req.body;
-        const userId = req.user.id;
-        const companyId = req.user.company_id;
-        const branchId = req.user.branch_id;
-        
-        if (!items || items.length === 0) {
-            return res.status(400).json({ success: false, error: "Order must have at least one item" });
-        }
-        
-        const client = await pool.connect();
+router.post("/", 
+    authorizeBranch, 
+    allowWaiter, 
+    mutationLimiter,
+    requireIdempotency, 
+    idempotent, 
+    async (req, res) => {
         try {
-            await client.query("BEGIN");
+            const { items, customer_name, customer_phone, table_id, order_type = 'dine_in', notes, source = 'waiter' } = req.body;
+            const userId = req.user.id;
+            const companyId = req.user.company_id;
+            const branchId = req.user.branch_id;
             
-            if (table_id) {
-                const tableCheck = await client.query(
-                    "SELECT id FROM tables WHERE id = $1 AND branch_id = $2 AND company_id = $3",
-                    [table_id, branchId, companyId]
-                );
-                if (tableCheck.rows.length === 0) {
-                    return res.status(404).json({ success: false, error: "Table not found in this branch" });
-                }
+            if (!items || items.length === 0) {
+                return res.status(400).json({ success: false, error: "Order must have at least one item" });
             }
             
-            let totalAmount = 0;
-            for (const item of items) {
-                const productResult = await client.query(
-                    "SELECT price, company_id FROM products WHERE id = $1",
-                    [item.product_id]
-                );
-                if (productResult.rows[0].company_id !== companyId) {
-                    throw new Error(`Product ${item.product_id} does not belong to this company`);
-                }
-                totalAmount += parseFloat(productResult.rows[0].price) * item.quantity;
-            }
-            
-            const orderNumber = generateOrderNumber();
-            
-            const orderResult = await client.query(`
-                INSERT INTO orders (
-                    order_number, total_amount, created_by, status, payment_status, 
-                    customer_name, customer_phone, table_id, order_type, notes, source, waiter_id,
-                    company_id, branch_id
-                ) VALUES ($1, $2, $3, 'pending', 'pending', $4, $5, $6, $7, $8, $9, $10, $11, $12)
-                RETURNING id, order_number, total_amount
-            `, [orderNumber, totalAmount, userId, customer_name || null, customer_phone || null, table_id || null, order_type, notes || null, source, userId, companyId, branchId]);
-            
-            const orderId = orderResult.rows[0].id;
-            
-            for (const item of items) {
-                const productResult = await client.query(
-                    "SELECT price FROM products WHERE id = $1",
-                    [item.product_id]
-                );
-                const itemTotal = parseFloat(productResult.rows[0].price) * item.quantity;
-                await client.query(`
-                    INSERT INTO order_items (order_id, product_id, quantity, unit_price, total_price)
-                    VALUES ($1, $2, $3, $4, $5)
-                `, [orderId, item.product_id, item.quantity, productResult.rows[0].price, itemTotal]);
-            }
-            
-            await client.query(`
-                INSERT INTO kitchen_orders (order_id, status, notes)
-                VALUES ($1, 'pending', $2)
-            `, [orderId, notes || null]);
-            
-            if (table_id && order_type === 'dine_in') {
-                await client.query(`
-                    UPDATE tables SET status = 'occupied', current_order_id = $1 WHERE id = $2
-                `, [orderId, table_id]);
-            }
-            
-            let stockResult = { deductions: [], totalWastageCost: 0 };
+            const client = await pool.connect();
             try {
-                stockResult = await processOrderStockDeduction(orderId, items, client, companyId, branchId);
-            } catch (stockError) {
-                console.warn("Stock deduction warning:", stockError.message);
-            }
-            
-            await client.query("COMMIT");
-            
-            const io = req.app.get('io');
-            if (io) {
-                const orderData = {
-                    order_id: orderId,
-                    order_number: orderNumber,
-                    total_amount: totalAmount,
-                    status: 'pending',
-                    branch_id: branchId,
-                    company_id: companyId,
-                    created_by: userId
-                };
+                await client.query("BEGIN");
                 
-                io.to(`kitchen_${branchId}`).emit('new_order', orderData);
-                io.to(`branch_${companyId}_${branchId}`).emit('new_order_branch', orderData);
-            }
-            
-            res.status(201).json({
-                success: true,
-                message: "Order created and sent to kitchen",
-                data: { 
-                    order_id: orderId, 
-                    order_number: orderNumber, 
-                    total_amount: totalAmount, 
-                    status: 'pending',
-                    stock_deductions: stockResult.deductions, 
-                    total_wastage_cost: stockResult.totalWastageCost 
+                if (table_id) {
+                    const tableCheck = await client.query(
+                        "SELECT id FROM tables WHERE id = $1 AND branch_id = $2 AND company_id = $3",
+                        [table_id, branchId, companyId]
+                    );
+                    if (tableCheck.rows.length === 0) {
+                        return res.status(404).json({ success: false, error: "Table not found in this branch" });
+                    }
                 }
-            });
+                
+                let totalAmount = 0;
+                for (const item of items) {
+                    const productResult = await client.query(
+                        "SELECT price, company_id FROM products WHERE id = $1",
+                        [item.product_id]
+                    );
+                    if (productResult.rows[0].company_id !== companyId) {
+                        throw new Error(`Product ${item.product_id} does not belong to this company`);
+                    }
+                    totalAmount += parseFloat(productResult.rows[0].price) * item.quantity;
+                }
+                
+                const orderNumber = generateOrderNumber();
+                
+                const orderResult = await client.query(`
+                    INSERT INTO orders (
+                        order_number, total_amount, created_by, status, payment_status, 
+                        customer_name, customer_phone, table_id, order_type, notes, source, waiter_id,
+                        company_id, branch_id
+                    ) VALUES ($1, $2, $3, 'pending', 'pending', $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                    RETURNING id, order_number, total_amount
+                `, [orderNumber, totalAmount, userId, customer_name || null, customer_phone || null, table_id || null, order_type, notes || null, source, userId, companyId, branchId]);
+                
+                const orderId = orderResult.rows[0].id;
+                
+                for (const item of items) {
+                    const productResult = await client.query(
+                        "SELECT price FROM products WHERE id = $1",
+                        [item.product_id]
+                    );
+                    const itemTotal = parseFloat(productResult.rows[0].price) * item.quantity;
+                    await client.query(`
+                        INSERT INTO order_items (order_id, product_id, quantity, unit_price, total_price)
+                        VALUES ($1, $2, $3, $4, $5)
+                    `, [orderId, item.product_id, item.quantity, productResult.rows[0].price, itemTotal]);
+                }
+                
+                await client.query(`
+                    INSERT INTO kitchen_orders (order_id, status, notes)
+                    VALUES ($1, 'pending', $2)
+                `, [orderId, notes || null]);
+                
+                if (table_id && order_type === 'dine_in') {
+                    await client.query(`
+                        UPDATE tables SET status = 'occupied', current_order_id = $1 WHERE id = $2
+                    `, [orderId, table_id]);
+                }
+                
+                let stockResult = { deductions: [], totalWastageCost: 0 };
+                try {
+                    stockResult = await processOrderStockDeduction(orderId, items, client, companyId, branchId);
+                } catch (stockError) {
+                    console.warn("Stock deduction warning:", stockError.message);
+                }
+                
+                await client.query("COMMIT");
+                
+                const io = req.app.get('io');
+                if (io) {
+                    const orderData = {
+                        order_id: orderId,
+                        order_number: orderNumber,
+                        total_amount: totalAmount,
+                        status: 'pending',
+                        branch_id: branchId,
+                        company_id: companyId,
+                        created_by: userId
+                    };
+                    
+                    io.to(`kitchen_${branchId}`).emit('new_order', orderData);
+                    io.to(`branch_${companyId}_${branchId}`).emit('new_order_branch', orderData);
+                }
+                
+                res.status(201).json({
+                    success: true,
+                    message: "Order created and sent to kitchen",
+                    data: { 
+                        order_id: orderId, 
+                        order_number: orderNumber, 
+                        total_amount: totalAmount, 
+                        status: 'pending',
+                        stock_deductions: stockResult.deductions, 
+                        total_wastage_cost: stockResult.totalWastageCost 
+                    }
+                });
+            } catch (err) {
+                await client.query("ROLLBACK");
+                throw err;
+            } finally {
+                client.release();
+            }
         } catch (err) {
-            await client.query("ROLLBACK");
-            throw err;
-        } finally {
-            client.release();
+            console.error("Create order error:", err);
+            res.status(500).json({ success: false, error: err.message });
         }
-    } catch (err) {
-        console.error("Create order error:", err);
-        res.status(500).json({ success: false, error: err.message });
     }
-});
+);
 
 router.put("/confirm/:orderId", authorizeBranch, allowWaiter, async (req, res) => {
     const { orderId } = req.params;
@@ -44060,7 +45770,7 @@ router.put("/confirm/:orderId", authorizeBranch, allowWaiter, async (req, res) =
     }
 });
 
-// ==================== âœ… FIXED: READY ORDERS ENDPOINT ====================
+// ==================== READY ORDERS ENDPOINT ====================
 router.get("/ready", protect, async (req, res) => {
     try {
         const branchId = req.user?.branch_id || 1;
@@ -44095,131 +45805,138 @@ router.get("/ready", protect, async (req, res) => {
 });
 
 // ==================== PAYMENT ENDPOINT ====================
-router.post("/:orderId/pay", authorizeBranch, allowCashier, requireIdempotency, idempotent, async (req, res) => {
-    const { orderId } = req.params;
-    const { payment_method } = req.body;
-    const branchId = req.user.branch_id;
-    const companyId = req.user.company_id;
-    
-    const client = await pool.connect();
-    try {
-        await client.query("BEGIN");
+router.post("/:orderId/pay", 
+    authorizeBranch, 
+    allowCashier, 
+    mutationLimiter,
+    requireIdempotency, 
+    idempotent, 
+    async (req, res) => {
+        const { orderId } = req.params;
+        const { payment_method } = req.body;
+        const branchId = req.user.branch_id;
+        const companyId = req.user.company_id;
         
-        const orderResult = await client.query(`
-            SELECT o.*, ko.status as kitchen_status 
-            FROM orders o
-            JOIN kitchen_orders ko ON o.id = ko.order_id
-            WHERE o.id = $1 AND o.branch_id = $2 AND o.company_id = $3
-        `, [orderId, branchId, companyId]);
-        
-        if (orderResult.rows.length === 0) {
-            throw new Error("Order not found");
-        }
-        const order = orderResult.rows[0];
-        
-        if (order.kitchen_status !== 'ready') {
-            throw new Error("Order is not ready for payment");
-        }
-        if (order.payment_status === 'paid') {
-            throw new Error("Order already paid");
-        }
-        
-        const totalCost = await calculateOrderTotalCost(orderId, client);
-        const profit = parseFloat(order.total_amount) - totalCost;
-        
-        await client.query(`
-            UPDATE orders 
-            SET payment_status = 'paid', payment_method = $1, status = 'completed', updated_at = NOW()
-            WHERE id = $2
-        `, [payment_method, orderId]);
-        
-        if (order.table_id) {
-            await client.query(`
-                UPDATE tables 
-                SET status = 'available', current_order_id = NULL, updated_at = NOW()
-                WHERE id = $1
-            `, [order.table_id]);
-        }
-        
-        const saleNumber = generateSaleNumber();
-        const saleResult = await client.query(`
-            INSERT INTO sales (
-                sale_number, order_id, total_amount, total_cost, profit, 
-                payment_method, status, branch_id, company_id, created_at,
-                customer_name, customer_phone
-            )
-            VALUES ($1, $2, $3, $4, $5, $6, 'completed', $7, $8, NOW(), $9, $10)
-            RETURNING id, sale_number, total_amount, total_cost, profit
-        `, [
-            saleNumber, 
-            orderId, 
-            order.total_amount, 
-            totalCost, 
-            profit,
-            payment_method, 
-            branchId, 
-            companyId,
-            order.customer_name || null,
-            order.customer_phone || null
-        ]);
-        
-        const sale = saleResult.rows[0];
-        
-        const orderItems = await client.query(`
-            SELECT oi.product_id, oi.quantity, oi.unit_price, oi.total_price, p.name as product_name
-            FROM order_items oi
-            JOIN products p ON oi.product_id = p.id
-            WHERE oi.order_id = $1
-        `, [orderId]);
-        
-        for (const item of orderItems.rows) {
-            const itemCost = await calculateProductCost(item.product_id, item.quantity, client);
-            const itemProfit = item.total_price - itemCost;
+        const client = await pool.connect();
+        try {
+            await client.query("BEGIN");
+            
+            const orderResult = await client.query(`
+                SELECT o.*, ko.status as kitchen_status 
+                FROM orders o
+                JOIN kitchen_orders ko ON o.id = ko.order_id
+                WHERE o.id = $1 AND o.branch_id = $2 AND o.company_id = $3
+            `, [orderId, branchId, companyId]);
+            
+            if (orderResult.rows.length === 0) {
+                throw new Error("Order not found");
+            }
+            const order = orderResult.rows[0];
+            
+            if (order.kitchen_status !== 'ready') {
+                throw new Error("Order is not ready for payment");
+            }
+            if (order.payment_status === 'paid') {
+                throw new Error("Order already paid");
+            }
+            
+            const totalCost = await calculateOrderTotalCost(orderId, client);
+            const profit = parseFloat(order.total_amount) - totalCost;
             
             await client.query(`
-                INSERT INTO sale_items (
-                    sale_id, product_id, quantity, unit_price, total_price,
-                    total_cost, profit
-                )
-                VALUES ($1, $2, $3, $4, $5, $6, $7)
-            `, [
-                sale.id,
-                item.product_id,
-                item.quantity,
-                item.unit_price,
-                item.total_price,
-                itemCost,
-                itemProfit
-            ]);
-        }
-        
-        await client.query("COMMIT");
-        
-        const profitMargin = sale.total_amount > 0 ? (sale.profit / sale.total_amount) * 100 : 0;
-        
-        res.json({
-            success: true,
-            message: "Payment processed successfully",
-            data: {
-                sale_id: sale.id,
-                sale_number: sale.sale_number,
-                order_id: parseInt(orderId),
-                total_amount: parseFloat(sale.total_amount),
-                total_cost: parseFloat(sale.total_cost),
-                profit: parseFloat(sale.profit),
-                profit_margin: parseFloat(profitMargin.toFixed(2)),
-                payment_method: payment_method
+                UPDATE orders 
+                SET payment_status = 'paid', payment_method = $1, status = 'completed', updated_at = NOW()
+                WHERE id = $2
+            `, [payment_method, orderId]);
+            
+            if (order.table_id) {
+                await client.query(`
+                    UPDATE tables 
+                    SET status = 'available', current_order_id = NULL, updated_at = NOW()
+                    WHERE id = $1
+                `, [order.table_id]);
             }
-        });
-        
-    } catch (err) {
-        await client.query("ROLLBACK");
-        console.error("Payment error:", err);
-        res.status(500).json({ success: false, error: err.message });
-    } finally {
-        client.release();
+            
+            const saleNumber = generateSaleNumber();
+            const saleResult = await client.query(`
+                INSERT INTO sales (
+                    sale_number, order_id, total_amount, total_cost, profit, 
+                    payment_method, status, branch_id, company_id, created_at,
+                    customer_name, customer_phone
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, 'completed', $7, $8, NOW(), $9, $10)
+                RETURNING id, sale_number, total_amount, total_cost, profit
+            `, [
+                saleNumber, 
+                orderId, 
+                order.total_amount, 
+                totalCost, 
+                profit,
+                payment_method, 
+                branchId, 
+                companyId,
+                order.customer_name || null,
+                order.customer_phone || null
+            ]);
+            
+            const sale = saleResult.rows[0];
+            
+            const orderItems = await client.query(`
+                SELECT oi.product_id, oi.quantity, oi.unit_price, oi.total_price, p.name as product_name
+                FROM order_items oi
+                JOIN products p ON oi.product_id = p.id
+                WHERE oi.order_id = $1
+            `, [orderId]);
+            
+            for (const item of orderItems.rows) {
+                const itemCost = await calculateProductCost(item.product_id, item.quantity, client);
+                const itemProfit = item.total_price - itemCost;
+                
+                await client.query(`
+                    INSERT INTO sale_items (
+                        sale_id, product_id, quantity, unit_price, total_price,
+                        total_cost, profit
+                    )
+                    VALUES ($1, $2, $3, $4, $5, $6, $7)
+                `, [
+                    sale.id,
+                    item.product_id,
+                    item.quantity,
+                    item.unit_price,
+                    item.total_price,
+                    itemCost,
+                    itemProfit
+                ]);
+            }
+            
+            await client.query("COMMIT");
+            
+            const profitMargin = sale.total_amount > 0 ? (sale.profit / sale.total_amount) * 100 : 0;
+            
+            res.json({
+                success: true,
+                message: "Payment processed successfully",
+                data: {
+                    sale_id: sale.id,
+                    sale_number: sale.sale_number,
+                    order_id: parseInt(orderId),
+                    total_amount: parseFloat(sale.total_amount),
+                    total_cost: parseFloat(sale.total_cost),
+                    profit: parseFloat(sale.profit),
+                    profit_margin: parseFloat(profitMargin.toFixed(2)),
+                    payment_method: payment_method
+                }
+            });
+            
+        } catch (err) {
+            await client.query("ROLLBACK");
+            console.error("Payment error:", err);
+            res.status(500).json({ success: false, error: err.message });
+        } finally {
+            client.release();
+        }
     }
-});
+);
 
 router.get("/:orderId", authorizeBranch, allowWaiter, async (req, res) => {
     const { orderId } = req.params;
@@ -44256,86 +45973,91 @@ router.get("/:orderId", authorizeBranch, allowWaiter, async (req, res) => {
     }
 });
 
-router.post("/:orderId/add-items", authorizeBranch, allowWaiter, async (req, res) => {
-    const { orderId } = req.params;
-    const { items } = req.body;
-    const branchId = req.user.branch_id;
-    const companyId = req.user.company_id;
-    
-    if (!items || items.length === 0) {
-        return res.status(400).json({ success: false, error: "No items to add" });
-    }
-    
-    const client = await pool.connect();
-    try {
-        await client.query("BEGIN");
+router.post("/:orderId/add-items", 
+    authorizeBranch, 
+    allowWaiter, 
+    mutationLimiter,
+    async (req, res) => {
+        const { orderId } = req.params;
+        const { items } = req.body;
+        const branchId = req.user.branch_id;
+        const companyId = req.user.company_id;
         
-        const orderCheck = await client.query(
-            "SELECT status, payment_status, total_amount FROM orders WHERE id = $1 AND branch_id = $2 AND company_id = $3",
-            [orderId, branchId, companyId]
-        );
-        
-        if (orderCheck.rows.length === 0) {
-            throw new Error("Order not found");
-        }
-        const order = orderCheck.rows[0];
-        if (order.payment_status === 'paid') {
-            throw new Error("Cannot add items to a paid order");
-        }
-        if (order.status === 'completed') {
-            throw new Error("Order already completed");
+        if (!items || items.length === 0) {
+            return res.status(400).json({ success: false, error: "No items to add" });
         }
         
-        let additionalAmount = 0;
-        const newItems = [];
-        
-        for (const item of items) {
-            const productResult = await client.query(
-                "SELECT price, company_id, name FROM products WHERE id = $1",
-                [item.product_id]
-            );
-            if (productResult.rows[0].company_id !== companyId) {
-                throw new Error(`Product ${item.product_id} does not belong to this company`);
-            }
-            const unitPrice = parseFloat(productResult.rows[0].price);
-            const itemTotal = unitPrice * item.quantity;
-            additionalAmount += itemTotal;
-            await client.query(`
-                INSERT INTO order_items (order_id, product_id, quantity, unit_price, total_price)
-                VALUES ($1, $2, $3, $4, $5)
-            `, [orderId, item.product_id, item.quantity, unitPrice, itemTotal]);
-            newItems.push(item);
-        }
-        
-        const newTotal = parseFloat(order.total_amount) + additionalAmount;
-        await client.query(`
-            UPDATE orders SET total_amount = $1, updated_at = NOW() WHERE id = $2
-        `, [newTotal, orderId]);
-        
-        let stockResult = { deductions: [], totalWastageCost: 0 };
+        const client = await pool.connect();
         try {
-            stockResult = await processOrderStockDeduction(orderId, newItems, client, companyId, branchId);
-        } catch (stockError) {
-            console.warn("Stock deduction warning:", stockError.message);
+            await client.query("BEGIN");
+            
+            const orderCheck = await client.query(
+                "SELECT status, payment_status, total_amount FROM orders WHERE id = $1 AND branch_id = $2 AND company_id = $3",
+                [orderId, branchId, companyId]
+            );
+            
+            if (orderCheck.rows.length === 0) {
+                throw new Error("Order not found");
+            }
+            const order = orderCheck.rows[0];
+            if (order.payment_status === 'paid') {
+                throw new Error("Cannot add items to a paid order");
+            }
+            if (order.status === 'completed') {
+                throw new Error("Order already completed");
+            }
+            
+            let additionalAmount = 0;
+            const newItems = [];
+            
+            for (const item of items) {
+                const productResult = await client.query(
+                    "SELECT price, company_id, name FROM products WHERE id = $1",
+                    [item.product_id]
+                );
+                if (productResult.rows[0].company_id !== companyId) {
+                    throw new Error(`Product ${item.product_id} does not belong to this company`);
+                }
+                const unitPrice = parseFloat(productResult.rows[0].price);
+                const itemTotal = unitPrice * item.quantity;
+                additionalAmount += itemTotal;
+                await client.query(`
+                    INSERT INTO order_items (order_id, product_id, quantity, unit_price, total_price)
+                    VALUES ($1, $2, $3, $4, $5)
+                `, [orderId, item.product_id, item.quantity, unitPrice, itemTotal]);
+                newItems.push(item);
+            }
+            
+            const newTotal = parseFloat(order.total_amount) + additionalAmount;
+            await client.query(`
+                UPDATE orders SET total_amount = $1, updated_at = NOW() WHERE id = $2
+            `, [newTotal, orderId]);
+            
+            let stockResult = { deductions: [], totalWastageCost: 0 };
+            try {
+                stockResult = await processOrderStockDeduction(orderId, newItems, client, companyId, branchId);
+            } catch (stockError) {
+                console.warn("Stock deduction warning:", stockError.message);
+            }
+            
+            await client.query("COMMIT");
+            res.json({
+                success: true,
+                message: "Items added to order",
+                additional_amount: additionalAmount,
+                new_total: newTotal,
+                stock_deductions: stockResult.deductions,
+                total_wastage_cost: stockResult.totalWastageCost
+            });
+        } catch (err) {
+            await client.query("ROLLBACK");
+            console.error("Add items error:", err);
+            res.status(500).json({ success: false, error: err.message });
+        } finally {
+            client.release();
         }
-        
-        await client.query("COMMIT");
-        res.json({
-            success: true,
-            message: "Items added to order",
-            additional_amount: additionalAmount,
-            new_total: newTotal,
-            stock_deductions: stockResult.deductions,
-            total_wastage_cost: stockResult.totalWastageCost
-        });
-    } catch (err) {
-        await client.query("ROLLBACK");
-        console.error("Add items error:", err);
-        res.status(500).json({ success: false, error: err.message });
-    } finally {
-        client.release();
     }
-});
+);
 
 router.get("/my-orders", authorizeBranch, allowWaiter, async (req, res) => {
     const userId = req.user.id;
@@ -44762,6 +46484,7 @@ import {
 } from '../controllers/saleController.js';
 import { protect, allowCashier, allowManager } from '../middleware/auth.js';
 import { requireIdempotency, idempotent } from '../middleware/idempotency.js';
+import { mutationLimiter } from '../middleware/rateLimiter.js';
 
 const router = express.Router();
 
@@ -44772,8 +46495,14 @@ router.use(protect);
 // CASHIER ROUTES
 // ============================================
 
-// ✅ FIX: Added idempotency protection to prevent duplicate sales
-router.post('/', allowCashier, requireIdempotency, idempotent, createSale);
+// CREATE sale - WITH RATE LIMITING AND IDEMPOTENCY
+router.post('/', 
+    allowCashier, 
+    mutationLimiter,
+    requireIdempotency, 
+    idempotent, 
+    createSale
+);
 
 // Cashier and above can view sales
 router.get('/', allowCashier, getSales);
@@ -45570,7 +47299,11 @@ import tableRoutes from "./routes/tables.js";
 import waiterRoutes from "./routes/waiter.js";
 import categoryRoutes from "./routes/categories.js";
 import customerRoutes from "./routes/customers.js";
+import companyRoutes from "./routes/companies.js";
+import branchRoutes from "./routes/branches.js";  // ADDED
 import { errorHandler, notFound } from "./middleware/errorHandler.js";
+import { ensureIdempotencyTable } from "./middleware/idempotency.js";
+import { ensureRateLimitTable } from "./middleware/rateLimiter.js";
 import jwt from 'jsonwebtoken';
 
 dotenv.config();
@@ -45594,18 +47327,15 @@ const allowedOrigins = [
 ];
 
 // ============================================================
-// ✅ CORS CONFIGURATION - FIXED
+// CORS CONFIGURATION
 // ============================================================
 
 const corsOptions = {
     origin: function (origin, callback) {
-        // Allow requests with no origin (like mobile apps or curl)
         if (!origin) return callback(null, true);
-        
         if (allowedOrigins.indexOf(origin) !== -1) {
             callback(null, true);
         } else {
-            // Allow all in development, restrict in production
             if (process.env.NODE_ENV !== 'production') {
                 callback(null, true);
             } else {
@@ -45620,16 +47350,21 @@ const corsOptions = {
         "Content-Type",
         "Authorization",
         "Idempotency-Key",
-        "cache-control",      // ✅ FIXED - Added cache-control
+        "cache-control",
         "X-Requested-With",
         "Accept",
         "Origin"
     ]
 };
 
-// Apply CORS middleware
 app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
+
+// ============================================================
+// TRUST PROXY CONFIGURATION
+// ============================================================
+
+app.set('trust proxy', 1);
 
 // ============================================================
 // Socket.IO with CORS
@@ -45644,6 +47379,8 @@ const io = new SocketServer(server, {
     pingInterval: 25000,
     cookie: false
 });
+
+app.set("io", io);
 
 // Socket.IO authentication middleware
 io.use((socket, next) => {
@@ -45666,8 +47403,6 @@ io.use((socket, next) => {
         return next(new Error('Invalid token'));
     }
 });
-
-app.set("io", io);
 
 // ============================================================
 // Middleware
@@ -45699,9 +47434,11 @@ app.use("/api/tables", tableRoutes);
 app.use("/api/waiter", waiterRoutes);
 app.use("/api/categories", categoryRoutes);
 app.use("/api/customers", customerRoutes);
+app.use("/api/companies", companyRoutes);
+app.use("/api/branches", branchRoutes);  // ADDED
 
 // ============================================================
-// Health Check - With explicit CORS headers
+// Health Check
 // ============================================================
 
 app.get("/health", (req, res) => {
@@ -45794,11 +47531,12 @@ server.listen(PORT, async () => {
     console.log(`🔗 API: http://localhost:${PORT}/api`);
     console.log(`🔌 WebSocket: ws://localhost:${PORT}/socket.io`);
     console.log(`📡 CORS allowed origins: ${allowedOrigins.join(', ')}`);
-    console.log(`📡 CORS allowed headers: Content-Type, Authorization, cache-control`);
     
     const dbConnected = await testConnection();
     if (dbConnected) {
         console.log("✅ Database connected successfully");
+        await ensureIdempotencyTable();
+        await ensureRateLimitTable();
     } else {
         console.log("❌ Database connection failed");
     }

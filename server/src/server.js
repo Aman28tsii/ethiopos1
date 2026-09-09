@@ -3,6 +3,8 @@ import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import dotenv from "dotenv";
+import path from "path";
+import { fileURLToPath } from "url";
 import { createServer } from "http";
 import { Server as SocketServer } from "socket.io";
 import { pool, testConnection } from "./config/database.js";
@@ -21,11 +23,15 @@ import waiterRoutes from "./routes/waiter.js";
 import categoryRoutes from "./routes/categories.js";
 import customerRoutes from "./routes/customers.js";
 import companyRoutes from "./routes/companies.js";
-import branchRoutes from "./routes/branches.js";  // ADDED
+import branchRoutes from "./routes/branches.js";
 import { errorHandler, notFound } from "./middleware/errorHandler.js";
 import { ensureIdempotencyTable } from "./middleware/idempotency.js";
 import { ensureRateLimitTable } from "./middleware/rateLimiter.js";
 import jwt from 'jsonwebtoken';
+
+// Get __dirname equivalent in ES modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 dotenv.config();
 
@@ -138,7 +144,7 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // ============================================================
-// Routes
+// API Routes - MUST BE BEFORE STATIC FILES
 // ============================================================
 
 app.use("/api/auth", authRoutes);
@@ -156,10 +162,10 @@ app.use("/api/waiter", waiterRoutes);
 app.use("/api/categories", categoryRoutes);
 app.use("/api/customers", customerRoutes);
 app.use("/api/companies", companyRoutes);
-app.use("/api/branches", branchRoutes);  // ADDED
+app.use("/api/branches", branchRoutes);
 
 // ============================================================
-// Health Check
+// Health Check - Must be before static files
 // ============================================================
 
 app.get("/health", (req, res) => {
@@ -183,6 +189,27 @@ app.get("/", (req, res) => {
         endpoints: "/api/*"
     });
 });
+
+// ============================================================
+// Serve Static Files (Frontend) - ONLY IN PRODUCTION
+// ============================================================
+
+if (process.env.NODE_ENV === 'production') {
+    // Serve static files from the React app
+    const buildPath = path.join(__dirname, '../../client/build');
+    console.log(`[STATIC] Serving static files from: ${buildPath}`);
+    
+    app.use(express.static(buildPath));
+    
+    // All non-API routes go to React app
+    app.get('*', (req, res) => {
+        // Skip API routes
+        if (req.path.startsWith('/api/')) {
+            return res.status(404).json({ success: false, error: 'API endpoint not found' });
+        }
+        res.sendFile(path.join(buildPath, 'index.html'));
+    });
+}
 
 // ============================================================
 // Error Handling
