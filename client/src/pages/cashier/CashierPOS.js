@@ -60,8 +60,15 @@ const CashierPOS = () => {
         
         setProcessing(true);
         try {
+            // Generate unique Idempotency-Key
+            const idempotencyKey = `payment_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+            
             const response = await API.post(`/orders/${selectedOrder.id}/pay`, {
                 payment_method: paymentMethod
+            }, {
+                headers: {
+                    'Idempotency-Key': idempotencyKey
+                }
             });
             
             if (response.data.success) {
