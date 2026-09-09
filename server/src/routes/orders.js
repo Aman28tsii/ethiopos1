@@ -109,6 +109,7 @@ router.get("/track/:orderNumber", trackLimiter, async (req, res) => {
 
 // ==================== FIXED QR ORDER ROUTE ====================
 router.post("/qr-order", 
+    protect,              // ✅ Added authentication
     mutationLimiter,
     requireIdempotency,
     idempotent,
@@ -156,25 +157,9 @@ router.post("/qr-order",
                 
                 const branchId = table.branch_id;
                 const companyId = table.company_id;
-                // If no waiter assigned, use NULL (will be assigned when waiter confirms)
                 const waiterId = table.waiter_id || null;
                 
-                // Get company ID from branch if not available on table
-                let finalCompanyId = companyId;
-                if (!finalCompanyId) {
-                    const branchResult = await client.query(
-                        "SELECT company_id FROM branches WHERE id = $1",
-                        [branchId]
-                    );
-                    if (branchResult.rows.length === 0) {
-                        console.log('[QR ORDER] ERROR: Branch not found:', branchId);
-                        await client.query("ROLLBACK");
-                        return res.status(404).json({ success: false, error: "Branch not found" });
-                    }
-                    finalCompanyId = branchResult.rows[0].company_id;
-                }
-                
-                console.log('[QR ORDER] Context - Company:', finalCompanyId, 'Branch:', branchId, 'Waiter:', waiterId);
+                console.log('[QR ORDER] Context - Company:', companyId, 'Branch:', branchId, 'Waiter:', waiterId);
                 
                 // Calculate total amount
                 let totalAmount = 0;
@@ -188,8 +173,8 @@ router.post("/qr-order",
                         await client.query("ROLLBACK");
                         return res.status(404).json({ success: false, error: `Product ${item.product_id} not found` });
                     }
-                    if (productResult.rows[0].company_id !== finalCompanyId) {
-                        console.log('[QR ORDER] ERROR: Product company mismatch:', productResult.rows[0].company_id, 'vs', finalCompanyId);
+                    if (productResult.rows[0].company_id !== companyId) {
+                        console.log('[QR ORDER] ERROR: Product company mismatch:', productResult.rows[0].company_id, 'vs', companyId);
                         await client.query("ROLLBACK");
                         return res.status(403).json({ success: false, error: `Product ${item.product_id} does not belong to this company` });
                     }
@@ -218,7 +203,7 @@ router.post("/qr-order",
                     table_id, 
                     notes || null, 
                     waiterId, 
-                    finalCompanyId, 
+                    companyId, 
                     branchId
                 ]);
                 
@@ -242,7 +227,7 @@ router.post("/qr-order",
                 // Stock deduction
                 let stockResult = { deductions: [], totalWastageCost: 0 };
                 try {
-                    stockResult = await processOrderStockDeduction(orderId, items, client, finalCompanyId, branchId);
+                    stockResult = await processOrderStockDeduction(orderId, items, client, companyId, branchId);
                     console.log('[QR ORDER] Stock deduction completed');
                 } catch (stockError) {
                     console.error('[QR ORDER] Stock deduction failed:', stockError.message);
@@ -265,13 +250,13 @@ router.post("/qr-order",
                         total_amount: totalAmount,
                         status: 'pending_confirmation',
                         branch_id: branchId,
-                        company_id: finalCompanyId,
+                        company_id: companyId,
                         table_id: table_id,
                         source: 'qr_menu'
                     };
                     
                     io.to(`waiter_${branchId}`).emit('new_pending_order', orderData);
-                    io.to(`branch_${finalCompanyId}_${branchId}`).emit('new_order_branch', orderData);
+                    io.to(`branch_${companyId}_${branchId}`).emit('new_order_branch', orderData);
                     console.log('[QR ORDER] Socket events emitted');
                 }
                 
@@ -307,89 +292,6 @@ router.post("/qr-order",
         }
     }
 );
-
-router.post("/:orderId/customer-add-items", 
-    mutationLimiter,
-    requireIdempotency,
-    idempotent,
-    async (req, res) => {
-        const { orderId } = req.params;
-        const { items } = req.body;
-        
-        if (!items || items.length === 0) {
-            return res.status(400).json({ success: false, error: "No items to add" });
-        }
-        
-        const client = await pool.connect();
-        try {
-            await client.query("BEGIN");
-            
-            const orderCheck = await client.query(
-                "SELECT id, status, total_amount, company_id, branch_id FROM orders WHERE id = $1 AND status = $2",
-                [orderId, 'pending_confirmation']
-            );
-            if (orderCheck.rows.length === 0) {
-                return res.status(404).json({ success: false, error: "Order not found or already confirmed" });
-            }
-            const order = orderCheck.rows[0];
-            const companyId = order.company_id;
-            const branchId = order.branch_id;
-            
-            let additionalAmount = 0;
-            const newItems = [];
-            
-            for (const item of items) {
-                const productResult = await client.query(
-                    "SELECT price, company_id, name FROM products WHERE id = $1",
-                    [item.product_id]
-                );
-                if (productResult.rows[0].company_id !== companyId) {
-                    throw new Error(`Product ${item.product_id} does not belong to this company`);
-                }
-                const unitPrice = parseFloat(productResult.rows[0].price);
-                const itemTotal = unitPrice * item.quantity;
-                additionalAmount += itemTotal;
-                await client.query(`
-                    INSERT INTO order_items (order_id, product_id, quantity, unit_price, total_price)
-                    VALUES ($1, $2, $3, $4, $5)
-                `, [orderId, item.product_id, item.quantity, unitPrice, itemTotal]);
-                newItems.push(item);
-            }
-            
-            let stockResult = { deductions: [], totalWastageCost: 0 };
-            try {
-                stockResult = await processOrderStockDeduction(orderId, newItems, client, companyId, branchId);
-            } catch (stockError) {
-                console.error('[QR ADD ITEMS] Stock deduction failed:', stockError.message);
-                await client.query('ROLLBACK');
-                throw new Error(stockError.message || 'Insufficient stock for additional items');
-            }
-            
-            const newTotal = parseFloat(order.total_amount) + additionalAmount;
-            await client.query(`
-                UPDATE orders SET total_amount = $1, updated_at = NOW() WHERE id = $2
-            `, [newTotal, orderId]);
-            
-            await client.query("COMMIT");
-            
-            res.json({
-                success: true,
-                message: "Items added to order",
-                additional_amount: additionalAmount,
-                new_total: newTotal,
-                stock_deductions: stockResult.deductions,
-                total_wastage_cost: stockResult.totalWastageCost
-            });
-        } catch (err) {
-            await client.query("ROLLBACK");
-            console.error("Customer add items error:", err);
-            res.status(500).json({ success: false, error: err.message });
-        } finally {
-            client.release();
-        }
-    }
-);
-
 // ==================== PROTECTED ROUTES ====================
 
 router.use(protect);
