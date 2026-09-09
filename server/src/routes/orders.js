@@ -109,7 +109,7 @@ router.get("/track/:orderNumber", trackLimiter, async (req, res) => {
 
 // ==================== FIXED QR ORDER ROUTE ====================
 router.post("/qr-order", 
-    protect,              // ✅ Added authentication
+    protect,
     mutationLimiter,
     requireIdempotency,
     idempotent,
@@ -128,7 +128,6 @@ router.post("/qr-order",
             console.log('[QR ORDER] Items:', JSON.stringify(items));
             console.log('[QR ORDER] Table ID:', table_id);
             
-            // Validate table_id
             if (!table_id) {
                 console.log('[QR ORDER] ERROR: No table ID provided');
                 return res.status(400).json({ success: false, error: "Table ID is required" });
@@ -140,7 +139,6 @@ router.post("/qr-order",
                 await client.query("BEGIN");
                 console.log('[QR ORDER] Transaction started');
                 
-                // Get table info
                 const tableResult = await client.query(
                     "SELECT id, branch_id, waiter_id, company_id FROM tables WHERE id = $1",
                     [table_id]
@@ -161,7 +159,6 @@ router.post("/qr-order",
                 
                 console.log('[QR ORDER] Context - Company:', companyId, 'Branch:', branchId, 'Waiter:', waiterId);
                 
-                // Calculate total amount
                 let totalAmount = 0;
                 for (const item of items) {
                     const productResult = await client.query(
@@ -183,11 +180,9 @@ router.post("/qr-order",
                 
                 console.log('[QR ORDER] Total amount:', totalAmount);
                 
-                // Generate order number
                 const orderNumber = `QR-${Date.now().toString().slice(-8)}${Math.floor(Math.random() * 1000)}`;
                 console.log('[QR ORDER] Order number:', orderNumber);
                 
-                // Insert order
                 const orderResult = await client.query(`
                     INSERT INTO orders (
                         order_number, total_amount, status, payment_status, 
@@ -210,7 +205,6 @@ router.post("/qr-order",
                 const orderId = orderResult.rows[0].id;
                 console.log('[QR ORDER] Order created with ID:', orderId);
                 
-                // Insert order items
                 for (const item of items) {
                     const productResult = await client.query(
                         "SELECT price, name FROM products WHERE id = $1",
@@ -224,7 +218,6 @@ router.post("/qr-order",
                     console.log('[QR ORDER] Item inserted:', item.product_id, 'x', item.quantity);
                 }
                 
-                // Stock deduction
                 let stockResult = { deductions: [], totalWastageCost: 0 };
                 try {
                     stockResult = await processOrderStockDeduction(orderId, items, client, companyId, branchId);
@@ -241,7 +234,6 @@ router.post("/qr-order",
                 await client.query("COMMIT");
                 console.log('[QR ORDER] Transaction committed successfully');
                 
-                // Emit socket event for waiter
                 const io = req.app.get('io');
                 if (io) {
                     const orderData = {
@@ -292,6 +284,7 @@ router.post("/qr-order",
         }
     }
 );
+
 // ==================== PROTECTED ROUTES ====================
 
 router.use(protect);
@@ -523,7 +516,7 @@ router.put("/confirm/:orderId", authorizeBranch, allowWaiter, async (req, res) =
     }
 });
 
-// ==================== READY ORDERS ENDPOINT ====================
+// ==================== READY ORDERS ENDPOINT - FIXED ====================
 router.get("/ready", protect, async (req, res) => {
     try {
         const branchId = req.user?.branch_id || 1;
@@ -543,7 +536,7 @@ router.get("/ready", protect, async (req, res) => {
             FROM orders o
             JOIN kitchen_orders ko ON o.id = ko.order_id
             WHERE o.payment_status = 'pending'
-                AND o.status = 'pending'
+                AND o.status IN ('pending', 'ready')
                 AND ko.status = 'ready'
                 AND o.branch_id = $1
                 AND o.company_id = $2
