@@ -1,3 +1,4 @@
+// client/src/pages/Login.js
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Store, Mail, Lock, Loader2, Eye, EyeOff } from 'lucide-react';
@@ -25,24 +26,30 @@ const Login = ({ onLogin }) => {
     }
 
     try {
-      const response = await API.post('/auth/login', { 
-        email: email.trim(), 
-        password: password 
+      const response = await API.post('/auth/login', {
+        email: email.trim(),
+        password: password,
       });
-      
+
       if (response.data.success) {
         const user = response.data.user;
         const token = response.data.token;
-        
+
         if (user.company_id) {
           localStorage.setItem('company_id', user.company_id);
         }
         if (user.branch_id) {
           localStorage.setItem('branch_id', user.branch_id);
         }
-        
+
         onLogin(user, token);
-        
+
+        // ✅ NEW: send the single service-provider account to its own page
+        if (user.role === 'platform_admin') {
+          navigate('/platform-admin');
+          return;
+        }
+
         const role = user.role;
         if (role === 'admin' || role === 'owner') {
           navigate('/owner/dashboard');
@@ -60,7 +67,24 @@ const Login = ({ onLogin }) => {
       }
     } catch (err) {
       console.error('Login error:', err);
-      setError(err.response?.data?.error || t('loginFailed'));
+      const code = err.response?.data?.code;
+      const msg  = err.response?.data?.error;
+
+      // ✅ NEW: friendly messages for pending / rejected / suspended accounts
+      if (code === 'ACCOUNT_PENDING_APPROVAL' || code === 'COMPANY_PENDING') {
+        setError(
+          'Your registration is waiting for approval. ' +
+          'You will be able to use EthioPOS once your account is approved.'
+        );
+      } else if (code === 'ACCOUNT_REJECTED') {
+        setError(
+          'Your registration was rejected. Please contact the EthioPOS Service Provider.'
+        );
+      } else if (code === 'ACCOUNT_INACTIVE') {
+        setError('Your account is not active. Please contact the EthioPOS Service Provider.');
+      } else {
+        setError(msg || t('loginFailed'));
+      }
     } finally {
       setLoading(false);
     }
@@ -141,14 +165,11 @@ const Login = ({ onLogin }) => {
           <div className="mt-6 text-center">
             <p className="text-gray-600 dark:text-gray-500 dark:text-gray-500 dark:text-gray-400 text-sm">
               {t('noAccount')}{' '}
-              {/* CHANGED: Link now goes to /owner/onboard for company registration */}
               <Link to="/owner/onboard" className="text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-semibold">
                 {t('signUp')}
               </Link>
             </p>
           </div>
-
-          {/* REMOVED: Demo accounts section */}
         </div>
       </div>
     </div>

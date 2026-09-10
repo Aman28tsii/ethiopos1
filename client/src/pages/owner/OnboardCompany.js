@@ -1,7 +1,7 @@
-// client/src/pages/owner/OnboardCompany.jsx
+// client/src/pages/owner/OnboardCompany.js
 
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { Building2, MapPin, Phone, User, Mail, Lock, Loader2 } from 'lucide-react';
 import { onboardCompany } from '../../api/companies';
 import { useLanguage } from '../../context/LanguageContext';
@@ -11,6 +11,7 @@ const OnboardCompany = () => {
     const navigate = useNavigate();
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
+    const [submitted, setSubmitted] = useState(false); // ✅ NEW
     const [formData, setFormData] = useState({
         company: {
             name: ''
@@ -44,22 +45,42 @@ const OnboardCompany = () => {
         setError('');
 
         try {
-            const result = await onboardCompany(formData);
-            
-            if (result.success) {
-                // Store the token and user info
-                localStorage.setItem('token', result.data.token);
-                localStorage.setItem('user', JSON.stringify(result.data.owner));
-                
-                // Navigate to owner dashboard
-                navigate('/owner/dashboard');
-            }
+            // The backend creates a PENDING registration and does NOT return a token.
+            await onboardCompany(formData);
+            // ✅ NEW: show the pending confirmation screen. No login, no navigation.
+            setSubmitted(true);
         } catch (err) {
             setError(err.response?.data?.error || 'Failed to onboard company');
         } finally {
             setLoading(false);
         }
     };
+
+    // ✅ NEW: pending state screen
+    if (submitted) {
+        return (
+            <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-12 px-4 flex items-center justify-center">
+                <div className="max-w-md w-full bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-8 text-center shadow-xl">
+                    <div className="w-16 h-16 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center mx-auto mb-4">
+                        <span className="text-3xl">⏳</span>
+                    </div>
+                    <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
+                        Registration Submitted
+                    </h2>
+                    <p className="text-gray-600 dark:text-gray-400 text-sm mb-6">
+                        Your registration has been submitted and is waiting for approval.
+                        You will be able to use EthioPOS once your account is approved.
+                    </p>
+                    <Link
+                        to="/login"
+                        className="inline-block px-5 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold transition"
+                    >
+                        Go to Login
+                    </Link>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-12 px-4">
@@ -221,16 +242,16 @@ const OnboardCompany = () => {
                         {loading ? (
                             <>
                                 <Loader2 className="animate-spin" size={20} />
-                                Creating Company...
+                                Submitting...
                             </>
                         ) : (
-                            'Create Company'
+                            'Submit Registration'
                         )}
                     </button>
 
                     <p className="text-xs text-gray-500 dark:text-gray-400 text-center mt-4">
-                        This will create a new company with its first branch and owner account.
-                        The owner will have full access to manage the company.
+                        Your registration will be reviewed by the EthioPOS Service Provider.
+                        You will be able to log in and use EthioPOS once it is approved.
                     </p>
                 </form>
             </div>

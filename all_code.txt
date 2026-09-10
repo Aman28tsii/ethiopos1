@@ -112,6 +112,7 @@
 
 import axios from 'axios';
 
+// Backend is running on ethiopos1.onrender.com
 const API_URL = process.env.REACT_APP_API_URL || 'https://ethiopos1.onrender.com/api';
 
 const API = axios.create({
@@ -5812,8 +5813,15 @@ const CashierPOS = () => {
         
         setProcessing(true);
         try {
+            // Generate unique Idempotency-Key
+            const idempotencyKey = `payment_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+            
             const response = await API.post(`/orders/${selectedOrder.id}/pay`, {
                 payment_method: paymentMethod
+            }, {
+                headers: {
+                    'Idempotency-Key': idempotencyKey
+                }
             });
             
             if (response.data.success) {
@@ -40895,6 +40903,9 @@ export const getProfitReport = catchAsync(async (req, res) => {
         ORDER BY date DESC
     `, [startDate, endDate, companyId, branchId]);
   
+    // ============================================================
+    // âœ… FIXED: TOP PRODUCTS - Uses real cost from sale_items
+    // ============================================================
     const topProductsResult = await query(`
         SELECT 
             p.id,
@@ -40902,9 +40913,13 @@ export const getProfitReport = catchAsync(async (req, res) => {
             p.category,
             COALESCE(SUM(si.quantity), 0) as quantity_sold,
             COALESCE(SUM(si.total_price), 0) as revenue,
-            0 as cost,
-            COALESCE(SUM(si.total_price), 0) as profit,
-            100 as profit_margin
+            COALESCE(SUM(si.total_cost), 0) as cost,
+            COALESCE(SUM(si.total_price) - SUM(si.total_cost), 0) as profit,
+            CASE 
+                WHEN COALESCE(SUM(si.total_price), 0) > 0 
+                THEN ROUND(((COALESCE(SUM(si.total_price), 0) - COALESCE(SUM(si.total_cost), 0)) / COALESCE(SUM(si.total_price), 0)) * 100, 2)
+                ELSE 0 
+            END as profit_margin
         FROM products p
         LEFT JOIN sale_items si ON p.id = si.product_id
         LEFT JOIN sales s ON si.sale_id = s.id 
@@ -45258,6 +45273,7 @@ router.get("/track/:orderNumber", trackLimiter, async (req, res) => {
 
 // ==================== FIXED QR ORDER ROUTE ====================
 router.post("/qr-order", 
+    protect,
     mutationLimiter,
     requireIdempotency,
     idempotent,
@@ -45276,7 +45292,6 @@ router.post("/qr-order",
             console.log('[QR ORDER] Items:', JSON.stringify(items));
             console.log('[QR ORDER] Table ID:', table_id);
             
-            // Validate table_id
             if (!table_id) {
                 console.log('[QR ORDER] ERROR: No table ID provided');
                 return res.status(400).json({ success: false, error: "Table ID is required" });
@@ -45288,7 +45303,6 @@ router.post("/qr-order",
                 await client.query("BEGIN");
                 console.log('[QR ORDER] Transaction started');
                 
-                // Get table info
                 const tableResult = await client.query(
                     "SELECT id, branch_id, waiter_id, company_id FROM tables WHERE id = $1",
                     [table_id]
@@ -45305,27 +45319,10 @@ router.post("/qr-order",
                 
                 const branchId = table.branch_id;
                 const companyId = table.company_id;
-                // If no waiter assigned, use NULL (will be assigned when waiter confirms)
                 const waiterId = table.waiter_id || null;
                 
-                // Get company ID from branch if not available on table
-                let finalCompanyId = companyId;
-                if (!finalCompanyId) {
-                    const branchResult = await client.query(
-                        "SELECT company_id FROM branches WHERE id = $1",
-                        [branchId]
-                    );
-                    if (branchResult.rows.length === 0) {
-                        console.log('[QR ORDER] ERROR: Branch not found:', branchId);
-                        await client.query("ROLLBACK");
-                        return res.status(404).json({ success: false, error: "Branch not found" });
-                    }
-                    finalCompanyId = branchResult.rows[0].company_id;
-                }
+                console.log('[QR ORDER] Context - Company:', companyId, 'Branch:', branchId, 'Waiter:', waiterId);
                 
-                console.log('[QR ORDER] Context - Company:', finalCompanyId, 'Branch:', branchId, 'Waiter:', waiterId);
-                
-                // Calculate total amount
                 let totalAmount = 0;
                 for (const item of items) {
                     const productResult = await client.query(
@@ -45337,8 +45334,8 @@ router.post("/qr-order",
                         await client.query("ROLLBACK");
                         return res.status(404).json({ success: false, error: `Product ${item.product_id} not found` });
                     }
-                    if (productResult.rows[0].company_id !== finalCompanyId) {
-                        console.log('[QR ORDER] ERROR: Product company mismatch:', productResult.rows[0].company_id, 'vs', finalCompanyId);
+                    if (productResult.rows[0].company_id !== companyId) {
+                        console.log('[QR ORDER] ERROR: Product company mismatch:', productResult.rows[0].company_id, 'vs', companyId);
                         await client.query("ROLLBACK");
                         return res.status(403).json({ success: false, error: `Product ${item.product_id} does not belong to this company` });
                     }
@@ -45347,11 +45344,9 @@ router.post("/qr-order",
                 
                 console.log('[QR ORDER] Total amount:', totalAmount);
                 
-                // Generate order number
                 const orderNumber = `QR-${Date.now().toString().slice(-8)}${Math.floor(Math.random() * 1000)}`;
                 console.log('[QR ORDER] Order number:', orderNumber);
                 
-                // Insert order
                 const orderResult = await client.query(`
                     INSERT INTO orders (
                         order_number, total_amount, status, payment_status, 
@@ -45367,14 +45362,13 @@ router.post("/qr-order",
                     table_id, 
                     notes || null, 
                     waiterId, 
-                    finalCompanyId, 
+                    companyId, 
                     branchId
                 ]);
                 
                 const orderId = orderResult.rows[0].id;
                 console.log('[QR ORDER] Order created with ID:', orderId);
                 
-                // Insert order items
                 for (const item of items) {
                     const productResult = await client.query(
                         "SELECT price, name FROM products WHERE id = $1",
@@ -45388,10 +45382,9 @@ router.post("/qr-order",
                     console.log('[QR ORDER] Item inserted:', item.product_id, 'x', item.quantity);
                 }
                 
-                // Stock deduction
                 let stockResult = { deductions: [], totalWastageCost: 0 };
                 try {
-                    stockResult = await processOrderStockDeduction(orderId, items, client, finalCompanyId, branchId);
+                    stockResult = await processOrderStockDeduction(orderId, items, client, companyId, branchId);
                     console.log('[QR ORDER] Stock deduction completed');
                 } catch (stockError) {
                     console.error('[QR ORDER] Stock deduction failed:', stockError.message);
@@ -45405,7 +45398,6 @@ router.post("/qr-order",
                 await client.query("COMMIT");
                 console.log('[QR ORDER] Transaction committed successfully');
                 
-                // Emit socket event for waiter
                 const io = req.app.get('io');
                 if (io) {
                     const orderData = {
@@ -45414,13 +45406,13 @@ router.post("/qr-order",
                         total_amount: totalAmount,
                         status: 'pending_confirmation',
                         branch_id: branchId,
-                        company_id: finalCompanyId,
+                        company_id: companyId,
                         table_id: table_id,
                         source: 'qr_menu'
                     };
                     
                     io.to(`waiter_${branchId}`).emit('new_pending_order', orderData);
-                    io.to(`branch_${finalCompanyId}_${branchId}`).emit('new_order_branch', orderData);
+                    io.to(`branch_${companyId}_${branchId}`).emit('new_order_branch', orderData);
                     console.log('[QR ORDER] Socket events emitted');
                 }
                 
@@ -45453,88 +45445,6 @@ router.post("/qr-order",
                 success: false, 
                 error: err.message || 'Failed to place order' 
             });
-        }
-    }
-);
-
-router.post("/:orderId/customer-add-items", 
-    mutationLimiter,
-    requireIdempotency,
-    idempotent,
-    async (req, res) => {
-        const { orderId } = req.params;
-        const { items } = req.body;
-        
-        if (!items || items.length === 0) {
-            return res.status(400).json({ success: false, error: "No items to add" });
-        }
-        
-        const client = await pool.connect();
-        try {
-            await client.query("BEGIN");
-            
-            const orderCheck = await client.query(
-                "SELECT id, status, total_amount, company_id, branch_id FROM orders WHERE id = $1 AND status = $2",
-                [orderId, 'pending_confirmation']
-            );
-            if (orderCheck.rows.length === 0) {
-                return res.status(404).json({ success: false, error: "Order not found or already confirmed" });
-            }
-            const order = orderCheck.rows[0];
-            const companyId = order.company_id;
-            const branchId = order.branch_id;
-            
-            let additionalAmount = 0;
-            const newItems = [];
-            
-            for (const item of items) {
-                const productResult = await client.query(
-                    "SELECT price, company_id, name FROM products WHERE id = $1",
-                    [item.product_id]
-                );
-                if (productResult.rows[0].company_id !== companyId) {
-                    throw new Error(`Product ${item.product_id} does not belong to this company`);
-                }
-                const unitPrice = parseFloat(productResult.rows[0].price);
-                const itemTotal = unitPrice * item.quantity;
-                additionalAmount += itemTotal;
-                await client.query(`
-                    INSERT INTO order_items (order_id, product_id, quantity, unit_price, total_price)
-                    VALUES ($1, $2, $3, $4, $5)
-                `, [orderId, item.product_id, item.quantity, unitPrice, itemTotal]);
-                newItems.push(item);
-            }
-            
-            let stockResult = { deductions: [], totalWastageCost: 0 };
-            try {
-                stockResult = await processOrderStockDeduction(orderId, newItems, client, companyId, branchId);
-            } catch (stockError) {
-                console.error('[QR ADD ITEMS] Stock deduction failed:', stockError.message);
-                await client.query('ROLLBACK');
-                throw new Error(stockError.message || 'Insufficient stock for additional items');
-            }
-            
-            const newTotal = parseFloat(order.total_amount) + additionalAmount;
-            await client.query(`
-                UPDATE orders SET total_amount = $1, updated_at = NOW() WHERE id = $2
-            `, [newTotal, orderId]);
-            
-            await client.query("COMMIT");
-            
-            res.json({
-                success: true,
-                message: "Items added to order",
-                additional_amount: additionalAmount,
-                new_total: newTotal,
-                stock_deductions: stockResult.deductions,
-                total_wastage_cost: stockResult.totalWastageCost
-            });
-        } catch (err) {
-            await client.query("ROLLBACK");
-            console.error("Customer add items error:", err);
-            res.status(500).json({ success: false, error: err.message });
-        } finally {
-            client.release();
         }
     }
 );
@@ -45770,7 +45680,7 @@ router.put("/confirm/:orderId", authorizeBranch, allowWaiter, async (req, res) =
     }
 });
 
-// ==================== READY ORDERS ENDPOINT ====================
+// ==================== READY ORDERS ENDPOINT - FIXED ====================
 router.get("/ready", protect, async (req, res) => {
     try {
         const branchId = req.user?.branch_id || 1;
@@ -45790,7 +45700,7 @@ router.get("/ready", protect, async (req, res) => {
             FROM orders o
             JOIN kitchen_orders ko ON o.id = ko.order_id
             WHERE o.payment_status = 'pending'
-                AND o.status = 'pending'
+                AND o.status IN ('pending', 'ready')
                 AND ko.status = 'ready'
                 AND o.branch_id = $1
                 AND o.company_id = $2
@@ -47282,6 +47192,8 @@ import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import dotenv from "dotenv";
+import path from "path";
+import { fileURLToPath } from "url";
 import { createServer } from "http";
 import { Server as SocketServer } from "socket.io";
 import { pool, testConnection } from "./config/database.js";
@@ -47300,11 +47212,15 @@ import waiterRoutes from "./routes/waiter.js";
 import categoryRoutes from "./routes/categories.js";
 import customerRoutes from "./routes/customers.js";
 import companyRoutes from "./routes/companies.js";
-import branchRoutes from "./routes/branches.js";  // ADDED
+import branchRoutes from "./routes/branches.js";
 import { errorHandler, notFound } from "./middleware/errorHandler.js";
 import { ensureIdempotencyTable } from "./middleware/idempotency.js";
 import { ensureRateLimitTable } from "./middleware/rateLimiter.js";
 import jwt from 'jsonwebtoken';
+
+// Get __dirname equivalent in ES modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 dotenv.config();
 
@@ -47417,7 +47333,7 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // ============================================================
-// Routes
+// API Routes - MUST BE BEFORE STATIC FILES
 // ============================================================
 
 app.use("/api/auth", authRoutes);
@@ -47435,10 +47351,10 @@ app.use("/api/waiter", waiterRoutes);
 app.use("/api/categories", categoryRoutes);
 app.use("/api/customers", customerRoutes);
 app.use("/api/companies", companyRoutes);
-app.use("/api/branches", branchRoutes);  // ADDED
+app.use("/api/branches", branchRoutes);
 
 // ============================================================
-// Health Check
+// Health Check - Must be before static files
 // ============================================================
 
 app.get("/health", (req, res) => {
@@ -47462,6 +47378,27 @@ app.get("/", (req, res) => {
         endpoints: "/api/*"
     });
 });
+
+// ============================================================
+// Serve Static Files (Frontend) - ONLY IN PRODUCTION
+// ============================================================
+
+if (process.env.NODE_ENV === 'production') {
+    // Serve static files from the React app
+    const buildPath = path.join(__dirname, '../../client/build');
+    console.log(`[STATIC] Serving static files from: ${buildPath}`);
+    
+    app.use(express.static(buildPath));
+    
+    // All non-API routes go to React app
+    app.get('*', (req, res) => {
+        // Skip API routes
+        if (req.path.startsWith('/api/')) {
+            return res.status(404).json({ success: false, error: 'API endpoint not found' });
+        }
+        res.sendFile(path.join(buildPath, 'index.html'));
+    });
+}
 
 // ============================================================
 // Error Handling
@@ -49885,7 +49822,8 @@ console.log(bcrypt.hashSync(pw, 10));
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
-    "dev": "nodemon src/server.js"
+    "dev": "nodemon src/server.js",
+    "build": "echo 'Backend build complete'"
   },
   "dependencies": {
     "bcrypt": "^6.0.0",

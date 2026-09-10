@@ -4,7 +4,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import Login from './pages/Login';
 import Signup from './pages/Signup';
 import OnboardCompany from './pages/owner/OnboardCompany';
-import BranchManagement from './pages/owner/BranchManagement'; // ADDED
+import BranchManagement from './pages/owner/BranchManagement';
 import { LanguageProvider } from './context/LanguageContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { BranchProvider } from './context/BranchContext';
@@ -44,6 +44,9 @@ const MyOrders = lazy(() => import('./pages/waiter/MyOrders'));
 const TableStatus = lazy(() => import('./pages/waiter/TableStatus'));
 const PendingConfirmations = lazy(() => import('./pages/waiter/PendingConfirmations'));
 
+// ✅ NEW: Service Provider admin page (separate from restaurant UI)
+const PlatformAdmin = lazy(() => import('./pages/PlatformAdmin'));
+
 const LoadingSpinner = () => (
   <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
     <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
@@ -59,14 +62,15 @@ const RoleRoute = React.memo(({ children, allowedRoles, userRole, redirectTo = '
 });
 
 const getDefaultRoute = (role) => {
-  switch(role) {
-    case 'owner': return '/owner/dashboard';
-    case 'admin': return '/owner/dashboard';
-    case 'manager': return '/manager/dashboard';
-    case 'cashier': return '/cashier/pos';
-    case 'waiter': return '/waiter/tables';
-    case 'kitchen': return '/kitchen/orders';
-    default: return '/login';
+  switch (role) {
+    case 'platform_admin': return '/platform-admin';
+    case 'owner':          return '/owner/dashboard';
+    case 'admin':          return '/owner/dashboard';
+    case 'manager':        return '/manager/dashboard';
+    case 'cashier':        return '/cashier/pos';
+    case 'waiter':         return '/waiter/tables';
+    case 'kitchen':        return '/kitchen/orders';
+    default:               return '/login';
   }
 };
 
@@ -79,7 +83,7 @@ function App() {
   useEffect(() => {
     const token = localStorage.getItem('token');
     const savedUser = localStorage.getItem('user');
-    
+
     if (token && savedUser) {
       try {
         const userData = JSON.parse(savedUser);
@@ -160,9 +164,20 @@ function App() {
                 <Router>
                   <Suspense fallback={<LoadingSpinner />}>
                     <Routes>
+                      {/* Public routes (still available when logged in) */}
                       <Route path="/qr-menu" element={<QRMenu />} />
                       <Route path="/track-order" element={<TrackOrder />} />
-                      
+
+                      {/* ✅ NEW: Platform Admin (Service Provider) — standalone page */}
+                      <Route
+                        path="/platform-admin"
+                        element={
+                          userRole === 'platform_admin'
+                            ? <PlatformAdmin onLogout={handleLogout} />
+                            : <Navigate to={getDefaultRoute(userRole)} replace />
+                        }
+                      />
+
                       {/* Owner Routes */}
                       <Route path="/owner/*" element={
                         <RoleRoute allowedRoles={['owner', 'admin']} userRole={userRole}>
@@ -181,7 +196,7 @@ function App() {
                                 <Route path="print-qr" element={<PrintQRCodes />} />
                                 <Route path="manage-tables" element={<ManageTables />} />
                                 <Route path="onboard" element={<Navigate to="/owner/onboard" />} />
-                                <Route path="branches" element={<BranchManagement />} /> {/* ADDED */}
+                                <Route path="branches" element={<BranchManagement />} />
                                 <Route path="*" element={<Navigate to="/owner/dashboard" />} />
                               </Routes>
                             </Suspense>
