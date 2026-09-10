@@ -45,12 +45,30 @@ export const login = catchAsync(async (req, res) => {
     return res.status(401).json({ success: false, error: 'Invalid email or password' });
   }
   
+  // ✅ FIXED: include `code` so the frontend can show friendly messages
   if (user.status === 'pending') {
-    return res.status(403).json({ success: false, error: 'Account pending approval. Please wait.' });
+    return res.status(403).json({
+      success: false,
+      code: 'ACCOUNT_PENDING_APPROVAL',
+      error: 'Account pending approval. Please wait.'
+    });
   }
-  
+
+  // ✅ NEW: dedicated rejected status
+  if (user.status === 'rejected') {
+    return res.status(403).json({
+      success: false,
+      code: 'ACCOUNT_REJECTED',
+      error: 'Account rejected. Please contact the EthioPOS Service Provider.'
+    });
+  }
+
   if (!user.is_active || user.status === 'inactive') {
-    return res.status(403).json({ success: false, error: 'Account deactivated. Contact admin.' });
+    return res.status(403).json({
+      success: false,
+      code: 'ACCOUNT_INACTIVE',
+      error: 'Account deactivated. Contact admin.'
+    });
   }
   
   const isPasswordValid = await bcrypt.compare(password, user.password);
@@ -94,6 +112,7 @@ export const signup = catchAsync(async (req, res) => {
   }
   
   const userRole = role || 'staff';
+  // ✅ Blocks `platform_admin` (and anything else not in the list)
   if (!ALLOWED_ROLES.includes(userRole) && userRole !== 'staff') {
     return res.status(400).json({ success: false, error: `Invalid role: ${userRole}. Allowed roles: ${ALLOWED_ROLES.join(', ')}` });
   }
