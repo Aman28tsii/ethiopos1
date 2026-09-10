@@ -24,6 +24,7 @@ import categoryRoutes from "./routes/categories.js";
 import customerRoutes from "./routes/customers.js";
 import companyRoutes from "./routes/companies.js";
 import branchRoutes from "./routes/branches.js";
+import platformAdminRoutes from "./routes/platformAdmin.js"; // ✅ NEW
 import { errorHandler, notFound } from "./middleware/errorHandler.js";
 import { ensureIdempotencyTable } from "./middleware/idempotency.js";
 import { ensureRateLimitTable } from "./middleware/rateLimiter.js";
@@ -163,6 +164,7 @@ app.use("/api/categories", categoryRoutes);
 app.use("/api/customers", customerRoutes);
 app.use("/api/companies", companyRoutes);
 app.use("/api/branches", branchRoutes);
+app.use("/api/platform-admin", platformAdminRoutes); // ✅ NEW
 
 // ============================================================
 // Health Check - Must be before static files
@@ -195,15 +197,12 @@ app.get("/", (req, res) => {
 // ============================================================
 
 if (process.env.NODE_ENV === 'production') {
-    // Serve static files from the React app
     const buildPath = path.join(__dirname, '../../client/build');
     console.log(`[STATIC] Serving static files from: ${buildPath}`);
-    
+
     app.use(express.static(buildPath));
-    
-    // All non-API routes go to React app
+
     app.get('*', (req, res) => {
-        // Skip API routes
         if (req.path.startsWith('/api/')) {
             return res.status(404).json({ success: false, error: 'API endpoint not found' });
         }
@@ -224,7 +223,7 @@ app.use(errorHandler);
 
 io.on("connection", (socket) => {
     console.log(`[SOCKET] Connected: ${socket.id}`);
-    
+
     socket.on('join_branch', (data) => {
         try {
             const room = `branch_${data.company_id}_${data.branch_id}`;
@@ -279,7 +278,7 @@ server.listen(PORT, async () => {
     console.log(`🔗 API: http://localhost:${PORT}/api`);
     console.log(`🔌 WebSocket: ws://localhost:${PORT}/socket.io`);
     console.log(`📡 CORS allowed origins: ${allowedOrigins.join(', ')}`);
-    
+
     const dbConnected = await testConnection();
     if (dbConnected) {
         console.log("✅ Database connected successfully");
