@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect, useRef } from 'react';
 import API from '../../api/axios';
 import { 
     ShoppingCart, Trash2, CheckCircle, Search,
@@ -37,6 +37,19 @@ const formatCurrency = (value) => {
     return `Br ${parseFloat(value || 0).toFixed(2)}`;
 };
 
+// ✅ Generate a unique idempotency key (UUID v4 style, no dependency needed)
+const generateIdempotencyKey = () => {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+        return crypto.randomUUID();
+    }
+    // Fallback for older browsers
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+        const r = (Math.random() * 16) | 0;
+        const v = c === 'x' ? r : (r & 0x3) | 0x8;
+        return v.toString(16);
+    });
+};
+
 // ============================================
 // MAIN COMPONENT
 // ============================================
@@ -63,6 +76,10 @@ const ManualOrder = () => {
     const [searchTerm, setSearchTerm] = useState('');
     const [loading, setLoading] = useState(true);
     const [orderError, setOrderError] = useState(null);
+
+    // ✅ Holds the idempotency key for the CURRENT order attempt.
+    // Reused across retries of the same order, regenerated for a new order.
+    const idempotencyKeyRef = useRef(generateIdempotencyKey());
 
     // ============================================
     // FETCH DATA
@@ -179,7 +196,12 @@ const ManualOrder = () => {
                 payment_method: paymentMethod
             };
 
-            const response = await API.post('/orders', orderData);
+            // ✅ Send Idempotency-Key header (required by backend)
+            const response = await API.post('/orders', orderData, {
+                headers: {
+                    'Idempotency-Key': idempotencyKeyRef.current
+                }
+            });
             
             if (response.data.success) {
                 const order = response.data.data;
@@ -192,6 +214,8 @@ const ManualOrder = () => {
                 if (orderType === 'dine_in') {
                     setSelectedTableId('');
                 }
+                // ✅ Generate a NEW idempotency key for the next order
+                idempotencyKeyRef.current = generateIdempotencyKey();
             }
         } catch (err) {
             console.error('Place order error:', err);
@@ -215,6 +239,8 @@ const ManualOrder = () => {
         setSelectedTableId('');
         setSearchTerm('');
         setOrderError(null);
+        // ✅ Fresh key for the brand-new order
+        idempotencyKeyRef.current = generateIdempotencyKey();
     };
 
     // ============================================
