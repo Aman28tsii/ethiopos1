@@ -73,6 +73,7 @@ const ManualOrder = () => {
     const [processing, setProcessing] = useState(false);
     const [orderComplete, setOrderComplete] = useState(false);
     const [orderNumber, setOrderNumber] = useState(null);
+    const [completedTotal, setCompletedTotal] = useState(0); // ✅ NEW
     const [searchTerm, setSearchTerm] = useState('');
     const [loading, setLoading] = useState(true);
     const [orderError, setOrderError] = useState(null);
@@ -206,6 +207,14 @@ const ManualOrder = () => {
             if (response.data.success) {
                 const order = response.data.data;
                 setOrderNumber(order.order_number);
+
+                // ✅ Snapshot the total BEFORE clearing the cart.
+                // Prefer backend-returned total if available, else fall back to computed total.
+                const backendTotal = order.total_amount ?? order.total ?? null;
+                setCompletedTotal(
+                    backendTotal !== null ? parseFloat(backendTotal) : total
+                );
+
                 setOrderComplete(true);
                 setCart([]);
                 setCustomerName('');
@@ -232,6 +241,7 @@ const ManualOrder = () => {
     const startNewOrder = () => {
         setOrderComplete(false);
         setOrderNumber(null);
+        setCompletedTotal(0); // ✅ reset
         setCart([]);
         setCustomerName('');
         setCustomerPhone('');
@@ -286,7 +296,8 @@ const ManualOrder = () => {
                     <div className="bg-gray-50 dark:bg-gray-700 rounded-xl p-4 mb-6">
                         <p className="text-gray-500 dark:text-gray-400 text-sm">Order Number</p>
                         <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">{orderNumber}</p>
-                        <p className="text-green-600 dark:text-green-400 font-bold mt-2">{formatCurrency(total)}</p>
+                        {/* ✅ Uses completedTotal instead of total (cart is cleared) */}
+                        <p className="text-green-600 dark:text-green-400 font-bold mt-2">{formatCurrency(completedTotal)}</p>
                     </div>
                     
                     <button
@@ -482,7 +493,7 @@ const ManualOrder = () => {
                             <div className="text-3xl text-center mb-2">{getProductEmoji(product.category)}</div>
                             <h3 className="font-semibold text-gray-900 dark:text-white text-sm line-clamp-2">{product.name}</h3>
                             
-                            {/* ✅ PRICE IS DISPLAYED HERE - FIXED */}
+                            {/* ✅ PRICE IS DISPLAYED HERE */}
                             <p className="text-blue-600 dark:text-blue-400 font-bold text-base mt-1">
                                 {formatCurrency(product.price)}
                             </p>
