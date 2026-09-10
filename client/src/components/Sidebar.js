@@ -42,7 +42,6 @@ const Sidebar = ({ user, onLogout }) => {
     { path: '/owner/branches', icon: Building2, label: 'Branch Management' }, // ADDED
     { path: '/owner/print-qr', icon: QrCode, label: t('printQRCodes') },
     { path: '/owner/pending-approvals', icon: Clock, label: t('pendingApprovals') },
-    { path: '/owner/onboard', icon: Building2, label: 'Onboard Company' },
     { path: '/owner/settings', icon: Settings, label: t('settings') },
   ];
 
