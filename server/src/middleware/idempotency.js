@@ -106,7 +106,6 @@ const claimIdempotencyKey = async (client, idempotencyKey, companyId, branchId, 
                         conflict: true 
                     };
                 }
-                // If status is still 'processing', wait a moment and retry
                 if (record.status === 'processing') {
                     return { claimed: false, existing: null, processing: true };
                 }
@@ -166,6 +165,9 @@ const getResourceType = (req) => {
     if (path.includes('/pay') && !path.includes('/payment')) {
         return 'payment';
     }
+    if (path.includes('/qr-order')) {
+        return 'qr_order';
+    }
     if (path.includes('/orders') || path.includes('/order')) {
         return 'order';
     }
@@ -181,6 +183,56 @@ const getResourceType = (req) => {
     return 'order';
 };
 
+// ============================================================
+// Resolve tenant context for the current request.
+//
+// Order of precedence:
+//   1. Authenticated user (req.user.company_id / branch_id)
+//   2. Request body's table_id → look up tables row
+//
+// Never falls back to any hardcoded company or branch.
+// Returns { companyId, branchId } or null if no context can be
+// resolved. Callers must handle the null case.
+// ============================================================
+const resolveTenantContext = async (req) => {
+    // 1. Authenticated user (staff endpoints)
+    const userCompanyId = req.user?.company_id;
+    const userBranchId  = req.user?.branch_id;
+
+    if (userCompanyId && userBranchId) {
+        return { companyId: userCompanyId, branchId: userBranchId };
+    }
+
+    // 2. Public QR flow — derive tenant from the table
+    const tableId = req.body?.table_id;
+    if (tableId === undefined || tableId === null || tableId === '') {
+        return null;
+    }
+
+    const numericTableId = parseInt(tableId, 10);
+    if (!Number.isFinite(numericTableId) || numericTableId <= 0) {
+        return null;
+    }
+
+    try {
+        const tableResult = await query(
+            `SELECT id, company_id, branch_id FROM tables WHERE id = $1`,
+            [numericTableId]
+        );
+        if (tableResult.rows.length === 0) {
+            return null;
+        }
+        const table = tableResult.rows[0];
+        if (!table.company_id || !table.branch_id) {
+            return null;
+        }
+        return { companyId: table.company_id, branchId: table.branch_id };
+    } catch (err) {
+        console.error('[IDEMPOTENCY] Table lookup error:', err.message);
+        return null;
+    }
+};
+
 // Idempotency middleware
 export const idempotent = (req, res, next) => {
     const idempotencyKey = req.headers[IDEMPOTENCY_HEADER];
@@ -189,37 +241,39 @@ export const idempotent = (req, res, next) => {
         return next();
     }
 
-    const companyId = req.user?.company_id;
-    const branchId = req.user?.branch_id;
-    
-    if (!companyId || !branchId) {
-        return res.status(401).json({
-            success: false,
-            error: 'Authentication required for idempotent operations'
-        });
-    }
-
     const resourceType = getResourceType(req);
     const requestHash = generateRequestHash(req.body);
-    const cacheKey = getCacheKey(idempotencyKey, companyId, branchId, resourceType);
 
-    // Check memory cache first
-    const cached = memoryCache.get(cacheKey);
-    if (cached) {
-        if (cached.requestHash === requestHash) {
-            return res.status(cached.status).json(cached.data);
-        } else {
-            return res.status(409).json({
-                success: false,
-                error: 'Idempotency key reused with different request payload',
-                idempotency_key: idempotencyKey
-            });
-        }
-    }
+    // Resolve tenant context BEFORE proceeding. This now supports
+    // anonymous QR orders via table_id.
+    resolveTenantContext(req)
+        .then(async (tenant) => {
+            if (!tenant) {
+                return res.status(401).json({
+                    success: false,
+                    error: 'Unable to resolve company context for idempotent operation'
+                });
+            }
 
-    // Check database for cached result
-    getCachedResult(idempotencyKey, companyId, branchId, resourceType)
-        .then(async (cachedResult) => {
+            const { companyId, branchId } = tenant;
+            const cacheKey = getCacheKey(idempotencyKey, companyId, branchId, resourceType);
+
+            // Check memory cache first
+            const cached = memoryCache.get(cacheKey);
+            if (cached) {
+                if (cached.requestHash === requestHash) {
+                    return res.status(cached.status).json(cached.data);
+                } else {
+                    return res.status(409).json({
+                        success: false,
+                        error: 'Idempotency key reused with different request payload',
+                        idempotency_key: idempotencyKey
+                    });
+                }
+            }
+
+            // Check database for cached result
+            const cachedResult = await getCachedResult(idempotencyKey, companyId, branchId, resourceType);
             if (cachedResult) {
                 memoryCache.set(cacheKey, {
                     status: cachedResult.status_code || 200,
@@ -232,12 +286,12 @@ export const idempotent = (req, res, next) => {
 
             // No cached result, process the request
             const client = await getClient();
-            
+
             try {
                 await client.query('BEGIN');
-                
+
                 const claim = await claimIdempotencyKey(client, idempotencyKey, companyId, branchId, resourceType, requestHash);
-                
+
                 if (claim.conflict) {
                     await client.query('ROLLBACK');
                     return res.status(409).json({
@@ -246,12 +300,10 @@ export const idempotent = (req, res, next) => {
                         idempotency_key: idempotencyKey
                     });
                 }
-                
+
                 if (claim.processing) {
-                    // Wait a moment and try again (someone else is processing)
                     await client.query('ROLLBACK');
                     await new Promise(resolve => setTimeout(resolve, 500));
-                    // Try once more with fresh context
                     const retryResult = await getCachedResult(idempotencyKey, companyId, branchId, resourceType);
                     if (retryResult) {
                         return res.status(retryResult.status_code || 200).json(retryResult.response_data);
@@ -262,7 +314,7 @@ export const idempotent = (req, res, next) => {
                         idempotency_key: idempotencyKey
                     });
                 }
-                
+
                 if (claim.existing) {
                     await client.query('COMMIT');
                     const record = claim.existing;
