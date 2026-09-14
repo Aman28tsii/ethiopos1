@@ -109,7 +109,8 @@ router.get("/track/:orderNumber", trackLimiter, async (req, res) => {
 
 // ==================== FIXED QR ORDER ROUTE ====================
 router.post("/qr-order", 
-    protect,
+    // `protect` intentionally NOT applied — QR-menu customers submit anonymously.
+    // Tenant context is derived from table_id inside the handler.
     mutationLimiter,
     requireIdempotency,
     idempotent,
