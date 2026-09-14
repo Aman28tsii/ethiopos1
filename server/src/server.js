@@ -24,7 +24,7 @@ import categoryRoutes from "./routes/categories.js";
 import customerRoutes from "./routes/customers.js";
 import companyRoutes from "./routes/companies.js";
 import branchRoutes from "./routes/branches.js";
-import platformAdminRoutes from "./routes/platformAdmin.js"; // ✅ NEW
+import platformAdminRoutes from "./routes/platformAdmin.js";
 import { errorHandler, notFound } from "./middleware/errorHandler.js";
 import { ensureIdempotencyTable } from "./middleware/idempotency.js";
 import { ensureRateLimitTable } from "./middleware/rateLimiter.js";
@@ -110,7 +110,13 @@ const io = new SocketServer(server, {
 
 app.set("io", io);
 
-// Socket.IO authentication middleware
+// ============================================================
+// SOCKET.IO AUTHENTICATION MIDDLEWARE
+//
+// Every socket must present a valid JWT containing company_id and
+// branch_id. We DO NOT fall back to any default tenant. A token
+// missing tenant context is rejected before any handler runs.
+// ============================================================
 io.use((socket, next) => {
     const token = socket.handshake.auth.token || socket.handshake.query.token;
     if (!token) {
@@ -118,12 +124,21 @@ io.use((socket, next) => {
     }
     try {
         const decoded = jwt.verify(token, JWT_SECRET);
+
+        // Require explicit tenant context — no fallbacks.
+        if (!decoded.company_id || !decoded.branch_id) {
+            return next(new Error('Invalid token: missing tenant context'));
+        }
+        if (!decoded.id || !decoded.role) {
+            return next(new Error('Invalid token: missing identity'));
+        }
+
         socket.user = {
             id: decoded.id,
             email: decoded.email,
             role: decoded.role,
-            company_id: decoded.company_id || 1,
-            branch_id: decoded.branch_id || 1,
+            company_id: decoded.company_id,
+            branch_id: decoded.branch_id,
             name: decoded.name
         };
         next();
@@ -164,7 +179,7 @@ app.use("/api/categories", categoryRoutes);
 app.use("/api/customers", customerRoutes);
 app.use("/api/companies", companyRoutes);
 app.use("/api/branches", branchRoutes);
-app.use("/api/platform-admin", platformAdminRoutes); // ✅ NEW
+app.use("/api/platform-admin", platformAdminRoutes);
 
 // ============================================================
 // Health Check - Must be before static files
@@ -219,48 +234,96 @@ app.use(errorHandler);
 
 // ============================================================
 // Socket.IO Events
+//
+// Every socket is auto-joined to the rooms it is authorized for,
+// derived exclusively from socket.user (verified JWT).
+//
+// Client-supplied join events are accepted for backward
+// compatibility but NEVER grant additional membership; any
+// mismatch with socket.user is logged and ignored.
+//
+// All room names are company-scoped to prevent cross-tenant
+// collisions on shared branch IDs:
+//   branch_${companyId}_${branchId}
+//   kitchen_${companyId}_${branchId}
+//   cashier_${companyId}_${branchId}
+//   waiter_${companyId}_${branchId}
+//   waiter_user_${userId}
 // ============================================================
 
+const buildTenantRooms = (user) => {
+    const rooms = [];
+    if (!user || !user.company_id || !user.branch_id) return rooms;
+
+    // Every authenticated user joins their company+branch room.
+    rooms.push(`branch_${user.company_id}_${user.branch_id}`);
+
+    // Role-scoped rooms.
+    if (user.role === 'kitchen') {
+        rooms.push(`kitchen_${user.company_id}_${user.branch_id}`);
+    }
+    if (user.role === 'cashier') {
+        rooms.push(`cashier_${user.company_id}_${user.branch_id}`);
+    }
+    if (user.role === 'waiter') {
+        rooms.push(`waiter_${user.company_id}_${user.branch_id}`);
+        rooms.push(`waiter_user_${user.id}`);
+    }
+    return rooms;
+};
+
 io.on("connection", (socket) => {
-    console.log(`[SOCKET] Connected: ${socket.id}`);
+    const user = socket.user;
+    console.log(`[SOCKET] Connected: ${socket.id} user=${user.id} role=${user.role} company=${user.company_id} branch=${user.branch_id}`);
 
-    socket.on('join_branch', (data) => {
-        try {
-            const room = `branch_${data.company_id}_${data.branch_id}`;
-            socket.join(room);
-            console.log(`[SOCKET] ${socket.id} joined ${room}`);
-        } catch (err) {
-            console.error('[SOCKET] join error:', err);
-        }
+    // Auto-join authorized rooms — derived exclusively from socket.user.
+    const rooms = buildTenantRooms(user);
+    rooms.forEach((room) => {
+        socket.join(room);
     });
+    console.log(`[SOCKET] ${socket.id} auto-joined: ${rooms.join(', ')}`);
 
-    socket.on('join_waiter', (data) => {
-        try {
-            const room = `waiter_${data.user_id}`;
-            socket.join(room);
-            console.log(`[SOCKET] ${socket.id} joined ${room}`);
-        } catch (err) {
-            console.error('[SOCKET] join_waiter error:', err);
+    // ------------------------------------------------------------
+    // Backward-compatible join events.
+    //
+    // These exist for legacy clients only. They DO NOT grant any
+    // membership beyond what socket.user is already authorized for.
+    // Any mismatch is logged and silently ignored.
+    // ------------------------------------------------------------
+    socket.on('join_branch', (data) => {
+        const requestedCompany = parseInt(data?.company_id);
+        const requestedBranch = parseInt(data?.branch_id);
+        if (requestedCompany === user.company_id && requestedBranch === user.branch_id) {
+            socket.join(`branch_${user.company_id}_${user.branch_id}`);
+        } else {
+            console.warn(`[SOCKET] ${socket.id} unauthorized join_branch attempt: ${JSON.stringify(data)}`);
         }
     });
 
     socket.on('join_kitchen', (data) => {
-        try {
-            const room = `kitchen_${data.branch_id}`;
-            socket.join(room);
-            console.log(`[SOCKET] ${socket.id} joined ${room}`);
-        } catch (err) {
-            console.error('[SOCKET] join_kitchen error:', err);
+        const requestedBranch = parseInt(data?.branch_id);
+        if (user.role === 'kitchen' && requestedBranch === user.branch_id) {
+            socket.join(`kitchen_${user.company_id}_${user.branch_id}`);
+        } else {
+            console.warn(`[SOCKET] ${socket.id} unauthorized join_kitchen attempt: ${JSON.stringify(data)}`);
+        }
+    });
+
+    socket.on('join_waiter', (data) => {
+        const requestedUserId = parseInt(data?.user_id);
+        if (user.role === 'waiter' && requestedUserId === user.id) {
+            socket.join(`waiter_user_${user.id}`);
+        } else {
+            console.warn(`[SOCKET] ${socket.id} unauthorized join_waiter attempt: ${JSON.stringify(data)}`);
         }
     });
 
     socket.on('join_cashier', (data) => {
-        try {
-            const room = `cashier_${data.branch_id}`;
-            socket.join(room);
-            console.log(`[SOCKET] ${socket.id} joined ${room}`);
-        } catch (err) {
-            console.error('[SOCKET] join_cashier error:', err);
+        const requestedBranch = parseInt(data?.branch_id);
+        if (user.role === 'cashier' && requestedBranch === user.branch_id) {
+            socket.join(`cashier_${user.company_id}_${user.branch_id}`);
+        } else {
+            console.warn(`[SOCKET] ${socket.id} unauthorized join_cashier attempt: ${JSON.stringify(data)}`);
         }
     });
 

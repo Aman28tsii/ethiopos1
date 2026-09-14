@@ -248,7 +248,7 @@ router.post("/qr-order",
                         source: 'qr_menu'
                     };
                     
-                    io.to(`waiter_${branchId}`).emit('new_pending_order', orderData);
+                    io.to(`waiter_${companyId}_${branchId}`).emit('new_pending_order', orderData);
                     io.to(`branch_${companyId}_${branchId}`).emit('new_order_branch', orderData);
                     console.log('[QR ORDER] Socket events emitted');
                 }
@@ -422,7 +422,7 @@ router.post("/",
                         created_by: userId
                     };
                     
-                    io.to(`kitchen_${branchId}`).emit('new_order', orderData);
+                    io.to(`kitchen_${companyId}_${branchId}`).emit('new_order', orderData);
                     io.to(`branch_${companyId}_${branchId}`).emit('new_order_branch', orderData);
                 }
                 

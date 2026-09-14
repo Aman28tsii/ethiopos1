@@ -141,7 +141,7 @@ router.put("/orders/:orderId/status", authorizeBranch, allowKitchen, async (req,
             [orderIdInt]
         );
 
-        // Emit socket events
+        // Emit socket events — company-scoped rooms only.
         const io = req.app.get('io');
         if (io) {
             io.to(`branch_${companyId}_${branchId}`).emit('order_status_updated', {
@@ -151,11 +151,11 @@ router.put("/orders/:orderId/status", authorizeBranch, allowKitchen, async (req,
             });
 
             if (status === 'ready') {
-                io.to(`cashier_${branchId}`).emit('order_ready_for_cashier', {
+                io.to(`cashier_${companyId}_${branchId}`).emit('order_ready_for_cashier', {
                     order_id: orderIdInt,
                     status: 'ready'
                 });
-                io.to(`waiter_${branchId}`).emit('order_ready_for_waiter', {
+                io.to(`waiter_${companyId}_${branchId}`).emit('order_ready_for_waiter', {
                     order_id: orderIdInt,
                     status: 'ready',
                     message: `Order #${orderIdInt} is ready for pickup!`
@@ -271,6 +271,7 @@ router.get("/orders/:orderId", authorizeBranch, allowKitchen, async (req, res) =
 router.put("/orders/bulk-status", authorizeBranch, allowKitchen, async (req, res) => {
     const { orderIds, status } = req.body;
     const branchId = req.user.branch_id;
+    const companyId = req.user.company_id;
     
     if (!orderIds || !Array.isArray(orderIds) || orderIds.length === 0) {
         return res.status(400).json({ 
@@ -329,6 +330,42 @@ router.put("/orders/bulk-status", authorizeBranch, allowKitchen, async (req, res
             );
 
             results.push({ order_id: orderIdInt, status: status });
+        }
+
+        // Emit socket events — company-scoped rooms only.
+        const io = req.app.get('io');
+        if (io) {
+            io.to(`branch_${companyId}_${branchId}`).emit('order_status_updated', {
+                order_ids: results.map(r => r.order_id),
+                status: status,
+                order_status: status === 'pending' ? 'pending' : 
+                             status === 'preparing' ? 'preparing' : 
+                             status === 'ready' ? 'ready' : 
+                             status === 'completed' ? 'completed' : 'cancelled'
+            });
+
+            if (status === 'ready') {
+                results.forEach(r => {
+                    io.to(`cashier_${companyId}_${branchId}`).emit('order_ready_for_cashier', {
+                        order_id: r.order_id,
+                        status: 'ready'
+                    });
+                    io.to(`waiter_${companyId}_${branchId}`).emit('order_ready_for_waiter', {
+                        order_id: r.order_id,
+                        status: 'ready',
+                        message: `Order #${r.order_id} is ready for pickup!`
+                    });
+                });
+            }
+
+            if (status === 'completed') {
+                results.forEach(r => {
+                    io.to(`branch_${companyId}_${branchId}`).emit('order_completed', {
+                        order_id: r.order_id,
+                        status: 'completed'
+                    });
+                });
+            }
         }
 
         res.json({
