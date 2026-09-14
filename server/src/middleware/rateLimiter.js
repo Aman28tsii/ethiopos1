@@ -5,6 +5,11 @@ import { query } from '../config/database.js';
 
 // ============================================================
 // RATE LIMIT STORE — PostgreSQL-based shared store
+//
+// NOTE: express-rate-limit v7 REQUIRES a separate Store instance
+// per limiter. Sharing one instance throws ERR_ERL_STORE_REUSE.
+// We therefore create one PostgresStore per limiter, each with a
+// unique prefix so their keys do not collide in the DB.
 // ============================================================
 
 class PostgresStore {
@@ -16,13 +21,16 @@ class PostgresStore {
     async increment(key) {
         const now = new Date();
         const windowStart = new Date(now.getTime() - this.windowMs);
-        
+
+        // Compose a namespaced key so multiple limiters can share the table
+        const namespacedKey = this.prefix + key;
+
         // First, delete expired entries for this key
         await query(
             'DELETE FROM rate_limit_store WHERE key = $1 AND reset_at < $2',
-            [key, windowStart]
+            [namespacedKey, windowStart]
         );
-        
+
         // Then insert or update
         const result = await query(
             `INSERT INTO rate_limit_store (key, count, reset_at, created_at, updated_at)
@@ -33,30 +41,28 @@ class PostgresStore {
                  updated_at = NOW()
              WHERE rate_limit_store.key = $1
              RETURNING count`,
-            [key, windowStart]
+            [namespacedKey, windowStart]
         );
-        
+
         let count = 1;
         if (result.rows.length > 0) {
             count = parseInt(result.rows[0].count);
         } else {
-            // If no row returned, try selecting
             const selectResult = await query(
                 'SELECT count FROM rate_limit_store WHERE key = $1',
-                [key]
+                [namespacedKey]
             );
             if (selectResult.rows.length > 0) {
                 count = parseInt(selectResult.rows[0].count);
             } else {
-                // Insert again
                 await query(
                     'INSERT INTO rate_limit_store (key, count, reset_at, created_at, updated_at) VALUES ($1, 1, $2, NOW(), NOW())',
-                    [key, windowStart]
+                    [namespacedKey, windowStart]
                 );
                 count = 1;
             }
         }
-        
+
         return {
             totalHits: count,
             resetTime: new Date(now.getTime() + this.windowMs)
@@ -64,14 +70,16 @@ class PostgresStore {
     }
 
     async decrement(key) {
+        const namespacedKey = this.prefix + key;
         await query(
             'UPDATE rate_limit_store SET count = count - 1, updated_at = NOW() WHERE key = $1 AND count > 0',
-            [key]
+            [namespacedKey]
         );
     }
 
     async resetKey(key) {
-        await query('DELETE FROM rate_limit_store WHERE key = $1', [key]);
+        const namespacedKey = this.prefix + key;
+        await query('DELETE FROM rate_limit_store WHERE key = $1', [namespacedKey]);
     }
 
     async resetAll() {
@@ -125,15 +133,16 @@ setInterval(cleanupRateLimits, 60 * 60 * 1000);
 
 // ============================================================
 // RATE LIMITERS
+//
+// Each limiter MUST get its own PostgresStore instance with a
+// unique prefix. Sharing a store throws ERR_ERL_STORE_REUSE.
 // ============================================================
-
-const store = new PostgresStore({ windowMs: 60 * 1000 });
 
 // CRITICAL: Authentication/Registration
 export const authLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
     max: 20,
-    store: store,
+    store: new PostgresStore({ windowMs: 15 * 60 * 1000, prefix: 'rl:auth:' }),
     message: {
         success: false,
         error: 'Too many authentication attempts. Please try again later.'
@@ -150,7 +159,7 @@ export const authLimiter = rateLimit({
 export const mutationLimiter = rateLimit({
     windowMs: 60 * 1000,
     max: 30,
-    store: store,
+    store: new PostgresStore({ windowMs: 60 * 1000, prefix: 'rl:mutation:' }),
     message: {
         success: false,
         error: 'Too many requests. Please slow down and try again.'
@@ -172,7 +181,7 @@ export const mutationLimiter = rateLimit({
 export const onboardLimiter = rateLimit({
     windowMs: 60 * 60 * 1000,
     max: 10,
-    store: store,
+    store: new PostgresStore({ windowMs: 60 * 60 * 1000, prefix: 'rl:onboard:' }),
     message: {
         success: false,
         error: 'Too many company creation requests. Please try again later.'
@@ -189,7 +198,7 @@ export const onboardLimiter = rateLimit({
 export const readLimiter = rateLimit({
     windowMs: 60 * 1000,
     max: 100,
-    store: store,
+    store: new PostgresStore({ windowMs: 60 * 1000, prefix: 'rl:read:' }),
     message: {
         success: false,
         error: 'Too many requests. Please slow down.'
