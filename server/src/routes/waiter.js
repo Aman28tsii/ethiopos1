@@ -61,54 +61,65 @@ router.post("/assign-table/:tableId", authorizeBranch, allowWaiter, async (req, 
     const { tableId } = req.params;
     const waiterId = req.user.id;
     const branchId = req.user.branch_id;
-    
+    const companyId = req.user.company_id;
+
+    if (!companyId) {
+        return res.status(403).json({ success: false, error: "Company context required" });
+    }
+
     const client = await pool.connect();
-    
+
     try {
         await client.query("BEGIN");
-        
+
         const tableCheck = await client.query(
-            `SELECT id, table_number, status, assigned_waiter_id 
-             FROM tables 
+            `SELECT id, table_number, status, assigned_waiter_id, company_id
+             FROM tables
              WHERE id = $1 AND branch_id = $2`,
             [tableId, branchId]
         );
-        
+
         if (tableCheck.rows.length === 0) {
             await client.query("ROLLBACK");
             return res.status(404).json({ success: false, error: "Table not found" });
         }
-        
+
         const table = tableCheck.rows[0];
-        
+
+        // Defense in depth: table must belong to the caller's company
+        if (table.company_id !== companyId) {
+            await client.query("ROLLBACK");
+            return res.status(403).json({ success: false, error: "Table does not belong to your company" });
+        }
+
         if (table.status !== 'available') {
             await client.query("ROLLBACK");
-            return res.status(400).json({ 
-                success: false, 
-                error: `Table ${table.table_number} is ${table.status}. Only available tables can be assigned.` 
+            return res.status(400).json({
+                success: false,
+                error: `Table ${table.table_number} is ${table.status}. Only available tables can be assigned.`
             });
         }
-        
+
         const currentAssignments = await client.query(
-            `SELECT COUNT(*) as count 
-             FROM tables 
-             WHERE assigned_waiter_id = $1 
+            `SELECT COUNT(*) as count
+             FROM tables
+             WHERE assigned_waiter_id = $1
                AND branch_id = $2
                AND status IN ('available', 'occupied', 'reserved')`,
             [waiterId, branchId]
         );
-        
+
         if (parseInt(currentAssignments.rows[0].count) >= 5) {
             await client.query("ROLLBACK");
-            return res.status(400).json({ 
-                success: false, 
-                error: "You already have 5 assigned tables. Please unassign some tables first." 
+            return res.status(400).json({
+                success: false,
+                error: "You already have 5 assigned tables. Please unassign some tables first."
             });
         }
-        
+
         await client.query(
-            `UPDATE tables 
-             SET assigned_waiter_id = $1, 
+            `UPDATE tables
+             SET assigned_waiter_id = $1,
                  assignment_date = CURRENT_DATE,
                  assignment_method = 'self',
                  assigned_by = $1,
@@ -117,17 +128,17 @@ router.post("/assign-table/:tableId", authorizeBranch, allowWaiter, async (req, 
              WHERE id = $2 AND branch_id = $3`,
             [waiterId, tableId, branchId]
         );
-        
+
         await client.query(
-            `INSERT INTO waiter_self_assignments (waiter_id, table_id, status)
-             VALUES ($1, $2, 'active')`,
-            [waiterId, tableId]
+            `INSERT INTO waiter_self_assignments (waiter_id, table_id, company_id, status)
+             VALUES ($1, $2, $3, 'active')`,
+            [waiterId, tableId, companyId]
         );
-        
+
         await client.query("COMMIT");
-        
-        res.json({ 
-            success: true, 
+
+        res.json({
+            success: true,
             message: `Table ${table.table_number} assigned to you successfully!`,
             data: { table_id: tableId, table_number: table.table_number }
         });
