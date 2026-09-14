@@ -8,7 +8,7 @@ import { pool } from "../config/database.js";
 import rateLimit from "express-rate-limit";
 import { processOrderStockDeduction } from "../controllers/recipeController.js";
 import { AppError } from "../middleware/errorHandler.js";
-import { mutationLimiter } from "../middleware/rateLimiter.js";
+import { mutationLimiter, PostgresStore } from "../middleware/rateLimiter.js";
 
 const router = express.Router();
 
@@ -16,7 +16,7 @@ const trackLimiter = rateLimit({
     windowMs: 60 * 1000,
     max: 30,
     message: { success: false, error: "Too many requests. Please wait." }
-});
+});;
 
 const generateOrderNumber = () => {
     const date = new Date();

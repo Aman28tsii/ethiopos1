@@ -12,7 +12,7 @@ import { query } from '../config/database.js';
 // unique prefix so their keys do not collide in the DB.
 // ============================================================
 
-class PostgresStore {
+export class PostgresStore {
     constructor(options = {}) {
         this.windowMs = options.windowMs || 60000;
         this.prefix = options.prefix || 'ratelimit:';

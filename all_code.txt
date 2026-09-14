@@ -11278,7 +11278,7 @@ const TableStatus = () => {
   const fetchTables = async function() {
     setLoading(true);
     try {
-      const response = await API.get('/orders/tables/all');
+      const response = await API.get('/tables');
       setTables(response.data.data || []);
     } catch (err) {
       console.error('Fetch tables error:', err);
@@ -11315,7 +11315,8 @@ const TableStatus = () => {
   const updateTableStatus = async function(tableId, newStatus) {
     setUpdating(tableId);
     try {
-      await API.put('/orders/tables/' + tableId + '/status', { status: newStatus });
+      // ✅ FIXED: was '/orders/tables/' + tableId + '/status' — correct path is /tables/:id/status
+      await API.put('/tables/' + tableId + '/status', { status: newStatus });
       fetchTables();
     } catch (err) {
       console.error('Update status error:', err);
@@ -11327,7 +11328,8 @@ const TableStatus = () => {
 
   const assignWaiter = async function(tableId, waiterId) {
     try {
-      await API.put('/orders/tables/' + tableId + '/assign-waiter', { waiter_id: waiterId });
+      // ✅ FIXED: was '/orders/tables/' + tableId + '/assign-waiter' — correct path is /tables/:id/assign-waiter
+      await API.put('/tables/' + tableId + '/assign-waiter', { waiter_id: waiterId });
       fetchTables();
       setShowAssignModal(false);
       setSelectedTableForAssign(null);
@@ -15100,7 +15102,7 @@ const QRMenu = () => {
     }
   };
 
-  // ✅ FIX: Add More Items with Idempotency Key
+  // Add More Items with Idempotency Key
   const addMoreItemsToExistingOrder = async function() {
     if (cart.length === 0) {
       alert(t('pleaseAddItems'));
@@ -15114,7 +15116,6 @@ const QRMenu = () => {
         items: cart.map(function(item) { return { product_id: item.id, quantity: item.quantity }; })
       };
       
-      // ✅ Generate idempotency key for add items
       const idempotencyKey = generateIdempotencyKey(orderData);
 
       const response = await API.post('/orders/' + currentOrder.order_id + '/customer-add-items', {
@@ -15140,22 +15141,55 @@ const QRMenu = () => {
     }
   };
 
-  // Data fetching
-  const fetchProducts = async function() {
+  // ============================================================
+  // NEW: fetchProducts now takes the tableId explicitly.
+  // Never falls back to a default company. If tableId is missing,
+  // we show an error rather than fetching any products.
+  // ============================================================
+  const fetchProducts = async function(idForFetch) {
+    const resolvedTableId = idForFetch || tableId;
+
+    if (!resolvedTableId) {
+      setError('No table specified in the QR code. Please scan the QR code on your table again.');
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     setError(null);
     try {
-      const response = await API.get('/products');
-      const productsData = response.data.data || [];
-      if (productsData.length === 0) {
-        setError('No menu items available');
-      } else {
-        setProducts(productsData);
-        const uniqueCategories = ['all'].concat(productsData.filter(function(p) { return p.category; }).map(function(p) { return p.category; }));
-        setCategories(uniqueCategories);
+      const response = await API.get(
+        '/products/public?tableId=' + encodeURIComponent(resolvedTableId)
+      );
+
+      if (!response.data.success) {
+        throw new Error(response.data.error || 'Failed to load menu');
       }
+
+      const payload = response.data.data || {};
+      const productsData = payload.products || [];
+
+      if (productsData.length === 0) {
+        setError('No menu items are available right now.');
+        setProducts([]);
+        setCategories(['all']);
+        return;
+      }
+
+      setProducts(productsData);
+
+      // Derive categories from the returned products (no extra API call)
+      const uniqueCategories = ['all', ...new Set(productsData.map(p => p.category).filter(Boolean))];
+      setCategories(uniqueCategories);
     } catch (err) {
-      setError('Unable to load menu');
+      console.error('Fetch products error:', err);
+      if (err.response?.status === 404) {
+        setError('This table is not recognized. Please ask staff for help.');
+      } else if (err.response?.status === 400) {
+        setError('Invalid table reference. Please scan the QR code again.');
+      } else {
+        setError('Unable to load menu. Please try again.');
+      }
     } finally {
       setLoading(false);
     }
@@ -15208,7 +15242,7 @@ const QRMenu = () => {
     setCart(function(prev) { return prev.filter(function(item) { return item.id !== productId; }); });
   };
 
-  // ✅ FIX: Place Order with Idempotency Key
+  // Place Order with Idempotency Key
   const placeOrder = async function() {
     if (cart.length === 0) {
       alert(t('pleaseAddItems'));
@@ -15227,7 +15261,6 @@ const QRMenu = () => {
         source: 'qr_menu'
       };
 
-      // ✅ Generate unique idempotency key
       const idempotencyKey = generateIdempotencyKey(orderData);
 
       const response = await API.post('/orders/qr-order', orderData, {
@@ -15359,26 +15392,34 @@ const QRMenu = () => {
     };
   }, [currentOrder, orderNumber]);
 
-  // Initialization
+  // ============================================================
+  // INITIALIZATION — read table from URL FIRST, then fetch.
+  // Never call fetchProducts() without a resolved tableId.
+  // ============================================================
   useEffect(function() {
     const params = new URLSearchParams(window.location.search);
     const table = params.get('table');
+
     if (table) {
       setTableId(table);
       setTableNumber(table);
-    }
-    fetchProducts();
-    loadRestaurantInfo();
-    
-    setTimeout(function() {
-      if (tableId) {
-        const loaded = loadSavedOrder();
-        if (!loaded) {
-          checkForContinuingOrder();
-        }
+
+      // Load any previously-saved order for this table
+      const loaded = loadSavedOrder();
+      if (!loaded) {
+        checkForContinuingOrder();
       }
-    }, 100);
-  }, [tableId]);
+
+      // Fetch products scoped to this table's company
+      fetchProducts(table);
+    } else {
+      // No table in the URL — refuse to load any products
+      setError('No table specified in the QR code. Please scan the QR code on your table again.');
+      setLoading(false);
+    }
+
+    loadRestaurantInfo();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Render helpers
   const subtotal = cart.reduce(function(sum, item) { return sum + item.total; }, 0);
@@ -15746,9 +15787,9 @@ const QRMenu = () => {
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center p-4">
         <div className="bg-white dark:bg-gray-800 rounded-2xl max-w-md w-full p-8 text-center border border-gray-200 dark:border-gray-700">
           <AlertCircle size={48} className="text-red-500 mx-auto mb-4" />
-          <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-2">Error</h2>
+          <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-2">Cannot Load Menu</h2>
           <p className="text-gray-500 dark:text-gray-400 mb-6">{error}</p>
-          <button onClick={fetchProducts} className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold">Try Again</button>
+          <button onClick={function() { fetchProducts(tableId); }} className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold">Try Again</button>
         </div>
       </div>
     );
@@ -15926,7 +15967,6 @@ const QRMenu = () => {
               <input type="tel" placeholder="Your phone (optional)" value={customerPhone} onChange={function(e) { setCustomerPhone(e.target.value); }} className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg mb-2 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500" />
               <textarea placeholder="Special instructions" value={specialInstructions} onChange={function(e) { setSpecialInstructions(e.target.value); }} className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg mb-4 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500" rows={2} />
               
-              {/* ✅ FIX: placeOrder now includes idempotency key */}
               <button onClick={placeOrder} disabled={cart.length === 0 || loading} className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold transition">
                 {loading ? 'Placing Order...' : 'Place Order'}
               </button>
@@ -41294,13 +41334,27 @@ import { query } from '../config/database.js';
 import { AppError, catchAsync } from '../middleware/errorHandler.js';
 
 // ============================================
-// GET ALL PRODUCTS (Public - NO AUTH REQUIRED)
+// HELPER: Resolve company context safely.
+//
+// NEVER fall back to a default company. If the JWT is missing
+// a company_id or the middleware failed to set it, we must
+// return 401 rather than silently impersonating another tenant.
+// ============================================
+const requireCompanyId = (req) => {
+    const companyId = req.user?.company_id;
+    if (!companyId) {
+        throw new AppError('Company context required', 401, 'MISSING_COMPANY_CONTEXT');
+    }
+    return companyId;
+};
+
+// ============================================
+// GET ALL PRODUCTS (Authenticated, company-scoped)
 // ============================================
 export const getAllProducts = catchAsync(async (req, res) => {
     const { limit = 100, offset = 0 } = req.pagination || {};
-    
-    const companyId = req.user?.company_id || 1;
-    
+    const companyId = requireCompanyId(req);
+
     const result = await query(
         `SELECT id, name, price, category, description, is_available, company_id 
          FROM products 
@@ -41313,15 +41367,11 @@ export const getAllProducts = catchAsync(async (req, res) => {
 });
 
 // ============================================
-// GET ALL PRODUCTS (Admin/Manager view - Authenticated only)
+// GET ALL PRODUCTS ADMIN VIEW (Authenticated, company-scoped)
 // ============================================
 export const getAllProductsAdmin = catchAsync(async (req, res) => {
-    const companyId = req.user?.company_id;
-    
-    if (!companyId) {
-        throw new AppError('User company not found. Please login again.', 403);
-    }
-    
+    const companyId = requireCompanyId(req);
+
     const result = await query(
         `SELECT id, name, price, category, description, is_available, company_id, created_at 
          FROM products 
@@ -41333,18 +41383,23 @@ export const getAllProductsAdmin = catchAsync(async (req, res) => {
 });
 
 // ============================================
-// GET PRODUCT BY ID (Public - NO AUTH REQUIRED)
+// GET PRODUCT BY ID (Authenticated, company-scoped)
 // ============================================
 export const getProductById = catchAsync(async (req, res) => {
     const { id } = req.params;
-    // âœ… FIXED: Allow public access with default company 1
-    const companyId = req.user?.company_id || 1;
-    
+    const companyId = requireCompanyId(req);
+
+    // Reject non-numeric IDs explicitly
+    const numericId = parseInt(id, 10);
+    if (!Number.isFinite(numericId) || numericId <= 0) {
+        throw new AppError('Invalid product ID', 400);
+    }
+
     const result = await query(
         `SELECT id, name, price, category, description, is_available, company_id 
          FROM products 
          WHERE id = $1 AND company_id = $2 AND is_available = true`,
-        [id, companyId]
+        [numericId, companyId]
     );
     if (result.rows.length === 0) {
         throw new AppError('Product not found', 404);
@@ -41353,63 +41408,122 @@ export const getProductById = catchAsync(async (req, res) => {
 });
 
 // ============================================
-// GET CATEGORIES (Public - NO AUTH REQUIRED)
+// GET CATEGORIES (Authenticated, company-scoped)
 // ============================================
 export const getCategories = catchAsync(async (req, res) => {
-    // âœ… FIXED: Allow public access with default company 1
-    const companyId = req.user?.company_id || 1;
-    
+    const companyId = requireCompanyId(req);
+
     const result = await query(
         `SELECT DISTINCT category FROM products 
          WHERE company_id = $1 AND is_available = true AND category IS NOT NULL 
          ORDER BY category`,
         [companyId]
     );
-    
+
     res.json({ success: true, data: result.rows.map(r => r.category) });
 });
 
 // ============================================
-// CREATE PRODUCT (Authenticated only)
+// GET PUBLIC PRODUCTS BY TABLE (NO AUTH â€” QR MENU ONLY)
+//
+// The customer scans a QR code that contains a table ID.
+// We look up the table, derive its company_id, and return only
+// products owned by that company. There is NO default tenant.
+// ============================================
+export const getPublicProductsByTable = catchAsync(async (req, res) => {
+    const { tableId } = req.query;
+
+    // 1. tableId must be present
+    if (tableId === undefined || tableId === null || tableId === '') {
+        throw new AppError('tableId is required', 400);
+    }
+
+    // 2. tableId must be a positive integer (no SQL injection risk
+    //    because we also parameterize, but we reject garbage early)
+    const numericTableId = parseInt(tableId, 10);
+    if (!Number.isFinite(numericTableId) || numericTableId <= 0) {
+        throw new AppError('Invalid tableId', 400);
+    }
+
+    // 3. Look up the table (this is the ONLY source of truth for tenant)
+    const tableResult = await query(
+        `SELECT id, company_id, branch_id, table_number, status
+         FROM tables
+         WHERE id = $1`,
+        [numericTableId]
+    );
+
+    if (tableResult.rows.length === 0) {
+        throw new AppError('Table not found', 404);
+    }
+
+    const table = tableResult.rows[0];
+
+    // Defensive: a table must always have a company_id
+    if (!table.company_id) {
+        throw new AppError('Table has no company context', 500);
+    }
+
+    // 4. Return ONLY available products for that table's company
+    const productsResult = await query(
+        `SELECT id, name, price, category, description, is_available
+         FROM products
+         WHERE company_id = $1 AND is_available = true
+         ORDER BY name`,
+        [table.company_id]
+    );
+
+    res.json({
+        success: true,
+        data: {
+            table: {
+                id: table.id,
+                table_number: table.table_number,
+                status: table.status
+            },
+            products: productsResult.rows
+        }
+    });
+});
+
+// ============================================
+// CREATE PRODUCT (Authenticated, owner-scoped)
 // ============================================
 export const createProduct = catchAsync(async (req, res) => {
     const { name, price, category, description } = req.body;
-    const companyId = req.user?.company_id;
-    
-    if (!companyId) {
-        throw new AppError('User company not found. Please login again.', 403);
-    }
-    
+    const companyId = requireCompanyId(req);
+
     if (!name || !price) {
         throw new AppError('Name and price are required', 400);
     }
-    
+
     const result = await query(
         `INSERT INTO products (company_id, name, price, category, description, is_available) 
          VALUES ($1, $2, $3, $4, $5, true) 
          RETURNING id, name, price, category, description, is_available, company_id`,
         [companyId, name.trim(), price, category || null, description || null]
     );
-    
-    res.status(201).json({ 
-        success: true, 
-        message: 'Product created successfully', 
-        data: result.rows[0] 
+
+    res.status(201).json({
+        success: true,
+        message: 'Product created successfully',
+        data: result.rows[0]
     });
 });
 
 // ============================================
-// UPDATE PRODUCT (Authenticated only)
+// UPDATE PRODUCT (Authenticated, owner-scoped)
 // ============================================
 export const updateProduct = catchAsync(async (req, res) => {
     const { id } = req.params;
     const { name, price, category, is_available, description } = req.body;
-    const companyId = req.user?.company_id;
-    
-    if (!companyId) {
-        throw new AppError('User company not found. Please login again.', 403);
+    const companyId = requireCompanyId(req);
+
+    const numericId = parseInt(id, 10);
+    if (!Number.isFinite(numericId) || numericId <= 0) {
+        throw new AppError('Invalid product ID', 400);
     }
-    
+
     const result = await query(
         `UPDATE products 
          SET name = COALESCE($1, name), 
@@ -41420,43 +41534,46 @@ export const updateProduct = catchAsync(async (req, res) => {
              updated_at = CURRENT_TIMESTAMP
          WHERE id = $6 AND company_id = $7
          RETURNING id, name, price, category, is_available, description, company_id`,
-        [name, price, category, is_available, description, id, companyId]
+        [name, price, category, is_available, description, numericId, companyId]
     );
-    
+
     if (result.rows.length === 0) {
         throw new AppError('Product not found', 404);
     }
-    
-    res.json({ 
-        success: true, 
-        message: 'Product updated successfully', 
-        data: result.rows[0] 
+
+    res.json({
+        success: true,
+        message: 'Product updated successfully',
+        data: result.rows[0]
     });
 });
 
 // ============================================
-// DELETE PRODUCT (Soft delete - Authenticated only)
+// DELETE PRODUCT (Soft delete â€” Authenticated, owner-scoped)
 // ============================================
 export const deleteProduct = catchAsync(async (req, res) => {
     const { id } = req.params;
-    const companyId = req.user?.company_id;
-    
-    if (!companyId) {
-        throw new AppError('User company not found. Please login again.', 403);
+    const companyId = requireCompanyId(req);
+
+    const numericId = parseInt(id, 10);
+    if (!Number.isFinite(numericId) || numericId <= 0) {
+        throw new AppError('Invalid product ID', 400);
     }
-    
+
     const result = await query(
-        'UPDATE products SET is_available = false WHERE id = $1 AND company_id = $2 RETURNING id',
-        [id, companyId]
+        `UPDATE products SET is_available = false 
+         WHERE id = $1 AND company_id = $2 
+         RETURNING id`,
+        [numericId, companyId]
     );
-    
+
     if (result.rows.length === 0) {
         throw new AppError('Product not found', 404);
     }
-    
-    res.json({ 
-        success: true, 
-        message: 'Product deleted successfully' 
+
+    res.json({
+        success: true,
+        message: 'Product deleted successfully'
     });
 });
 === FILE: C:\Users\dell\Desktop\restaurant\server\src\controllers\profitController.js ===
@@ -43988,7 +44105,6 @@ const claimIdempotencyKey = async (client, idempotencyKey, companyId, branchId, 
                         conflict: true 
                     };
                 }
-                // If status is still 'processing', wait a moment and retry
                 if (record.status === 'processing') {
                     return { claimed: false, existing: null, processing: true };
                 }
@@ -44048,6 +44164,9 @@ const getResourceType = (req) => {
     if (path.includes('/pay') && !path.includes('/payment')) {
         return 'payment';
     }
+    if (path.includes('/qr-order')) {
+        return 'qr_order';
+    }
     if (path.includes('/orders') || path.includes('/order')) {
         return 'order';
     }
@@ -44063,6 +44182,56 @@ const getResourceType = (req) => {
     return 'order';
 };
 
+// ============================================================
+// Resolve tenant context for the current request.
+//
+// Order of precedence:
+//   1. Authenticated user (req.user.company_id / branch_id)
+//   2. Request body's table_id â†’ look up tables row
+//
+// Never falls back to any hardcoded company or branch.
+// Returns { companyId, branchId } or null if no context can be
+// resolved. Callers must handle the null case.
+// ============================================================
+const resolveTenantContext = async (req) => {
+    // 1. Authenticated user (staff endpoints)
+    const userCompanyId = req.user?.company_id;
+    const userBranchId  = req.user?.branch_id;
+
+    if (userCompanyId && userBranchId) {
+        return { companyId: userCompanyId, branchId: userBranchId };
+    }
+
+    // 2. Public QR flow â€” derive tenant from the table
+    const tableId = req.body?.table_id;
+    if (tableId === undefined || tableId === null || tableId === '') {
+        return null;
+    }
+
+    const numericTableId = parseInt(tableId, 10);
+    if (!Number.isFinite(numericTableId) || numericTableId <= 0) {
+        return null;
+    }
+
+    try {
+        const tableResult = await query(
+            `SELECT id, company_id, branch_id FROM tables WHERE id = $1`,
+            [numericTableId]
+        );
+        if (tableResult.rows.length === 0) {
+            return null;
+        }
+        const table = tableResult.rows[0];
+        if (!table.company_id || !table.branch_id) {
+            return null;
+        }
+        return { companyId: table.company_id, branchId: table.branch_id };
+    } catch (err) {
+        console.error('[IDEMPOTENCY] Table lookup error:', err.message);
+        return null;
+    }
+};
+
 // Idempotency middleware
 export const idempotent = (req, res, next) => {
     const idempotencyKey = req.headers[IDEMPOTENCY_HEADER];
@@ -44071,37 +44240,39 @@ export const idempotent = (req, res, next) => {
         return next();
     }
 
-    const companyId = req.user?.company_id;
-    const branchId = req.user?.branch_id;
-    
-    if (!companyId || !branchId) {
-        return res.status(401).json({
-            success: false,
-            error: 'Authentication required for idempotent operations'
-        });
-    }
-
     const resourceType = getResourceType(req);
     const requestHash = generateRequestHash(req.body);
-    const cacheKey = getCacheKey(idempotencyKey, companyId, branchId, resourceType);
 
-    // Check memory cache first
-    const cached = memoryCache.get(cacheKey);
-    if (cached) {
-        if (cached.requestHash === requestHash) {
-            return res.status(cached.status).json(cached.data);
-        } else {
-            return res.status(409).json({
-                success: false,
-                error: 'Idempotency key reused with different request payload',
-                idempotency_key: idempotencyKey
-            });
-        }
-    }
+    // Resolve tenant context BEFORE proceeding. This now supports
+    // anonymous QR orders via table_id.
+    resolveTenantContext(req)
+        .then(async (tenant) => {
+            if (!tenant) {
+                return res.status(401).json({
+                    success: false,
+                    error: 'Unable to resolve company context for idempotent operation'
+                });
+            }
 
-    // Check database for cached result
-    getCachedResult(idempotencyKey, companyId, branchId, resourceType)
-        .then(async (cachedResult) => {
+            const { companyId, branchId } = tenant;
+            const cacheKey = getCacheKey(idempotencyKey, companyId, branchId, resourceType);
+
+            // Check memory cache first
+            const cached = memoryCache.get(cacheKey);
+            if (cached) {
+                if (cached.requestHash === requestHash) {
+                    return res.status(cached.status).json(cached.data);
+                } else {
+                    return res.status(409).json({
+                        success: false,
+                        error: 'Idempotency key reused with different request payload',
+                        idempotency_key: idempotencyKey
+                    });
+                }
+            }
+
+            // Check database for cached result
+            const cachedResult = await getCachedResult(idempotencyKey, companyId, branchId, resourceType);
             if (cachedResult) {
                 memoryCache.set(cacheKey, {
                     status: cachedResult.status_code || 200,
@@ -44114,12 +44285,12 @@ export const idempotent = (req, res, next) => {
 
             // No cached result, process the request
             const client = await getClient();
-            
+
             try {
                 await client.query('BEGIN');
-                
+
                 const claim = await claimIdempotencyKey(client, idempotencyKey, companyId, branchId, resourceType, requestHash);
-                
+
                 if (claim.conflict) {
                     await client.query('ROLLBACK');
                     return res.status(409).json({
@@ -44128,12 +44299,10 @@ export const idempotent = (req, res, next) => {
                         idempotency_key: idempotencyKey
                     });
                 }
-                
+
                 if (claim.processing) {
-                    // Wait a moment and try again (someone else is processing)
                     await client.query('ROLLBACK');
                     await new Promise(resolve => setTimeout(resolve, 500));
-                    // Try once more with fresh context
                     const retryResult = await getCachedResult(idempotencyKey, companyId, branchId, resourceType);
                     if (retryResult) {
                         return res.status(retryResult.status_code || 200).json(retryResult.response_data);
@@ -44144,7 +44313,7 @@ export const idempotent = (req, res, next) => {
                         idempotency_key: idempotencyKey
                     });
                 }
-                
+
                 if (claim.existing) {
                     await client.query('COMMIT');
                     const record = claim.existing;
@@ -44310,6 +44479,11 @@ import { query } from '../config/database.js';
 
 // ============================================================
 // RATE LIMIT STORE â€” PostgreSQL-based shared store
+//
+// NOTE: express-rate-limit v7 REQUIRES a separate Store instance
+// per limiter. Sharing one instance throws ERR_ERL_STORE_REUSE.
+// We therefore create one PostgresStore per limiter, each with a
+// unique prefix so their keys do not collide in the DB.
 // ============================================================
 
 class PostgresStore {
@@ -44321,13 +44495,16 @@ class PostgresStore {
     async increment(key) {
         const now = new Date();
         const windowStart = new Date(now.getTime() - this.windowMs);
-        
+
+        // Compose a namespaced key so multiple limiters can share the table
+        const namespacedKey = this.prefix + key;
+
         // First, delete expired entries for this key
         await query(
             'DELETE FROM rate_limit_store WHERE key = $1 AND reset_at < $2',
-            [key, windowStart]
+            [namespacedKey, windowStart]
         );
-        
+
         // Then insert or update
         const result = await query(
             `INSERT INTO rate_limit_store (key, count, reset_at, created_at, updated_at)
@@ -44338,30 +44515,28 @@ class PostgresStore {
                  updated_at = NOW()
              WHERE rate_limit_store.key = $1
              RETURNING count`,
-            [key, windowStart]
+            [namespacedKey, windowStart]
         );
-        
+
         let count = 1;
         if (result.rows.length > 0) {
             count = parseInt(result.rows[0].count);
         } else {
-            // If no row returned, try selecting
             const selectResult = await query(
                 'SELECT count FROM rate_limit_store WHERE key = $1',
-                [key]
+                [namespacedKey]
             );
             if (selectResult.rows.length > 0) {
                 count = parseInt(selectResult.rows[0].count);
             } else {
-                // Insert again
                 await query(
                     'INSERT INTO rate_limit_store (key, count, reset_at, created_at, updated_at) VALUES ($1, 1, $2, NOW(), NOW())',
-                    [key, windowStart]
+                    [namespacedKey, windowStart]
                 );
                 count = 1;
             }
         }
-        
+
         return {
             totalHits: count,
             resetTime: new Date(now.getTime() + this.windowMs)
@@ -44369,14 +44544,16 @@ class PostgresStore {
     }
 
     async decrement(key) {
+        const namespacedKey = this.prefix + key;
         await query(
             'UPDATE rate_limit_store SET count = count - 1, updated_at = NOW() WHERE key = $1 AND count > 0',
-            [key]
+            [namespacedKey]
         );
     }
 
     async resetKey(key) {
-        await query('DELETE FROM rate_limit_store WHERE key = $1', [key]);
+        const namespacedKey = this.prefix + key;
+        await query('DELETE FROM rate_limit_store WHERE key = $1', [namespacedKey]);
     }
 
     async resetAll() {
@@ -44430,15 +44607,16 @@ setInterval(cleanupRateLimits, 60 * 60 * 1000);
 
 // ============================================================
 // RATE LIMITERS
+//
+// Each limiter MUST get its own PostgresStore instance with a
+// unique prefix. Sharing a store throws ERR_ERL_STORE_REUSE.
 // ============================================================
-
-const store = new PostgresStore({ windowMs: 60 * 1000 });
 
 // CRITICAL: Authentication/Registration
 export const authLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
     max: 20,
-    store: store,
+    store: new PostgresStore({ windowMs: 15 * 60 * 1000, prefix: 'rl:auth:' }),
     message: {
         success: false,
         error: 'Too many authentication attempts. Please try again later.'
@@ -44455,7 +44633,7 @@ export const authLimiter = rateLimit({
 export const mutationLimiter = rateLimit({
     windowMs: 60 * 1000,
     max: 30,
-    store: store,
+    store: new PostgresStore({ windowMs: 60 * 1000, prefix: 'rl:mutation:' }),
     message: {
         success: false,
         error: 'Too many requests. Please slow down and try again.'
@@ -44477,7 +44655,7 @@ export const mutationLimiter = rateLimit({
 export const onboardLimiter = rateLimit({
     windowMs: 60 * 60 * 1000,
     max: 10,
-    store: store,
+    store: new PostgresStore({ windowMs: 60 * 60 * 1000, prefix: 'rl:onboard:' }),
     message: {
         success: false,
         error: 'Too many company creation requests. Please try again later.'
@@ -44494,7 +44672,7 @@ export const onboardLimiter = rateLimit({
 export const readLimiter = rateLimit({
     windowMs: 60 * 1000,
     max: 100,
-    store: store,
+    store: new PostgresStore({ windowMs: 60 * 1000, prefix: 'rl:read:' }),
     message: {
         success: false,
         error: 'Too many requests. Please slow down.'
@@ -45596,7 +45774,7 @@ router.put("/orders/:orderId/status", authorizeBranch, allowKitchen, async (req,
             [orderIdInt]
         );
 
-        // Emit socket events
+        // Emit socket events — company-scoped rooms only.
         const io = req.app.get('io');
         if (io) {
             io.to(`branch_${companyId}_${branchId}`).emit('order_status_updated', {
@@ -45606,11 +45784,11 @@ router.put("/orders/:orderId/status", authorizeBranch, allowKitchen, async (req,
             });
 
             if (status === 'ready') {
-                io.to(`cashier_${branchId}`).emit('order_ready_for_cashier', {
+                io.to(`cashier_${companyId}_${branchId}`).emit('order_ready_for_cashier', {
                     order_id: orderIdInt,
                     status: 'ready'
                 });
-                io.to(`waiter_${branchId}`).emit('order_ready_for_waiter', {
+                io.to(`waiter_${companyId}_${branchId}`).emit('order_ready_for_waiter', {
                     order_id: orderIdInt,
                     status: 'ready',
                     message: `Order #${orderIdInt} is ready for pickup!`
@@ -45726,6 +45904,7 @@ router.get("/orders/:orderId", authorizeBranch, allowKitchen, async (req, res) =
 router.put("/orders/bulk-status", authorizeBranch, allowKitchen, async (req, res) => {
     const { orderIds, status } = req.body;
     const branchId = req.user.branch_id;
+    const companyId = req.user.company_id;
     
     if (!orderIds || !Array.isArray(orderIds) || orderIds.length === 0) {
         return res.status(400).json({ 
@@ -45784,6 +45963,42 @@ router.put("/orders/bulk-status", authorizeBranch, allowKitchen, async (req, res
             );
 
             results.push({ order_id: orderIdInt, status: status });
+        }
+
+        // Emit socket events — company-scoped rooms only.
+        const io = req.app.get('io');
+        if (io) {
+            io.to(`branch_${companyId}_${branchId}`).emit('order_status_updated', {
+                order_ids: results.map(r => r.order_id),
+                status: status,
+                order_status: status === 'pending' ? 'pending' : 
+                             status === 'preparing' ? 'preparing' : 
+                             status === 'ready' ? 'ready' : 
+                             status === 'completed' ? 'completed' : 'cancelled'
+            });
+
+            if (status === 'ready') {
+                results.forEach(r => {
+                    io.to(`cashier_${companyId}_${branchId}`).emit('order_ready_for_cashier', {
+                        order_id: r.order_id,
+                        status: 'ready'
+                    });
+                    io.to(`waiter_${companyId}_${branchId}`).emit('order_ready_for_waiter', {
+                        order_id: r.order_id,
+                        status: 'ready',
+                        message: `Order #${r.order_id} is ready for pickup!`
+                    });
+                });
+            }
+
+            if (status === 'completed') {
+                results.forEach(r => {
+                    io.to(`branch_${companyId}_${branchId}`).emit('order_completed', {
+                        order_id: r.order_id,
+                        status: 'completed'
+                    });
+                });
+            }
         }
 
         res.json({
@@ -45940,7 +46155,8 @@ router.get("/track/:orderNumber", trackLimiter, async (req, res) => {
 
 // ==================== FIXED QR ORDER ROUTE ====================
 router.post("/qr-order", 
-    protect,
+    // `protect` intentionally NOT applied â€” QR-menu customers submit anonymously.
+    // Tenant context is derived from table_id inside the handler.
     mutationLimiter,
     requireIdempotency,
     idempotent,
@@ -46078,7 +46294,7 @@ router.post("/qr-order",
                         source: 'qr_menu'
                     };
                     
-                    io.to(`waiter_${branchId}`).emit('new_pending_order', orderData);
+                    io.to(`waiter_${companyId}_${branchId}`).emit('new_pending_order', orderData);
                     io.to(`branch_${companyId}_${branchId}`).emit('new_order_branch', orderData);
                     console.log('[QR ORDER] Socket events emitted');
                 }
@@ -46252,7 +46468,7 @@ router.post("/",
                         created_by: userId
                     };
                     
-                    io.to(`kitchen_${branchId}`).emit('new_order', orderData);
+                    io.to(`kitchen_${companyId}_${branchId}`).emit('new_order', orderData);
                     io.to(`branch_${companyId}_${branchId}`).emit('new_order_branch', orderData);
                 }
                 
@@ -46508,6 +46724,21 @@ router.post("/:orderId/pay",
         } catch (err) {
             await client.query("ROLLBACK");
             console.error("Payment error:", err);
+
+            // âœ… FIXED: return proper status codes instead of blanket 500
+            if (err.message === "Order not found") {
+                return res.status(404).json({ success: false, error: err.message });
+            }
+            if (err.message === "Order is not ready for payment") {
+                return res.status(400).json({ success: false, error: err.message });
+            }
+            if (err.message === "Order already paid") {
+                return res.status(409).json({ success: false, error: err.message });
+            }
+            // Postgres invalid_text_representation = cast error (e.g. "abc" as integer)
+            if (err.code === "22P02") {
+                return res.status(400).json({ success: false, error: "Invalid order ID" });
+            }
             res.status(500).json({ success: false, error: err.message });
         } finally {
             client.release();
@@ -46515,127 +46746,7 @@ router.post("/:orderId/pay",
     }
 );
 
-router.get("/:orderId", authorizeBranch, allowWaiter, async (req, res) => {
-    const { orderId } = req.params;
-    const branchId = req.user.branch_id;
-    const companyId = req.user.company_id;
-    
-    try {
-        const result = await pool.query(`
-            SELECT o.*, t.table_number, u.name as created_by_name
-            FROM orders o
-            LEFT JOIN tables t ON o.table_id = t.id
-            LEFT JOIN users u ON o.created_by = u.id
-            WHERE o.id = $1 AND o.company_id = $2 AND o.branch_id = $3
-        `, [orderId, companyId, branchId]);
-        
-        if (result.rows.length === 0) {
-            return res.status(404).json({ success: false, error: "Order not found" });
-        }
-        
-        const items = await pool.query(`
-            SELECT oi.*, p.name as product_name
-            FROM order_items oi
-            JOIN products p ON oi.product_id = p.id
-            WHERE oi.order_id = $1
-        `, [orderId]);
-        
-        res.json({ 
-            success: true, 
-            data: { ...result.rows[0], items: items.rows } 
-        });
-    } catch (err) {
-        console.error("Get order error:", err);
-        res.status(500).json({ success: false, error: err.message });
-    }
-});
-
-router.post("/:orderId/add-items", 
-    authorizeBranch, 
-    allowWaiter, 
-    mutationLimiter,
-    async (req, res) => {
-        const { orderId } = req.params;
-        const { items } = req.body;
-        const branchId = req.user.branch_id;
-        const companyId = req.user.company_id;
-        
-        if (!items || items.length === 0) {
-            return res.status(400).json({ success: false, error: "No items to add" });
-        }
-        
-        const client = await pool.connect();
-        try {
-            await client.query("BEGIN");
-            
-            const orderCheck = await client.query(
-                "SELECT status, payment_status, total_amount FROM orders WHERE id = $1 AND branch_id = $2 AND company_id = $3",
-                [orderId, branchId, companyId]
-            );
-            
-            if (orderCheck.rows.length === 0) {
-                throw new Error("Order not found");
-            }
-            const order = orderCheck.rows[0];
-            if (order.payment_status === 'paid') {
-                throw new Error("Cannot add items to a paid order");
-            }
-            if (order.status === 'completed') {
-                throw new Error("Order already completed");
-            }
-            
-            let additionalAmount = 0;
-            const newItems = [];
-            
-            for (const item of items) {
-                const productResult = await client.query(
-                    "SELECT price, company_id, name FROM products WHERE id = $1",
-                    [item.product_id]
-                );
-                if (productResult.rows[0].company_id !== companyId) {
-                    throw new Error(`Product ${item.product_id} does not belong to this company`);
-                }
-                const unitPrice = parseFloat(productResult.rows[0].price);
-                const itemTotal = unitPrice * item.quantity;
-                additionalAmount += itemTotal;
-                await client.query(`
-                    INSERT INTO order_items (order_id, product_id, quantity, unit_price, total_price)
-                    VALUES ($1, $2, $3, $4, $5)
-                `, [orderId, item.product_id, item.quantity, unitPrice, itemTotal]);
-                newItems.push(item);
-            }
-            
-            const newTotal = parseFloat(order.total_amount) + additionalAmount;
-            await client.query(`
-                UPDATE orders SET total_amount = $1, updated_at = NOW() WHERE id = $2
-            `, [newTotal, orderId]);
-            
-            let stockResult = { deductions: [], totalWastageCost: 0 };
-            try {
-                stockResult = await processOrderStockDeduction(orderId, newItems, client, companyId, branchId);
-            } catch (stockError) {
-                console.warn("Stock deduction warning:", stockError.message);
-            }
-            
-            await client.query("COMMIT");
-            res.json({
-                success: true,
-                message: "Items added to order",
-                additional_amount: additionalAmount,
-                new_total: newTotal,
-                stock_deductions: stockResult.deductions,
-                total_wastage_cost: stockResult.totalWastageCost
-            });
-        } catch (err) {
-            await client.query("ROLLBACK");
-            console.error("Add items error:", err);
-            res.status(500).json({ success: false, error: err.message });
-        } finally {
-            client.release();
-        }
-    }
-);
-
+// ==================== MY ORDERS (waiter) â€” âœ… FIXED: JSON key quoting ====================
 router.get("/my-orders", authorizeBranch, allowWaiter, async (req, res) => {
     const userId = req.user.id;
     const branchId = req.user.branch_id;
@@ -46648,12 +46759,12 @@ router.get("/my-orders", authorizeBranch, allowWaiter, async (req, res) => {
                    COALESCE(
                        json_agg(
                            json_build_object(
-                               "name", p.name,
-                               "quantity", oi.quantity,
-                               "price", oi.unit_price
+                               'name', p.name,
+                               'quantity', oi.quantity,
+                               'price', oi.unit_price
                            )
                        ) FILTER (WHERE p.id IS NOT NULL), 
-                       '[]'
+                       '[]'::json
                    ) as items
             FROM orders o
             JOIN tables t ON o.table_id = t.id
@@ -46673,6 +46784,7 @@ router.get("/my-orders", authorizeBranch, allowWaiter, async (req, res) => {
     }
 });
 
+// ==================== PENDING CONFIRMATION â€” âœ… FIXED: JSON key quoting ====================
 router.get("/pending-confirmation", authorizeBranch, allowWaiter, async (req, res) => {
     const waiterId = req.user.id;
     const branchId = req.user.branch_id;
@@ -46685,12 +46797,12 @@ router.get("/pending-confirmation", authorizeBranch, allowWaiter, async (req, re
                    COALESCE(
                        json_agg(
                            json_build_object(
-                               "name", p.name,
-                               "quantity", oi.quantity,
-                               "price", oi.unit_price
+                               'name', p.name,
+                               'quantity', oi.quantity,
+                               'price', oi.unit_price
                            )
                        ) FILTER (WHERE p.id IS NOT NULL), 
-                       '[]'
+                       '[]'::json
                    ) as items
             FROM orders o
             JOIN tables t ON o.table_id = t.id
@@ -46930,9 +47042,65 @@ router.put("/:orderId/cancel", authorizeBranch, allowWaiter, async (req, res) =>
     } catch (error) {
         await client.query("ROLLBACK");
         console.error("Cancel order error:", error);
+
+        // âœ… FIXED: proper status codes
+        if (error.message === "Order not found") {
+            return res.status(404).json({ success: false, error: error.message });
+        }
+        if (error.message === "Cannot cancel a paid order") {
+            return res.status(409).json({ success: false, error: error.message });
+        }
+        if (error.message === "Order already completed") {
+            return res.status(409).json({ success: false, error: error.message });
+        }
+        if (error.message === "Order not assigned to you") {
+            return res.status(403).json({ success: false, error: error.message });
+        }
+        if (error.code === "22P02") {
+            return res.status(400).json({ success: false, error: "Invalid order ID" });
+        }
         res.status(500).json({ success: false, error: error.message });
     } finally {
         client.release();
+    }
+});
+
+// ==================== GET ORDER BY ID (MUST BE LAST) ====================
+// This is a catch-all for /:orderId â€” must be defined AFTER all specific routes
+// like /my-orders, /pending-confirmation, /ready, /table/:tableId, etc.,
+// otherwise it shadows them.
+router.get("/:orderId", authorizeBranch, allowWaiter, async (req, res) => {
+    const { orderId } = req.params;
+    const branchId = req.user.branch_id;
+    const companyId = req.user.company_id;
+    
+    try {
+        const result = await pool.query(`
+            SELECT o.*, t.table_number, u.name as created_by_name
+            FROM orders o
+            LEFT JOIN tables t ON o.table_id = t.id
+            LEFT JOIN users u ON o.created_by = u.id
+            WHERE o.id = $1 AND o.company_id = $2 AND o.branch_id = $3
+        `, [orderId, companyId, branchId]);
+        
+        if (result.rows.length === 0) {
+            return res.status(404).json({ success: false, error: "Order not found" });
+        }
+        
+        const items = await pool.query(`
+            SELECT oi.*, p.name as product_name
+            FROM order_items oi
+            JOIN products p ON oi.product_id = p.id
+            WHERE oi.order_id = $1
+        `, [orderId]);
+        
+        res.json({ 
+            success: true, 
+            data: { ...result.rows[0], items: items.rows } 
+        });
+    } catch (err) {
+        console.error("Get order error:", err);
+        res.status(500).json({ success: false, error: err.message });
     }
 });
 
@@ -46975,7 +47143,8 @@ import {
     createProduct,
     updateProduct,
     deleteProduct,
-    getCategories
+    getCategories,
+    getPublicProductsByTable
 } from "../controllers/productController.js";
 import { validateProduct, validatePagination } from "../middleware/validation.js";
 import { protect, allowManager, allowOwner } from "../middleware/auth.js";
@@ -46983,20 +47152,38 @@ import { authorizeCompany, requireCompanyContext } from "../middleware/authoriza
 
 const router = express.Router();
 
-// Public routes
-router.get("/", validatePagination, getAllProducts);
-router.get("/categories", getCategories);
-router.get("/:id", getProductById);
+// ============================================================
+// PUBLIC QR ROUTE (NO AUTH)
+//
+// Must be registered BEFORE "/:id" so that "/public" is not
+// interpreted as an ID. This endpoint is scoped strictly by
+// the table's company_id — never falls back to a default tenant.
+// ============================================================
+router.get("/public", getPublicProductsByTable);
 
-// Protected routes
+// ============================================================
+// AUTHENTICATED ROUTES
+//
+// Everything below requires a valid JWT and a resolved company
+// context. The former "public" versions of these routes have
+// been removed because they silently fell back to company_id=1.
+// ============================================================
 router.use(protect);
 router.use(requireCompanyContext);
 
-// Admin view - use the same route but with auth
+// Read endpoints (company-scoped)
+router.get("/", validatePagination, authorizeCompany, getAllProducts);
+router.get("/categories", authorizeCompany, getCategories);
 router.get("/admin", authorizeCompany, allowManager, getAllProducts);
+
+// Write endpoints (owner-scoped)
 router.post("/", authorizeCompany, allowOwner, validateProduct, createProduct);
 router.put("/:id", authorizeCompany, allowOwner, validateProduct, updateProduct);
 router.delete("/:id", authorizeCompany, allowOwner, deleteProduct);
+
+// Read by ID — registered LAST so it does not shadow "/public",
+// "/categories", or "/admin".
+router.get("/:id", authorizeCompany, getProductById);
 
 export default router;
 === FILE: C:\Users\dell\Desktop\restaurant\server\src\routes\profit.js ===
@@ -47592,54 +47779,65 @@ router.post("/assign-table/:tableId", authorizeBranch, allowWaiter, async (req, 
     const { tableId } = req.params;
     const waiterId = req.user.id;
     const branchId = req.user.branch_id;
-    
+    const companyId = req.user.company_id;
+
+    if (!companyId) {
+        return res.status(403).json({ success: false, error: "Company context required" });
+    }
+
     const client = await pool.connect();
-    
+
     try {
         await client.query("BEGIN");
-        
+
         const tableCheck = await client.query(
-            `SELECT id, table_number, status, assigned_waiter_id 
-             FROM tables 
+            `SELECT id, table_number, status, assigned_waiter_id, company_id
+             FROM tables
              WHERE id = $1 AND branch_id = $2`,
             [tableId, branchId]
         );
-        
+
         if (tableCheck.rows.length === 0) {
             await client.query("ROLLBACK");
             return res.status(404).json({ success: false, error: "Table not found" });
         }
-        
+
         const table = tableCheck.rows[0];
-        
+
+        // Defense in depth: table must belong to the caller's company
+        if (table.company_id !== companyId) {
+            await client.query("ROLLBACK");
+            return res.status(403).json({ success: false, error: "Table does not belong to your company" });
+        }
+
         if (table.status !== 'available') {
             await client.query("ROLLBACK");
-            return res.status(400).json({ 
-                success: false, 
-                error: `Table ${table.table_number} is ${table.status}. Only available tables can be assigned.` 
+            return res.status(400).json({
+                success: false,
+                error: `Table ${table.table_number} is ${table.status}. Only available tables can be assigned.`
             });
         }
-        
+
         const currentAssignments = await client.query(
-            `SELECT COUNT(*) as count 
-             FROM tables 
-             WHERE assigned_waiter_id = $1 
+            `SELECT COUNT(*) as count
+             FROM tables
+             WHERE assigned_waiter_id = $1
                AND branch_id = $2
                AND status IN ('available', 'occupied', 'reserved')`,
             [waiterId, branchId]
         );
-        
+
         if (parseInt(currentAssignments.rows[0].count) >= 5) {
             await client.query("ROLLBACK");
-            return res.status(400).json({ 
-                success: false, 
-                error: "You already have 5 assigned tables. Please unassign some tables first." 
+            return res.status(400).json({
+                success: false,
+                error: "You already have 5 assigned tables. Please unassign some tables first."
             });
         }
-        
+
         await client.query(
-            `UPDATE tables 
-             SET assigned_waiter_id = $1, 
+            `UPDATE tables
+             SET assigned_waiter_id = $1,
                  assignment_date = CURRENT_DATE,
                  assignment_method = 'self',
                  assigned_by = $1,
@@ -47648,17 +47846,17 @@ router.post("/assign-table/:tableId", authorizeBranch, allowWaiter, async (req, 
              WHERE id = $2 AND branch_id = $3`,
             [waiterId, tableId, branchId]
         );
-        
+
         await client.query(
-            `INSERT INTO waiter_self_assignments (waiter_id, table_id, status)
-             VALUES ($1, $2, 'active')`,
-            [waiterId, tableId]
+            `INSERT INTO waiter_self_assignments (waiter_id, table_id, company_id, status)
+             VALUES ($1, $2, $3, 'active')`,
+            [waiterId, tableId, companyId]
         );
-        
+
         await client.query("COMMIT");
-        
-        res.json({ 
-            success: true, 
+
+        res.json({
+            success: true,
             message: `Table ${table.table_number} assigned to you successfully!`,
             data: { table_id: tableId, table_number: table.table_number }
         });
@@ -47910,7 +48108,7 @@ import categoryRoutes from "./routes/categories.js";
 import customerRoutes from "./routes/customers.js";
 import companyRoutes from "./routes/companies.js";
 import branchRoutes from "./routes/branches.js";
-import platformAdminRoutes from "./routes/platformAdmin.js"; // ✅ NEW
+import platformAdminRoutes from "./routes/platformAdmin.js";
 import { errorHandler, notFound } from "./middleware/errorHandler.js";
 import { ensureIdempotencyTable } from "./middleware/idempotency.js";
 import { ensureRateLimitTable } from "./middleware/rateLimiter.js";
@@ -47996,7 +48194,13 @@ const io = new SocketServer(server, {
 
 app.set("io", io);
 
-// Socket.IO authentication middleware
+// ============================================================
+// SOCKET.IO AUTHENTICATION MIDDLEWARE
+//
+// Every socket must present a valid JWT containing company_id and
+// branch_id. We DO NOT fall back to any default tenant. A token
+// missing tenant context is rejected before any handler runs.
+// ============================================================
 io.use((socket, next) => {
     const token = socket.handshake.auth.token || socket.handshake.query.token;
     if (!token) {
@@ -48004,12 +48208,21 @@ io.use((socket, next) => {
     }
     try {
         const decoded = jwt.verify(token, JWT_SECRET);
+
+        // Require explicit tenant context — no fallbacks.
+        if (!decoded.company_id || !decoded.branch_id) {
+            return next(new Error('Invalid token: missing tenant context'));
+        }
+        if (!decoded.id || !decoded.role) {
+            return next(new Error('Invalid token: missing identity'));
+        }
+
         socket.user = {
             id: decoded.id,
             email: decoded.email,
             role: decoded.role,
-            company_id: decoded.company_id || 1,
-            branch_id: decoded.branch_id || 1,
+            company_id: decoded.company_id,
+            branch_id: decoded.branch_id,
             name: decoded.name
         };
         next();
@@ -48050,7 +48263,7 @@ app.use("/api/categories", categoryRoutes);
 app.use("/api/customers", customerRoutes);
 app.use("/api/companies", companyRoutes);
 app.use("/api/branches", branchRoutes);
-app.use("/api/platform-admin", platformAdminRoutes); // ✅ NEW
+app.use("/api/platform-admin", platformAdminRoutes);
 
 // ============================================================
 // Health Check - Must be before static files
@@ -48105,48 +48318,96 @@ app.use(errorHandler);
 
 // ============================================================
 // Socket.IO Events
+//
+// Every socket is auto-joined to the rooms it is authorized for,
+// derived exclusively from socket.user (verified JWT).
+//
+// Client-supplied join events are accepted for backward
+// compatibility but NEVER grant additional membership; any
+// mismatch with socket.user is logged and ignored.
+//
+// All room names are company-scoped to prevent cross-tenant
+// collisions on shared branch IDs:
+//   branch_${companyId}_${branchId}
+//   kitchen_${companyId}_${branchId}
+//   cashier_${companyId}_${branchId}
+//   waiter_${companyId}_${branchId}
+//   waiter_user_${userId}
 // ============================================================
 
+const buildTenantRooms = (user) => {
+    const rooms = [];
+    if (!user || !user.company_id || !user.branch_id) return rooms;
+
+    // Every authenticated user joins their company+branch room.
+    rooms.push(`branch_${user.company_id}_${user.branch_id}`);
+
+    // Role-scoped rooms.
+    if (user.role === 'kitchen') {
+        rooms.push(`kitchen_${user.company_id}_${user.branch_id}`);
+    }
+    if (user.role === 'cashier') {
+        rooms.push(`cashier_${user.company_id}_${user.branch_id}`);
+    }
+    if (user.role === 'waiter') {
+        rooms.push(`waiter_${user.company_id}_${user.branch_id}`);
+        rooms.push(`waiter_user_${user.id}`);
+    }
+    return rooms;
+};
+
 io.on("connection", (socket) => {
-    console.log(`[SOCKET] Connected: ${socket.id}`);
+    const user = socket.user;
+    console.log(`[SOCKET] Connected: ${socket.id} user=${user.id} role=${user.role} company=${user.company_id} branch=${user.branch_id}`);
 
-    socket.on('join_branch', (data) => {
-        try {
-            const room = `branch_${data.company_id}_${data.branch_id}`;
-            socket.join(room);
-            console.log(`[SOCKET] ${socket.id} joined ${room}`);
-        } catch (err) {
-            console.error('[SOCKET] join error:', err);
-        }
+    // Auto-join authorized rooms — derived exclusively from socket.user.
+    const rooms = buildTenantRooms(user);
+    rooms.forEach((room) => {
+        socket.join(room);
     });
+    console.log(`[SOCKET] ${socket.id} auto-joined: ${rooms.join(', ')}`);
 
-    socket.on('join_waiter', (data) => {
-        try {
-            const room = `waiter_${data.user_id}`;
-            socket.join(room);
-            console.log(`[SOCKET] ${socket.id} joined ${room}`);
-        } catch (err) {
-            console.error('[SOCKET] join_waiter error:', err);
+    // ------------------------------------------------------------
+    // Backward-compatible join events.
+    //
+    // These exist for legacy clients only. They DO NOT grant any
+    // membership beyond what socket.user is already authorized for.
+    // Any mismatch is logged and silently ignored.
+    // ------------------------------------------------------------
+    socket.on('join_branch', (data) => {
+        const requestedCompany = parseInt(data?.company_id);
+        const requestedBranch = parseInt(data?.branch_id);
+        if (requestedCompany === user.company_id && requestedBranch === user.branch_id) {
+            socket.join(`branch_${user.company_id}_${user.branch_id}`);
+        } else {
+            console.warn(`[SOCKET] ${socket.id} unauthorized join_branch attempt: ${JSON.stringify(data)}`);
         }
     });
 
     socket.on('join_kitchen', (data) => {
-        try {
-            const room = `kitchen_${data.branch_id}`;
-            socket.join(room);
-            console.log(`[SOCKET] ${socket.id} joined ${room}`);
-        } catch (err) {
-            console.error('[SOCKET] join_kitchen error:', err);
+        const requestedBranch = parseInt(data?.branch_id);
+        if (user.role === 'kitchen' && requestedBranch === user.branch_id) {
+            socket.join(`kitchen_${user.company_id}_${user.branch_id}`);
+        } else {
+            console.warn(`[SOCKET] ${socket.id} unauthorized join_kitchen attempt: ${JSON.stringify(data)}`);
+        }
+    });
+
+    socket.on('join_waiter', (data) => {
+        const requestedUserId = parseInt(data?.user_id);
+        if (user.role === 'waiter' && requestedUserId === user.id) {
+            socket.join(`waiter_user_${user.id}`);
+        } else {
+            console.warn(`[SOCKET] ${socket.id} unauthorized join_waiter attempt: ${JSON.stringify(data)}`);
         }
     });
 
     socket.on('join_cashier', (data) => {
-        try {
-            const room = `cashier_${data.branch_id}`;
-            socket.join(room);
-            console.log(`[SOCKET] ${socket.id} joined ${room}`);
-        } catch (err) {
-            console.error('[SOCKET] join_cashier error:', err);
+        const requestedBranch = parseInt(data?.branch_id);
+        if (user.role === 'cashier' && requestedBranch === user.branch_id) {
+            socket.join(`cashier_${user.company_id}_${user.branch_id}`);
+        } else {
+            console.warn(`[SOCKET] ${socket.id} unauthorized join_cashier attempt: ${JSON.stringify(data)}`);
         }
     });
 
@@ -48356,7 +48617,8 @@ console.log(bcrypt.hashSync(pw, 10));
         "morgan": "^1.10.1",
         "multer": "^2.1.1",
         "pg": "^8.20.0",
-        "socket.io": "^4.8.3"
+        "socket.io": "^4.8.3",
+        "socket.io-client": "^4.8.3"
       },
       "devDependencies": {
         "axios": "^1.20.0",
@@ -48899,6 +49161,63 @@ console.log(bcrypt.hashSync(pw, 10));
       },
       "engines": {
         "node": ">=10.2.0"
+      }
+    },
+    "node_modules/engine.io-client": {
+      "version": "6.6.6",
+      "resolved": "https://registry.npmjs.org/engine.io-client/-/engine.io-client-6.6.6.tgz",
+      "integrity": "sha512-iY6QdftLQ9pyiPoX082bpf/u1UewnOaJrtJIF9T0++QB34lZrj0uP+Q/bj8AlUsAxqhnkTV2BS8SBZSxOmoV5Q==",
+      "license": "MIT",
+      "dependencies": {
+        "@socket.io/component-emitter": "~3.1.0",
+        "debug": "~4.4.1",
+        "engine.io-parser": "~5.2.1",
+        "ws": "~8.21.0",
+        "xmlhttprequest-ssl": "~2.1.1"
+      }
+    },
+    "node_modules/engine.io-client/node_modules/debug": {
+      "version": "4.4.3",
+      "resolved": "https://registry.npmjs.org/debug/-/debug-4.4.3.tgz",
+      "integrity": "sha512-RGwwWnwQvkVfavKVt22FGLw+xYSdzARwm0ru6DhTVA3umU5hZc28V3kO4stgYryrTlLpuvgI9GiijltAjNbcqA==",
+      "license": "MIT",
+      "dependencies": {
+        "ms": "^2.1.3"
+      },
+      "engines": {
+        "node": ">=6.0"
+      },
+      "peerDependenciesMeta": {
+        "supports-color": {
+          "optional": true
+        }
+      }
+    },
+    "node_modules/engine.io-client/node_modules/ms": {
+      "version": "2.1.3",
+      "resolved": "https://registry.npmjs.org/ms/-/ms-2.1.3.tgz",
+      "integrity": "sha512-6FlzubTLZG3J2a/NVCAleEhjzq5oxgHyaCU9yYXvcLsvoVaHJq/s5xXI6/XXP6tz7R9xAOtHnSO/tXtF3WRTlA==",
+      "license": "MIT"
+    },
+    "node_modules/engine.io-client/node_modules/ws": {
+      "version": "8.21.3",
+      "resolved": "https://registry.npmjs.org/ws/-/ws-8.21.3.tgz",
+      "integrity": "sha512-201TZ/kPWxoPr/OKWjquZR1SWKXcvxdH+e1xrx89b3YbmzLMFCLfnaG1HFIgWzJOEWZ7MvpK++odZufgYR50Rw==",
+      "license": "MIT",
+      "engines": {
+        "node": ">=10.0.0"
+      },
+      "peerDependencies": {
+        "bufferutil": "^4.0.1",
+        "utf-8-validate": ">=5.0.2"
+      },
+      "peerDependenciesMeta": {
+        "bufferutil": {
+          "optional": true
+        },
+        "utf-8-validate": {
+          "optional": true
+        }
       }
     },
     "node_modules/engine.io-parser": {
@@ -50273,6 +50592,44 @@ console.log(bcrypt.hashSync(pw, 10));
       "integrity": "sha512-6FlzubTLZG3J2a/NVCAleEhjzq5oxgHyaCU9yYXvcLsvoVaHJq/s5xXI6/XXP6tz7R9xAOtHnSO/tXtF3WRTlA==",
       "license": "MIT"
     },
+    "node_modules/socket.io-client": {
+      "version": "4.8.3",
+      "resolved": "https://registry.npmjs.org/socket.io-client/-/socket.io-client-4.8.3.tgz",
+      "integrity": "sha512-uP0bpjWrjQmUt5DTHq9RuoCBdFJF10cdX9X+a368j/Ft0wmaVgxlrjvK3kjvgCODOMMOz9lcaRzxmso0bTWZ/g==",
+      "license": "MIT",
+      "dependencies": {
+        "@socket.io/component-emitter": "~3.1.0",
+        "debug": "~4.4.1",
+        "engine.io-client": "~6.6.1",
+        "socket.io-parser": "~4.2.4"
+      },
+      "engines": {
+        "node": ">=10.0.0"
+      }
+    },
+    "node_modules/socket.io-client/node_modules/debug": {
+      "version": "4.4.3",
+      "resolved": "https://registry.npmjs.org/debug/-/debug-4.4.3.tgz",
+      "integrity": "sha512-RGwwWnwQvkVfavKVt22FGLw+xYSdzARwm0ru6DhTVA3umU5hZc28V3kO4stgYryrTlLpuvgI9GiijltAjNbcqA==",
+      "license": "MIT",
+      "dependencies": {
+        "ms": "^2.1.3"
+      },
+      "engines": {
+        "node": ">=6.0"
+      },
+      "peerDependenciesMeta": {
+        "supports-color": {
+          "optional": true
+        }
+      }
+    },
+    "node_modules/socket.io-client/node_modules/ms": {
+      "version": "2.1.3",
+      "resolved": "https://registry.npmjs.org/ms/-/ms-2.1.3.tgz",
+      "integrity": "sha512-6FlzubTLZG3J2a/NVCAleEhjzq5oxgHyaCU9yYXvcLsvoVaHJq/s5xXI6/XXP6tz7R9xAOtHnSO/tXtF3WRTlA==",
+      "license": "MIT"
+    },
     "node_modules/socket.io-parser": {
       "version": "4.2.6",
       "resolved": "https://registry.npmjs.org/socket.io-parser/-/socket.io-parser-4.2.6.tgz",
@@ -50498,6 +50855,14 @@ console.log(bcrypt.hashSync(pw, 10));
         }
       }
     },
+    "node_modules/xmlhttprequest-ssl": {
+      "version": "2.1.2",
+      "resolved": "https://registry.npmjs.org/xmlhttprequest-ssl/-/xmlhttprequest-ssl-2.1.2.tgz",
+      "integrity": "sha512-TEU+nJVUUnA4CYJFLvK5X9AOeH4KvDvhIfm0vV1GaQRtchnG0hgK5p8hw/xjv8cunWYCsiPCSDzObPyhEwq3KQ==",
+      "engines": {
+        "node": ">=0.4.0"
+      }
+    },
     "node_modules/xtend": {
       "version": "4.0.2",
       "resolved": "https://registry.npmjs.org/xtend/-/xtend-4.0.2.tgz",
@@ -50534,7 +50899,8 @@ console.log(bcrypt.hashSync(pw, 10));
     "morgan": "^1.10.1",
     "multer": "^2.1.1",
     "pg": "^8.20.0",
-    "socket.io": "^4.8.3"
+    "socket.io": "^4.8.3",
+    "socket.io-client": "^4.8.3"
   },
   "devDependencies": {
     "axios": "^1.20.0",
