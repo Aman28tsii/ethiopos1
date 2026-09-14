@@ -20,52 +20,34 @@ class PostgresStore {
 
     async increment(key) {
         const now = new Date();
-        const windowStart = new Date(now.getTime() - this.windowMs);
+        // ✅ FIX: window expiration must be in the FUTURE
+        const resetAt = new Date(now.getTime() + this.windowMs);
 
         // Compose a namespaced key so multiple limiters can share the table
         const namespacedKey = this.prefix + key;
 
-        // First, delete expired entries for this key
+        // ✅ FIX: drop only EXPIRED rows (reset_at in the past)
         await query(
-            'DELETE FROM rate_limit_store WHERE key = $1 AND reset_at < $2',
-            [namespacedKey, windowStart]
+            'DELETE FROM rate_limit_store WHERE key = $1 AND reset_at < NOW()',
+            [namespacedKey]
         );
 
-        // Then insert or update
+        // ✅ FIX: proper upsert — insert with count=1 or atomically increment
         const result = await query(
             `INSERT INTO rate_limit_store (key, count, reset_at, created_at, updated_at)
              VALUES ($1, 1, $2, NOW(), NOW())
-             ON CONFLICT (key) DO UPDATE 
+             ON CONFLICT (key) DO UPDATE
              SET count = rate_limit_store.count + 1,
-                 reset_at = $2,
+                 reset_at = EXCLUDED.reset_at,
                  updated_at = NOW()
-             WHERE rate_limit_store.key = $1
-             RETURNING count`,
-            [namespacedKey, windowStart]
+             RETURNING count, reset_at`,
+            [namespacedKey, resetAt]
         );
 
-        let count = 1;
-        if (result.rows.length > 0) {
-            count = parseInt(result.rows[0].count);
-        } else {
-            const selectResult = await query(
-                'SELECT count FROM rate_limit_store WHERE key = $1',
-                [namespacedKey]
-            );
-            if (selectResult.rows.length > 0) {
-                count = parseInt(selectResult.rows[0].count);
-            } else {
-                await query(
-                    'INSERT INTO rate_limit_store (key, count, reset_at, created_at, updated_at) VALUES ($1, 1, $2, NOW(), NOW())',
-                    [namespacedKey, windowStart]
-                );
-                count = 1;
-            }
-        }
-
+        const row = result.rows[0];
         return {
-            totalHits: count,
-            resetTime: new Date(now.getTime() + this.windowMs)
+            totalHits: parseInt(row.count, 10),
+            resetTime: row.reset_at instanceof Date ? row.reset_at : new Date(row.reset_at)
         };
     }
 
