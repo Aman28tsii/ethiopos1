@@ -215,7 +215,7 @@ const QRMenu = () => {
     }
   };
 
-  // ✅ FIX: Add More Items with Idempotency Key
+  // Add More Items with Idempotency Key
   const addMoreItemsToExistingOrder = async function() {
     if (cart.length === 0) {
       alert(t('pleaseAddItems'));
@@ -229,7 +229,6 @@ const QRMenu = () => {
         items: cart.map(function(item) { return { product_id: item.id, quantity: item.quantity }; })
       };
       
-      // ✅ Generate idempotency key for add items
       const idempotencyKey = generateIdempotencyKey(orderData);
 
       const response = await API.post('/orders/' + currentOrder.order_id + '/customer-add-items', {
@@ -255,22 +254,55 @@ const QRMenu = () => {
     }
   };
 
-  // Data fetching
-  const fetchProducts = async function() {
+  // ============================================================
+  // NEW: fetchProducts now takes the tableId explicitly.
+  // Never falls back to a default company. If tableId is missing,
+  // we show an error rather than fetching any products.
+  // ============================================================
+  const fetchProducts = async function(idForFetch) {
+    const resolvedTableId = idForFetch || tableId;
+
+    if (!resolvedTableId) {
+      setError('No table specified in the QR code. Please scan the QR code on your table again.');
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     setError(null);
     try {
-      const response = await API.get('/products');
-      const productsData = response.data.data || [];
-      if (productsData.length === 0) {
-        setError('No menu items available');
-      } else {
-        setProducts(productsData);
-        const uniqueCategories = ['all'].concat(productsData.filter(function(p) { return p.category; }).map(function(p) { return p.category; }));
-        setCategories(uniqueCategories);
+      const response = await API.get(
+        '/products/public?tableId=' + encodeURIComponent(resolvedTableId)
+      );
+
+      if (!response.data.success) {
+        throw new Error(response.data.error || 'Failed to load menu');
       }
+
+      const payload = response.data.data || {};
+      const productsData = payload.products || [];
+
+      if (productsData.length === 0) {
+        setError('No menu items are available right now.');
+        setProducts([]);
+        setCategories(['all']);
+        return;
+      }
+
+      setProducts(productsData);
+
+      // Derive categories from the returned products (no extra API call)
+      const uniqueCategories = ['all', ...new Set(productsData.map(p => p.category).filter(Boolean))];
+      setCategories(uniqueCategories);
     } catch (err) {
-      setError('Unable to load menu');
+      console.error('Fetch products error:', err);
+      if (err.response?.status === 404) {
+        setError('This table is not recognized. Please ask staff for help.');
+      } else if (err.response?.status === 400) {
+        setError('Invalid table reference. Please scan the QR code again.');
+      } else {
+        setError('Unable to load menu. Please try again.');
+      }
     } finally {
       setLoading(false);
     }
@@ -323,7 +355,7 @@ const QRMenu = () => {
     setCart(function(prev) { return prev.filter(function(item) { return item.id !== productId; }); });
   };
 
-  // ✅ FIX: Place Order with Idempotency Key
+  // Place Order with Idempotency Key
   const placeOrder = async function() {
     if (cart.length === 0) {
       alert(t('pleaseAddItems'));
@@ -342,7 +374,6 @@ const QRMenu = () => {
         source: 'qr_menu'
       };
 
-      // ✅ Generate unique idempotency key
       const idempotencyKey = generateIdempotencyKey(orderData);
 
       const response = await API.post('/orders/qr-order', orderData, {
@@ -474,26 +505,34 @@ const QRMenu = () => {
     };
   }, [currentOrder, orderNumber]);
 
-  // Initialization
+  // ============================================================
+  // INITIALIZATION — read table from URL FIRST, then fetch.
+  // Never call fetchProducts() without a resolved tableId.
+  // ============================================================
   useEffect(function() {
     const params = new URLSearchParams(window.location.search);
     const table = params.get('table');
+
     if (table) {
       setTableId(table);
       setTableNumber(table);
-    }
-    fetchProducts();
-    loadRestaurantInfo();
-    
-    setTimeout(function() {
-      if (tableId) {
-        const loaded = loadSavedOrder();
-        if (!loaded) {
-          checkForContinuingOrder();
-        }
+
+      // Load any previously-saved order for this table
+      const loaded = loadSavedOrder();
+      if (!loaded) {
+        checkForContinuingOrder();
       }
-    }, 100);
-  }, [tableId]);
+
+      // Fetch products scoped to this table's company
+      fetchProducts(table);
+    } else {
+      // No table in the URL — refuse to load any products
+      setError('No table specified in the QR code. Please scan the QR code on your table again.');
+      setLoading(false);
+    }
+
+    loadRestaurantInfo();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Render helpers
   const subtotal = cart.reduce(function(sum, item) { return sum + item.total; }, 0);
@@ -861,9 +900,9 @@ const QRMenu = () => {
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center p-4">
         <div className="bg-white dark:bg-gray-800 rounded-2xl max-w-md w-full p-8 text-center border border-gray-200 dark:border-gray-700">
           <AlertCircle size={48} className="text-red-500 mx-auto mb-4" />
-          <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-2">Error</h2>
+          <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-2">Cannot Load Menu</h2>
           <p className="text-gray-500 dark:text-gray-400 mb-6">{error}</p>
-          <button onClick={fetchProducts} className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold">Try Again</button>
+          <button onClick={function() { fetchProducts(tableId); }} className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold">Try Again</button>
         </div>
       </div>
     );
@@ -1041,7 +1080,6 @@ const QRMenu = () => {
               <input type="tel" placeholder="Your phone (optional)" value={customerPhone} onChange={function(e) { setCustomerPhone(e.target.value); }} className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg mb-2 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500" />
               <textarea placeholder="Special instructions" value={specialInstructions} onChange={function(e) { setSpecialInstructions(e.target.value); }} className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg mb-4 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500" rows={2} />
               
-              {/* ✅ FIX: placeOrder now includes idempotency key */}
               <button onClick={placeOrder} disabled={cart.length === 0 || loading} className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold transition">
                 {loading ? 'Placing Order...' : 'Place Order'}
               </button>
