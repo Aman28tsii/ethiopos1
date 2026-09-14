@@ -678,6 +678,21 @@ router.post("/:orderId/pay",
         } catch (err) {
             await client.query("ROLLBACK");
             console.error("Payment error:", err);
+
+            // ✅ FIXED: return proper status codes instead of blanket 500
+            if (err.message === "Order not found") {
+                return res.status(404).json({ success: false, error: err.message });
+            }
+            if (err.message === "Order is not ready for payment") {
+                return res.status(400).json({ success: false, error: err.message });
+            }
+            if (err.message === "Order already paid") {
+                return res.status(409).json({ success: false, error: err.message });
+            }
+            // Postgres invalid_text_representation = cast error (e.g. "abc" as integer)
+            if (err.code === "22P02") {
+                return res.status(400).json({ success: false, error: "Invalid order ID" });
+            }
             res.status(500).json({ success: false, error: err.message });
         } finally {
             client.release();
@@ -981,6 +996,23 @@ router.put("/:orderId/cancel", authorizeBranch, allowWaiter, async (req, res) =>
     } catch (error) {
         await client.query("ROLLBACK");
         console.error("Cancel order error:", error);
+
+        // ✅ FIXED: proper status codes
+        if (error.message === "Order not found") {
+            return res.status(404).json({ success: false, error: error.message });
+        }
+        if (error.message === "Cannot cancel a paid order") {
+            return res.status(409).json({ success: false, error: error.message });
+        }
+        if (error.message === "Order already completed") {
+            return res.status(409).json({ success: false, error: error.message });
+        }
+        if (error.message === "Order not assigned to you") {
+            return res.status(403).json({ success: false, error: error.message });
+        }
+        if (error.code === "22P02") {
+            return res.status(400).json({ success: false, error: "Invalid order ID" });
+        }
         res.status(500).json({ success: false, error: error.message });
     } finally {
         client.release();
