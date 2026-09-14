@@ -15,8 +15,11 @@ const router = express.Router();
 const trackLimiter = rateLimit({
     windowMs: 60 * 1000,
     max: 30,
-    message: { success: false, error: "Too many requests. Please wait." }
-});;
+    store: new PostgresStore({ windowMs: 60 * 1000, prefix: 'rl:track:' }),
+    message: { success: false, error: "Too many requests. Please wait." },
+    standardHeaders: true,
+    legacyHeaders: false
+});
 
 const generateOrderNumber = () => {
     const date = new Date();
