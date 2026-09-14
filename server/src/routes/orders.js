@@ -685,127 +685,7 @@ router.post("/:orderId/pay",
     }
 );
 
-router.get("/:orderId", authorizeBranch, allowWaiter, async (req, res) => {
-    const { orderId } = req.params;
-    const branchId = req.user.branch_id;
-    const companyId = req.user.company_id;
-    
-    try {
-        const result = await pool.query(`
-            SELECT o.*, t.table_number, u.name as created_by_name
-            FROM orders o
-            LEFT JOIN tables t ON o.table_id = t.id
-            LEFT JOIN users u ON o.created_by = u.id
-            WHERE o.id = $1 AND o.company_id = $2 AND o.branch_id = $3
-        `, [orderId, companyId, branchId]);
-        
-        if (result.rows.length === 0) {
-            return res.status(404).json({ success: false, error: "Order not found" });
-        }
-        
-        const items = await pool.query(`
-            SELECT oi.*, p.name as product_name
-            FROM order_items oi
-            JOIN products p ON oi.product_id = p.id
-            WHERE oi.order_id = $1
-        `, [orderId]);
-        
-        res.json({ 
-            success: true, 
-            data: { ...result.rows[0], items: items.rows } 
-        });
-    } catch (err) {
-        console.error("Get order error:", err);
-        res.status(500).json({ success: false, error: err.message });
-    }
-});
-
-router.post("/:orderId/add-items", 
-    authorizeBranch, 
-    allowWaiter, 
-    mutationLimiter,
-    async (req, res) => {
-        const { orderId } = req.params;
-        const { items } = req.body;
-        const branchId = req.user.branch_id;
-        const companyId = req.user.company_id;
-        
-        if (!items || items.length === 0) {
-            return res.status(400).json({ success: false, error: "No items to add" });
-        }
-        
-        const client = await pool.connect();
-        try {
-            await client.query("BEGIN");
-            
-            const orderCheck = await client.query(
-                "SELECT status, payment_status, total_amount FROM orders WHERE id = $1 AND branch_id = $2 AND company_id = $3",
-                [orderId, branchId, companyId]
-            );
-            
-            if (orderCheck.rows.length === 0) {
-                throw new Error("Order not found");
-            }
-            const order = orderCheck.rows[0];
-            if (order.payment_status === 'paid') {
-                throw new Error("Cannot add items to a paid order");
-            }
-            if (order.status === 'completed') {
-                throw new Error("Order already completed");
-            }
-            
-            let additionalAmount = 0;
-            const newItems = [];
-            
-            for (const item of items) {
-                const productResult = await client.query(
-                    "SELECT price, company_id, name FROM products WHERE id = $1",
-                    [item.product_id]
-                );
-                if (productResult.rows[0].company_id !== companyId) {
-                    throw new Error(`Product ${item.product_id} does not belong to this company`);
-                }
-                const unitPrice = parseFloat(productResult.rows[0].price);
-                const itemTotal = unitPrice * item.quantity;
-                additionalAmount += itemTotal;
-                await client.query(`
-                    INSERT INTO order_items (order_id, product_id, quantity, unit_price, total_price)
-                    VALUES ($1, $2, $3, $4, $5)
-                `, [orderId, item.product_id, item.quantity, unitPrice, itemTotal]);
-                newItems.push(item);
-            }
-            
-            const newTotal = parseFloat(order.total_amount) + additionalAmount;
-            await client.query(`
-                UPDATE orders SET total_amount = $1, updated_at = NOW() WHERE id = $2
-            `, [newTotal, orderId]);
-            
-            let stockResult = { deductions: [], totalWastageCost: 0 };
-            try {
-                stockResult = await processOrderStockDeduction(orderId, newItems, client, companyId, branchId);
-            } catch (stockError) {
-                console.warn("Stock deduction warning:", stockError.message);
-            }
-            
-            await client.query("COMMIT");
-            res.json({
-                success: true,
-                message: "Items added to order",
-                additional_amount: additionalAmount,
-                new_total: newTotal,
-                stock_deductions: stockResult.deductions,
-                total_wastage_cost: stockResult.totalWastageCost
-            });
-        } catch (err) {
-            await client.query("ROLLBACK");
-            console.error("Add items error:", err);
-            res.status(500).json({ success: false, error: err.message });
-        } finally {
-            client.release();
-        }
-    }
-);
-
+// ==================== MY ORDERS (waiter) — ✅ FIXED: JSON key quoting ====================
 router.get("/my-orders", authorizeBranch, allowWaiter, async (req, res) => {
     const userId = req.user.id;
     const branchId = req.user.branch_id;
@@ -818,12 +698,12 @@ router.get("/my-orders", authorizeBranch, allowWaiter, async (req, res) => {
                    COALESCE(
                        json_agg(
                            json_build_object(
-                               "name", p.name,
-                               "quantity", oi.quantity,
-                               "price", oi.unit_price
+                               'name', p.name,
+                               'quantity', oi.quantity,
+                               'price', oi.unit_price
                            )
                        ) FILTER (WHERE p.id IS NOT NULL), 
-                       '[]'
+                       '[]'::json
                    ) as items
             FROM orders o
             JOIN tables t ON o.table_id = t.id
@@ -843,6 +723,7 @@ router.get("/my-orders", authorizeBranch, allowWaiter, async (req, res) => {
     }
 });
 
+// ==================== PENDING CONFIRMATION — ✅ FIXED: JSON key quoting ====================
 router.get("/pending-confirmation", authorizeBranch, allowWaiter, async (req, res) => {
     const waiterId = req.user.id;
     const branchId = req.user.branch_id;
@@ -855,12 +736,12 @@ router.get("/pending-confirmation", authorizeBranch, allowWaiter, async (req, re
                    COALESCE(
                        json_agg(
                            json_build_object(
-                               "name", p.name,
-                               "quantity", oi.quantity,
-                               "price", oi.unit_price
+                               'name', p.name,
+                               'quantity', oi.quantity,
+                               'price', oi.unit_price
                            )
                        ) FILTER (WHERE p.id IS NOT NULL), 
-                       '[]'
+                       '[]'::json
                    ) as items
             FROM orders o
             JOIN tables t ON o.table_id = t.id
@@ -1103,6 +984,45 @@ router.put("/:orderId/cancel", authorizeBranch, allowWaiter, async (req, res) =>
         res.status(500).json({ success: false, error: error.message });
     } finally {
         client.release();
+    }
+});
+
+// ==================== GET ORDER BY ID (MUST BE LAST) ====================
+// This is a catch-all for /:orderId — must be defined AFTER all specific routes
+// like /my-orders, /pending-confirmation, /ready, /table/:tableId, etc.,
+// otherwise it shadows them.
+router.get("/:orderId", authorizeBranch, allowWaiter, async (req, res) => {
+    const { orderId } = req.params;
+    const branchId = req.user.branch_id;
+    const companyId = req.user.company_id;
+    
+    try {
+        const result = await pool.query(`
+            SELECT o.*, t.table_number, u.name as created_by_name
+            FROM orders o
+            LEFT JOIN tables t ON o.table_id = t.id
+            LEFT JOIN users u ON o.created_by = u.id
+            WHERE o.id = $1 AND o.company_id = $2 AND o.branch_id = $3
+        `, [orderId, companyId, branchId]);
+        
+        if (result.rows.length === 0) {
+            return res.status(404).json({ success: false, error: "Order not found" });
+        }
+        
+        const items = await pool.query(`
+            SELECT oi.*, p.name as product_name
+            FROM order_items oi
+            JOIN products p ON oi.product_id = p.id
+            WHERE oi.order_id = $1
+        `, [orderId]);
+        
+        res.json({ 
+            success: true, 
+            data: { ...result.rows[0], items: items.rows } 
+        });
+    } catch (err) {
+        console.error("Get order error:", err);
+        res.status(500).json({ success: false, error: err.message });
     }
 });
 

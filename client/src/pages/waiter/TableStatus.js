@@ -49,7 +49,7 @@ const TableStatus = () => {
   const fetchTables = async function() {
     setLoading(true);
     try {
-      const response = await API.get('/orders/tables/all');
+      const response = await API.get('/tables');
       setTables(response.data.data || []);
     } catch (err) {
       console.error('Fetch tables error:', err);
@@ -86,7 +86,8 @@ const TableStatus = () => {
   const updateTableStatus = async function(tableId, newStatus) {
     setUpdating(tableId);
     try {
-      await API.put('/orders/tables/' + tableId + '/status', { status: newStatus });
+      // ✅ FIXED: was '/orders/tables/' + tableId + '/status' — correct path is /tables/:id/status
+      await API.put('/tables/' + tableId + '/status', { status: newStatus });
       fetchTables();
     } catch (err) {
       console.error('Update status error:', err);
@@ -98,7 +99,8 @@ const TableStatus = () => {
 
   const assignWaiter = async function(tableId, waiterId) {
     try {
-      await API.put('/orders/tables/' + tableId + '/assign-waiter', { waiter_id: waiterId });
+      // ✅ FIXED: was '/orders/tables/' + tableId + '/assign-waiter' — correct path is /tables/:id/assign-waiter
+      await API.put('/tables/' + tableId + '/assign-waiter', { waiter_id: waiterId });
       fetchTables();
       setShowAssignModal(false);
       setSelectedTableForAssign(null);
