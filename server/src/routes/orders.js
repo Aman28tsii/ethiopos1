@@ -18,7 +18,11 @@ const trackLimiter = rateLimit({
     store: new PostgresStore({ windowMs: 60 * 1000, prefix: 'rl:track:' }),
     message: { success: false, error: "Too many requests. Please wait." },
     standardHeaders: true,
-    legacyHeaders: false
+    legacyHeaders: false,
+    keyGenerator: (req) => {
+        const forwarded = req.headers['x-forwarded-for'];
+        return forwarded ? forwarded.split(',')[0].trim() : req.ip || req.connection.remoteAddress;
+    }
 });
 
 const generateOrderNumber = () => {
