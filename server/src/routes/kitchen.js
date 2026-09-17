@@ -4,6 +4,7 @@ import express from "express";
 import { protect, allowKitchen } from "../middleware/auth.js";
 import { authorizeBranch, requireCompanyContext } from "../middleware/authorization.js";
 import { pool } from "../config/database.js";
+import { processOrderStockDeduction } from "../controllers/recipeController.js";
 
 const router = express.Router();
 
@@ -65,7 +66,7 @@ router.get("/orders", authorizeBranch, allowKitchen, async (req, res) => {
 });
 
 // ============================================================
-// UPDATE KITCHEN ORDER STATUS - FIXED
+// UPDATE KITCHEN ORDER STATUS
 // ============================================================
 router.put("/orders/:orderId/status", authorizeBranch, allowKitchen, async (req, res) => {
     const { orderId } = req.params;
@@ -87,7 +88,6 @@ router.put("/orders/:orderId/status", authorizeBranch, allowKitchen, async (req,
             return res.status(400).json({ success: false, error: 'Invalid order ID' });
         }
 
-        // Check if order exists
         const orderCheck = await pool.query(
             `SELECT id FROM kitchen_orders WHERE order_id = $1`,
             [orderIdInt]
@@ -97,7 +97,6 @@ router.put("/orders/:orderId/status", authorizeBranch, allowKitchen, async (req,
             return res.status(404).json({ success: false, error: "Order not found in kitchen" });
         }
 
-        // Update kitchen order status
         await pool.query(
             `UPDATE kitchen_orders 
              SET status = $1, updated_at = NOW() 
@@ -105,7 +104,6 @@ router.put("/orders/:orderId/status", authorizeBranch, allowKitchen, async (req,
             [status, orderIdInt]
         );
 
-        // Update started_at if preparing
         if (status === 'preparing') {
             await pool.query(
                 `UPDATE kitchen_orders 
@@ -115,7 +113,6 @@ router.put("/orders/:orderId/status", authorizeBranch, allowKitchen, async (req,
             );
         }
 
-        // Update completed_at if ready or completed
         if (status === 'ready' || status === 'completed') {
             await pool.query(
                 `UPDATE kitchen_orders 
@@ -125,7 +122,6 @@ router.put("/orders/:orderId/status", authorizeBranch, allowKitchen, async (req,
             );
         }
 
-        // Update main order status
         const orderStatus = status === 'pending' ? 'pending' : 
                            status === 'preparing' ? 'preparing' : 
                            status === 'ready' ? 'ready' : 
@@ -136,11 +132,69 @@ router.put("/orders/:orderId/status", authorizeBranch, allowKitchen, async (req,
             [orderStatus, orderIdInt]
         );
 
-        // вң… AUTO-CONFIRM PICKUP FOR CASHIER-MANUAL ORDERS ONLY.
-        // Cashier-created orders (source = 'cashier_manual' or 'cashier')
-        // have no waiter to confirm pickup, so when the kitchen marks them
-        // ready we set the pickup flag automatically. This makes them
-        // appear at the cashier immediately, bypassing the waiter step.
+        // ============================================================
+        // STOCK DEDUCTION happens HERE, when food leaves the kitchen.
+        // Guard: only deduct once per order, even if the kitchen clicks
+        // "ready" multiple times. We use the stock_transactions table as
+        // the source of truth for "was this order already deducted?".
+        // ============================================================
+        let stockDeductionResult = null;
+
+        if (status === 'ready') {
+            const alreadyDeducted = await pool.query(
+                `SELECT 1 FROM stock_transactions
+                 WHERE order_id = $1 AND transaction_type = 'order_deduction'
+                 LIMIT 1`,
+                [orderIdInt]
+            );
+
+            if (alreadyDeducted.rows.length === 0) {
+                const itemsRes = await pool.query(
+                    `SELECT product_id, quantity FROM order_items WHERE order_id = $1`,
+                    [orderIdInt]
+                );
+
+                const client = await pool.connect();
+                try {
+                    await client.query('BEGIN');
+                    stockDeductionResult = await processOrderStockDeduction(
+                        orderIdInt,
+                        itemsRes.rows,
+                        client,
+                        companyId,
+                        branchId
+                    );
+                    await client.query('COMMIT');
+                    console.log(`[KITCHEN] Stock deducted for order ${orderIdInt}:`,
+                        stockDeductionResult?.deductions?.length, 'ingredients');
+                } catch (deductErr) {
+                    await client.query('ROLLBACK');
+                    console.error(`[KITCHEN] Stock deduction FAILED for order ${orderIdInt}:`, deductErr.message);
+
+                    // Roll back the "ready" status so the kitchen can retry
+                    await pool.query(
+                        `UPDATE kitchen_orders SET status = 'preparing', updated_at = NOW() WHERE order_id = $1`,
+                        [orderIdInt]
+                    );
+                    await pool.query(
+                        `UPDATE orders SET status = 'preparing', updated_at = NOW() WHERE id = $1`,
+                        [orderIdInt]
+                    );
+
+                    return res.status(409).json({
+                        success: false,
+                        error: deductErr.message || 'Insufficient stock to complete this order',
+                        code: 'STOCK_DEDUCTION_FAILED'
+                    });
+                } finally {
+                    client.release();
+                }
+            } else {
+                console.log(`[KITCHEN] Stock already deducted for order ${orderIdInt}, skipping.`);
+            }
+        }
+
+        // AUTO-CONFIRM PICKUP FOR CASHIER-MANUAL ORDERS ONLY.
         let autoConfirmedCashier = false;
         if (status === 'ready') {
             const autoConfirmResult = await pool.query(
@@ -158,13 +212,11 @@ router.put("/orders/:orderId/status", authorizeBranch, allowKitchen, async (req,
             }
         }
 
-        // Get updated record
         const result = await pool.query(
             `SELECT * FROM kitchen_orders WHERE order_id = $1`,
             [orderIdInt]
         );
 
-        // Emit socket events вҖ” company-scoped rooms only.
         const io = req.app.get('io');
         if (io) {
             io.to(`branch_${companyId}_${branchId}`).emit('order_status_updated', {
@@ -174,7 +226,6 @@ router.put("/orders/:orderId/status", authorizeBranch, allowKitchen, async (req,
             });
 
             if (status === 'ready') {
-                // Cashier-manual orders: notify cashier directly.
                 if (autoConfirmedCashier) {
                     const autoRow = await pool.query(
                         `SELECT id, order_number, table_id FROM orders WHERE id = $1`,
@@ -187,8 +238,6 @@ router.put("/orders/:orderId/status", authorizeBranch, allowKitchen, async (req,
                         table_id: row?.table_id
                     });
                 } else {
-                    // QR / waiter orders: notify the waiter, who must then
-                    // confirm pickup via POST /orders/:id/confirm-pickup.
                     io.to(`waiter_${companyId}_${branchId}`).emit('order_ready_for_waiter', {
                         order_id: orderIdInt,
                         status: 'ready',
@@ -208,7 +257,13 @@ router.put("/orders/:orderId/status", authorizeBranch, allowKitchen, async (req,
         res.json({
             success: true,
             message: `Order status updated to ${status}`,
-            data: result.rows[0]
+            data: result.rows[0],
+            stock_deduction: stockDeductionResult
+                ? {
+                    ingredients_deducted: stockDeductionResult.deductions.length,
+                    total_wastage_cost: stockDeductionResult.totalWastageCost
+                }
+                : null
         });
     } catch (err) {
         console.error("Update kitchen order error:", err);
@@ -325,9 +380,50 @@ router.put("/orders/bulk-status", authorizeBranch, allowKitchen, async (req, res
 
     try {
         const results = [];
+        const stockErrors = [];
+
         for (const orderId of orderIds) {
             const orderIdInt = parseInt(orderId);
             if (isNaN(orderIdInt)) continue;
+
+            if (status === 'ready') {
+                const alreadyDeducted = await pool.query(
+                    `SELECT 1 FROM stock_transactions
+                     WHERE order_id = $1 AND transaction_type = 'order_deduction'
+                     LIMIT 1`,
+                    [orderIdInt]
+                );
+
+                if (alreadyDeducted.rows.length === 0) {
+                    const itemsRes = await pool.query(
+                        `SELECT product_id, quantity FROM order_items WHERE order_id = $1`,
+                        [orderIdInt]
+                    );
+
+                    const client = await pool.connect();
+                    try {
+                        await client.query('BEGIN');
+                        await processOrderStockDeduction(
+                            orderIdInt,
+                            itemsRes.rows,
+                            client,
+                            companyId,
+                            branchId
+                        );
+                        await client.query('COMMIT');
+                    } catch (deductErr) {
+                        await client.query('ROLLBACK');
+                        console.error(`[KITCHEN BULK] Stock deduction failed for order ${orderIdInt}:`, deductErr.message);
+                        stockErrors.push({
+                            order_id: orderIdInt,
+                            error: deductErr.message
+                        });
+                        continue;
+                    } finally {
+                        client.release();
+                    }
+                }
+            }
             
             await pool.query(
                 `UPDATE kitchen_orders 
@@ -364,7 +460,6 @@ router.put("/orders/bulk-status", authorizeBranch, allowKitchen, async (req, res
                 [orderStatus, orderIdInt]
             );
 
-            // вң… AUTO-CONFIRM PICKUP FOR CASHIER-MANUAL ORDERS ONLY.
             if (status === 'ready') {
                 await pool.query(
                     `UPDATE orders
@@ -380,7 +475,6 @@ router.put("/orders/bulk-status", authorizeBranch, allowKitchen, async (req, res
             results.push({ order_id: orderIdInt, status: status });
         }
 
-        // Emit socket events вҖ” company-scoped rooms only.
         const io = req.app.get('io');
         if (io) {
             io.to(`branch_${companyId}_${branchId}`).emit('order_status_updated', {
@@ -392,10 +486,7 @@ router.put("/orders/bulk-status", authorizeBranch, allowKitchen, async (req, res
                              status === 'completed' ? 'completed' : 'cancelled'
             });
 
-            if (status === 'ready') {
-                // For each just-marked-ready order, decide whether the cashier
-                // should be notified immediately (manual orders) or whether
-                // the waiter must confirm pickup first (QR/waiter orders).
+            if (status === 'ready' && results.length > 0) {
                 const checkResult = await pool.query(
                     `SELECT id, order_number, table_id, source,
                             waiter_confirmed_pickup
@@ -434,7 +525,8 @@ router.put("/orders/bulk-status", authorizeBranch, allowKitchen, async (req, res
         res.json({
             success: true,
             message: `Updated ${results.length} orders to ${status}`,
-            data: results
+            data: results,
+            stock_errors: stockErrors.length > 0 ? stockErrors : undefined
         });
     } catch (err) {
         console.error("Bulk update error:", err);
