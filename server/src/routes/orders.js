@@ -114,7 +114,9 @@ router.get("/track/:orderNumber", trackLimiter, async (req, res) => {
     }
 });
 
-// ==================== FIXED QR ORDER ROUTE ====================
+// ==================== QR ORDER ROUTE ====================
+// NOTE: Stock deduction now happens when the kitchen marks the order
+// ready (see kitchen.js). This handler no longer touches inventory.
 router.post("/qr-order", 
     mutationLimiter,
     requireIdempotency,
@@ -224,18 +226,8 @@ router.post("/qr-order",
                     console.log('[QR ORDER] Item inserted:', item.product_id, 'x', item.quantity);
                 }
                 
-                let stockResult = { deductions: [], totalWastageCost: 0 };
-                try {
-                    stockResult = await processOrderStockDeduction(orderId, items, client, companyId, branchId);
-                    console.log('[QR ORDER] Stock deduction completed');
-                } catch (stockError) {
-                    console.error('[QR ORDER] Stock deduction failed:', stockError.message);
-                    await client.query('ROLLBACK');
-                    return res.status(409).json({ 
-                        success: false, 
-                        error: stockError.message || 'Insufficient stock for order' 
-                    });
-                }
+                // вң… Stock is NOT deducted here anymore.
+                // It will be deducted by kitchen.js when the order is marked 'ready'.
                 
                 await client.query("COMMIT");
                 console.log('[QR ORDER] Transaction committed successfully');
@@ -265,9 +257,7 @@ router.post("/qr-order",
                         order_id: orderId, 
                         order_number: orderNumber, 
                         total_amount: totalAmount, 
-                        status: 'pending_confirmation',
-                        stock_deductions: stockResult.deductions,
-                        total_wastage_cost: stockResult.totalWastageCost
+                        status: 'pending_confirmation'
                     }
                 });
                 console.log('[QR ORDER] ====== SUCCESS ======');
@@ -327,6 +317,10 @@ router.get("/", authorizeBranch, allowWaiter, async (req, res) => {
     }
 });
 
+// ==================== CREATE ORDER (waiter / cashier manual) ====================
+// NOTE: Stock is NOT deducted here anymore. kitchen.js deducts stock
+// when the order is marked 'ready'. This applies to waiter orders and
+// cashier-manual orders identically.
 router.post("/", 
     authorizeBranch, 
     allowWaiter, 
@@ -406,12 +400,8 @@ router.post("/",
                     `, [orderId, table_id]);
                 }
                 
-                let stockResult = { deductions: [], totalWastageCost: 0 };
-                try {
-                    stockResult = await processOrderStockDeduction(orderId, items, client, companyId, branchId);
-                } catch (stockError) {
-                    console.warn("Stock deduction warning:", stockError.message);
-                }
+                // вң… Stock is NOT deducted here anymore.
+                // kitchen.js will deduct when the order is marked 'ready'.
                 
                 await client.query("COMMIT");
                 
@@ -438,9 +428,7 @@ router.post("/",
                         order_id: orderId, 
                         order_number: orderNumber, 
                         total_amount: totalAmount, 
-                        status: 'pending',
-                        stock_deductions: stockResult.deductions, 
-                        total_wastage_cost: stockResult.totalWastageCost 
+                        status: 'pending'
                     }
                 });
             } catch (err) {
@@ -523,9 +511,6 @@ router.put("/confirm/:orderId", authorizeBranch, allowWaiter, async (req, res) =
 });
 
 // ==================== READY ORDERS (waiter-confirmed pickup only) ====================
-// FIXED: safe LEFT JOIN on tables, only existing columns, gated by
-// waiter_confirmed_pickup so orders only reach the cashier after the
-// waiter has physically picked the food up from the kitchen.
 router.get("/ready", protect, async (req, res) => {
     try {
         const branchId = req.user?.branch_id;
@@ -565,10 +550,7 @@ router.get("/ready", protect, async (req, res) => {
     }
 });
 
-// ==================== ADD ITEMS TO EXISTING ORDER (NEW) ====================
-// Allows the waiter to append items to an open order on an occupied table,
-// even if that order was previously paid. Reopens the order so the kitchen
-// sees the new items and the cashier sees the outstanding balance.
+// ==================== ADD ITEMS TO EXISTING ORDER ====================
 router.post("/:orderId/add-items",
     authorizeBranch,
     allowWaiter,
@@ -642,7 +624,6 @@ router.post("/:orderId/add-items",
                 WHERE id = $2
             `, [newTotal, orderId]);
 
-            // Reset the kitchen order so kitchen re-sees it with the added items
             await client.query(`
                 UPDATE kitchen_orders
                 SET status = 'pending',
@@ -683,8 +664,7 @@ router.post("/:orderId/add-items",
     }
 );
 
-// ==================== WAITER CONFIRMS PICKUP FROM KITCHEN (NEW) ====================
-// After this flag is set, /ready returns the order and the cashier sees it.
+// ==================== WAITER CONFIRMS PICKUP FROM KITCHEN ====================
 router.post("/:orderId/confirm-pickup",
     authorizeBranch,
     allowWaiter,
@@ -1053,111 +1033,123 @@ router.put("/:orderId/cancel", authorizeBranch, allowWaiter, async (req, res) =>
         if (order.payment_status === 'paid') {
             throw new Error("Cannot cancel a paid order");
         }
+
+        // вң… Only restore stock if the order was actually deducted
+        // (i.e. it was marked 'ready' by the kitchen at some point).
+        const deductionCheck = await client.query(
+            `SELECT 1 FROM stock_transactions
+             WHERE order_id = $1 AND transaction_type = 'order_deduction'
+             LIMIT 1`,
+            [orderId]
+        );
+        const wasDeducted = deductionCheck.rows.length > 0;
         
-        const orderItemsResult = await client.query(`
-            SELECT 
-                oi.product_id,
-                oi.quantity,
-                p.name as product_name,
-                ri.ingredient_id,
-                ri.quantity_required,
-                ri.wastage_percentage,
-                ri.cooking_loss_percentage,
-                i.name as ingredient_name,
-                i.unit,
-                i.unit_cost,
-                i.quantity as current_stock
-            FROM order_items oi
-            JOIN products p ON oi.product_id = p.id
-            LEFT JOIN recipes r ON p.id = r.product_id
-            LEFT JOIN recipe_ingredients ri ON r.id = ri.recipe_id
-            LEFT JOIN ingredients i ON ri.ingredient_id = i.id
-            WHERE oi.order_id = $1
-        `, [orderId]);
-        
-        const ingredientMap = new Map();
-        
-        for (const item of orderItemsResult.rows) {
-            if (!item.ingredient_id) continue;
+        if (wasDeducted) {
+            const orderItemsResult = await client.query(`
+                SELECT 
+                    oi.product_id,
+                    oi.quantity,
+                    p.name as product_name,
+                    ri.ingredient_id,
+                    ri.quantity_required,
+                    ri.wastage_percentage,
+                    ri.cooking_loss_percentage,
+                    i.name as ingredient_name,
+                    i.unit,
+                    i.unit_cost,
+                    i.quantity as current_stock
+                FROM order_items oi
+                JOIN products p ON oi.product_id = p.id
+                LEFT JOIN recipes r ON p.id = r.product_id
+                LEFT JOIN recipe_ingredients ri ON r.id = ri.recipe_id
+                LEFT JOIN ingredients i ON ri.ingredient_id = i.id
+                WHERE oi.order_id = $1
+            `, [orderId]);
             
-            const orderQty = parseFloat(item.quantity);
-            const qtyRequired = parseFloat(item.quantity_required) || 0;
-            const wastagePct = parseFloat(item.wastage_percentage) || 0;
-            const cookingLossPct = parseFloat(item.cooking_loss_percentage) || 0;
+            const ingredientMap = new Map();
             
-            const expectedQuantity = qtyRequired * orderQty;
-            const restoredQuantity = expectedQuantity * (1 + wastagePct / 100) * (1 + cookingLossPct / 100);
-            
-            if (ingredientMap.has(item.ingredient_id)) {
-                const existing = ingredientMap.get(item.ingredient_id);
-                existing.restore_quantity += restoredQuantity;
-                existing.ingredient_name = item.ingredient_name;
-                existing.unit = item.unit;
-                existing.unit_cost = item.unit_cost;
-                existing.current_stock = item.current_stock;
-            } else {
-                ingredientMap.set(item.ingredient_id, {
-                    ingredient_id: item.ingredient_id,
-                    ingredient_name: item.ingredient_name,
-                    restore_quantity: restoredQuantity,
-                    unit: item.unit,
-                    unit_cost: item.unit_cost,
-                    current_stock: item.current_stock
-                });
+            for (const item of orderItemsResult.rows) {
+                if (!item.ingredient_id) continue;
+                
+                const orderQty = parseFloat(item.quantity);
+                const qtyRequired = parseFloat(item.quantity_required) || 0;
+                const wastagePct = parseFloat(item.wastage_percentage) || 0;
+                const cookingLossPct = parseFloat(item.cooking_loss_percentage) || 0;
+                
+                const expectedQuantity = qtyRequired * orderQty;
+                const restoredQuantity = expectedQuantity * (1 + wastagePct / 100) * (1 + cookingLossPct / 100);
+                
+                if (ingredientMap.has(item.ingredient_id)) {
+                    const existing = ingredientMap.get(item.ingredient_id);
+                    existing.restore_quantity += restoredQuantity;
+                    existing.ingredient_name = item.ingredient_name;
+                    existing.unit = item.unit;
+                    existing.unit_cost = item.unit_cost;
+                    existing.current_stock = item.current_stock;
+                } else {
+                    ingredientMap.set(item.ingredient_id, {
+                        ingredient_id: item.ingredient_id,
+                        ingredient_name: item.ingredient_name,
+                        restore_quantity: restoredQuantity,
+                        unit: item.unit,
+                        unit_cost: item.unit_cost,
+                        current_stock: item.current_stock
+                    });
+                }
             }
-        }
-        
-        const ingredientIds = Array.from(ingredientMap.keys());
-        
-        if (ingredientIds.length > 0) {
-            const lockResult = await client.query(`
-                SELECT id, quantity, name, unit
-                FROM ingredients
-                WHERE id = ANY($1)
-                  AND company_id = $2
-                  AND branch_id = $3
-                FOR UPDATE
-            `, [ingredientIds, companyId, branchId]);
             
-            for (const row of lockResult.rows) {
-                const ingredientData = ingredientMap.get(row.id);
-                const restoreQty = ingredientData.restore_quantity;
-                const newQuantity = parseFloat(row.quantity) + restoreQty;
+            const ingredientIds = Array.from(ingredientMap.keys());
+            
+            if (ingredientIds.length > 0) {
+                const lockResult = await client.query(`
+                    SELECT id, quantity, name, unit
+                    FROM ingredients
+                    WHERE id = ANY($1)
+                      AND company_id = $2
+                      AND branch_id = $3
+                    FOR UPDATE
+                `, [ingredientIds, companyId, branchId]);
                 
-                await client.query(`
-                    UPDATE ingredients 
-                    SET quantity = $1,
-                        updated_at = NOW()
-                    WHERE id = $2
-                      AND company_id = $3
-                      AND branch_id = $4
-                `, [newQuantity, row.id, companyId, branchId]);
-                
-                await client.query(`
-                    INSERT INTO stock_transactions (
-                        ingredient_id,
-                        order_id,
-                        expected_quantity,
-                        actual_quantity,
-                        wastage_amount,
-                        wastage_percentage,
-                        transaction_type,
-                        notes,
-                        company_id,
-                        branch_id
-                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-                `, [
-                    row.id,
-                    orderId,
-                    restoreQty,
-                    restoreQty,
-                    0,
-                    0,
-                    'order_cancellation',
-                    `Stock restored from cancelled order ${order.order_number}`,
-                    companyId,
-                    branchId
-                ]);
+                for (const row of lockResult.rows) {
+                    const ingredientData = ingredientMap.get(row.id);
+                    const restoreQty = ingredientData.restore_quantity;
+                    const newQuantity = parseFloat(row.quantity) + restoreQty;
+                    
+                    await client.query(`
+                        UPDATE ingredients 
+                        SET quantity = $1,
+                            updated_at = NOW()
+                        WHERE id = $2
+                          AND company_id = $3
+                          AND branch_id = $4
+                    `, [newQuantity, row.id, companyId, branchId]);
+                    
+                    await client.query(`
+                        INSERT INTO stock_transactions (
+                            ingredient_id,
+                            order_id,
+                            expected_quantity,
+                            actual_quantity,
+                            wastage_amount,
+                            wastage_percentage,
+                            transaction_type,
+                            notes,
+                            company_id,
+                            branch_id
+                        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                    `, [
+                        row.id,
+                        orderId,
+                        restoreQty,
+                        restoreQty,
+                        0,
+                        0,
+                        'order_cancellation',
+                        `Stock restored from cancelled order ${order.order_number}`,
+                        companyId,
+                        branchId
+                    ]);
+                }
             }
         }
         
@@ -1190,11 +1182,10 @@ router.put("/:orderId/cancel", authorizeBranch, allowWaiter, async (req, res) =>
         
         res.json({ 
             success: true, 
-            message: "Order cancelled successfully. Stock restored to inventory.",
+            message: "Order cancelled successfully.",
             data: { 
                 order_id: orderId,
-                stock_restored: ingredientIds.length > 0,
-                ingredients_restored: ingredientIds.length
+                stock_restored: wasDeducted
             }
         });
         

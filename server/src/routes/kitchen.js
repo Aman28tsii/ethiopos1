@@ -29,6 +29,7 @@ router.get("/orders", authorizeBranch, allowKitchen, async (req, res) => {
                 o.total_amount,
                 o.customer_name,
                 o.table_id,
+                o.source,
                 t.table_number,
                 COALESCE(
                     json_agg(
@@ -46,7 +47,7 @@ router.get("/orders", authorizeBranch, allowKitchen, async (req, res) => {
             LEFT JOIN products p ON oi.product_id = p.id
             WHERE ko.status IN ('pending', 'preparing')
               AND o.branch_id = $1
-            GROUP BY ko.id, o.order_number, o.total_amount, o.customer_name, o.table_id, ko.status, ko.notes, ko.started_at, ko.completed_at, ko.created_at, t.table_number
+            GROUP BY ko.id, o.order_number, o.total_amount, o.customer_name, o.table_id, o.source, ko.status, ko.notes, ko.started_at, ko.completed_at, ko.created_at, t.table_number
             ORDER BY 
                 CASE ko.status 
                     WHEN 'pending' THEN 1 
@@ -135,6 +136,28 @@ router.put("/orders/:orderId/status", authorizeBranch, allowKitchen, async (req,
             [orderStatus, orderIdInt]
         );
 
+        // вң… AUTO-CONFIRM PICKUP FOR CASHIER-MANUAL ORDERS ONLY.
+        // Cashier-created orders (source = 'cashier_manual' or 'cashier')
+        // have no waiter to confirm pickup, so when the kitchen marks them
+        // ready we set the pickup flag automatically. This makes them
+        // appear at the cashier immediately, bypassing the waiter step.
+        let autoConfirmedCashier = false;
+        if (status === 'ready') {
+            const autoConfirmResult = await pool.query(
+                `UPDATE orders
+                 SET waiter_confirmed_pickup = true,
+                     waiter_pickup_at = NOW(),
+                     updated_at = NOW()
+                 WHERE id = $1
+                   AND (source = 'cashier_manual' OR source = 'cashier')
+                 RETURNING id, order_number, table_id, source`,
+                [orderIdInt]
+            );
+            if (autoConfirmResult.rows.length > 0) {
+                autoConfirmedCashier = true;
+            }
+        }
+
         // Get updated record
         const result = await pool.query(
             `SELECT * FROM kitchen_orders WHERE order_id = $1`,
@@ -150,16 +173,28 @@ router.put("/orders/:orderId/status", authorizeBranch, allowKitchen, async (req,
                 order_status: orderStatus
             });
 
-            // вң… When kitchen marks ready, notify the WAITER only.
-            // The cashier is NOT notified here вҖ” the waiter must first
-            // confirm pickup via POST /orders/:id/confirm-pickup, which
-            // then notifies the cashier.
             if (status === 'ready') {
-                io.to(`waiter_${companyId}_${branchId}`).emit('order_ready_for_waiter', {
-                    order_id: orderIdInt,
-                    status: 'ready',
-                    message: `Order #${orderIdInt} is ready for pickup!`
-                });
+                // Cashier-manual orders: notify cashier directly.
+                if (autoConfirmedCashier) {
+                    const autoRow = await pool.query(
+                        `SELECT id, order_number, table_id FROM orders WHERE id = $1`,
+                        [orderIdInt]
+                    );
+                    const row = autoRow.rows[0];
+                    io.to(`cashier_${companyId}_${branchId}`).emit('order_ready_for_cashier', {
+                        order_id: orderIdInt,
+                        order_number: row?.order_number,
+                        table_id: row?.table_id
+                    });
+                } else {
+                    // QR / waiter orders: notify the waiter, who must then
+                    // confirm pickup via POST /orders/:id/confirm-pickup.
+                    io.to(`waiter_${companyId}_${branchId}`).emit('order_ready_for_waiter', {
+                        order_id: orderIdInt,
+                        status: 'ready',
+                        message: `Order #${orderIdInt} is ready for pickup!`
+                    });
+                }
             }
 
             if (status === 'completed') {
@@ -329,6 +364,19 @@ router.put("/orders/bulk-status", authorizeBranch, allowKitchen, async (req, res
                 [orderStatus, orderIdInt]
             );
 
+            // вң… AUTO-CONFIRM PICKUP FOR CASHIER-MANUAL ORDERS ONLY.
+            if (status === 'ready') {
+                await pool.query(
+                    `UPDATE orders
+                     SET waiter_confirmed_pickup = true,
+                         waiter_pickup_at = NOW(),
+                         updated_at = NOW()
+                     WHERE id = $1
+                       AND (source = 'cashier_manual' OR source = 'cashier')`,
+                    [orderIdInt]
+                );
+            }
+
             results.push({ order_id: orderIdInt, status: status });
         }
 
@@ -344,16 +392,33 @@ router.put("/orders/bulk-status", authorizeBranch, allowKitchen, async (req, res
                              status === 'completed' ? 'completed' : 'cancelled'
             });
 
-            // вң… When kitchen marks ready in bulk, notify the WAITER only.
-            // The cashier is notified only after the waiter confirms pickup.
             if (status === 'ready') {
-                results.forEach(r => {
-                    io.to(`waiter_${companyId}_${branchId}`).emit('order_ready_for_waiter', {
-                        order_id: r.order_id,
-                        status: 'ready',
-                        message: `Order #${r.order_id} is ready for pickup!`
-                    });
-                });
+                // For each just-marked-ready order, decide whether the cashier
+                // should be notified immediately (manual orders) or whether
+                // the waiter must confirm pickup first (QR/waiter orders).
+                const checkResult = await pool.query(
+                    `SELECT id, order_number, table_id, source,
+                            waiter_confirmed_pickup
+                     FROM orders
+                     WHERE id = ANY($1::int[])`,
+                    [results.map(r => r.order_id)]
+                );
+
+                for (const row of checkResult.rows) {
+                    if (row.source === 'cashier_manual' || row.source === 'cashier') {
+                        io.to(`cashier_${companyId}_${branchId}`).emit('order_ready_for_cashier', {
+                            order_id: row.id,
+                            order_number: row.order_number,
+                            table_id: row.table_id
+                        });
+                    } else {
+                        io.to(`waiter_${companyId}_${branchId}`).emit('order_ready_for_waiter', {
+                            order_id: row.id,
+                            status: 'ready',
+                            message: `Order #${row.id} is ready for pickup!`
+                        });
+                    }
+                }
             }
 
             if (status === 'completed') {
