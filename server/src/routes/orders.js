@@ -541,8 +541,10 @@ router.get("/ready", protect, async (req, res) => {
                 o.status,
                 o.payment_status,
                 ko.status as kitchen_status
+                t.table_number 
             FROM orders o
             JOIN kitchen_orders ko ON o.id = ko.order_id
+            LEFT JOIN tables t ON o.table_id = t.id
             WHERE o.payment_status = 'pending'
                 AND o.status IN ('pending', 'ready')
                 AND ko.status = 'ready'
@@ -784,6 +786,9 @@ router.get("/pending-confirmation", authorizeBranch, allowWaiter, async (req, re
     }
 });
 
+// ==================== ACTIVE ORDER ON TABLE (waiter) ====================
+// Used to allow adding items to a table that already has an order
+// (whether the previous round was already paid or not).
 router.get("/table/:tableId/active-order", authorizeBranch, allowWaiter, async (req, res) => {
     const { tableId } = req.params;
     const branchId = req.user.branch_id;
@@ -792,9 +797,10 @@ router.get("/table/:tableId/active-order", authorizeBranch, allowWaiter, async (
         const result = await pool.query(`
             SELECT id, order_number, total_amount, status, payment_status, created_at
             FROM orders 
-            WHERE table_id = $1 AND branch_id = $2 AND company_id = $3
+            WHERE table_id = $1 
+              AND branch_id = $2 
+              AND company_id = $3
               AND status NOT IN ('completed', 'cancelled')
-              AND payment_status != 'paid'
             ORDER BY created_at DESC 
             LIMIT 1
         `, [tableId, branchId, companyId]);
@@ -804,7 +810,6 @@ router.get("/table/:tableId/active-order", authorizeBranch, allowWaiter, async (
         res.status(500).json({ success: false, error: err.message });
     }
 });
-
 router.put("/:orderId/cancel", authorizeBranch, allowWaiter, async (req, res) => {
     const { orderId } = req.params;
     const { reason } = req.body;

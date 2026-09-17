@@ -166,7 +166,9 @@ const CashierPOS = () => {
                                         <div className="flex justify-between items-start mb-3">
                                             <div>
                                                 <p className="text-gray-900 dark:text-white font-bold text-lg">{order.order_number}</p>
-                                                <p className="text-gray-500 dark:text-gray-400 text-sm">Table: {order.table_number || 'Takeaway'}</p>
+                                                <p className="text-gray-500 dark:text-gray-400 text-sm">
+                                                    Table: {order.table_number ? order.table_number : 'Takeaway'}
+                                                </p>
                                             </div>
                                             <p className="text-green-600 dark:text-green-400 font-bold text-xl">{formatCurrency(order.total_amount)}</p>
                                         </div>
@@ -186,6 +188,9 @@ const CashierPOS = () => {
                             <div className="mb-6">
                                 <h2 className="text-xl font-bold text-gray-900 dark:text-white">Payment</h2>
                                 <p className="text-gray-500 dark:text-gray-400 text-sm">Order: {selectedOrder.order_number}</p>
+                                <p className="text-gray-500 dark:text-gray-400 text-sm">
+                                    Table: {selectedOrder.table_number ? selectedOrder.table_number : 'Takeaway'}
+                                </p>
                             </div>
 
                             <div className="bg-gray-50 dark:bg-gray-700 rounded-xl p-4 mb-6">
@@ -254,11 +259,11 @@ const CashierPOS = () => {
                     )}
                 </div>
             ) : (
-                // Sales History
+                // Sales History — now scrollable
                 <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 overflow-hidden">
-                    <div className="overflow-x-auto">
+                    <div className="overflow-x-auto overflow-y-auto max-h-[60vh]">
                         <table className="w-full text-left">
-                            <thead className="bg-gray-50 dark:bg-gray-700/50">
+                            <thead className="bg-gray-50 dark:bg-gray-700/50 sticky top-0 z-10">
                                 <tr>
                                     <th className="px-6 py-3 text-gray-600 dark:text-gray-400 text-sm font-semibold">Sale #</th>
                                     <th className="px-6 py-3 text-gray-600 dark:text-gray-400 text-sm font-semibold">Date</th>
