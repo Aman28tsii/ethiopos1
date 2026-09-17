@@ -12,6 +12,7 @@ const MyOrders = () => {
   const [loading, setLoading] = useState(true);
   const [notification, setNotification] = useState(null);
   const [selectedOrder, setSelectedOrder] = useState(null);
+  const [confirmingId, setConfirmingId] = useState(null);
 
   useEffect(function() {
     fetchOrders();
@@ -67,6 +68,23 @@ const MyOrders = () => {
     }
   };
 
+  const confirmPickup = async function(orderId) {
+    setConfirmingId(orderId);
+    try {
+      const res = await API.post(`/orders/${orderId}/confirm-pickup`);
+      if (res.data.success) {
+        setNotification(`✅ Pickup confirmed for order #${orderId}. Cashier notified.`);
+        setTimeout(function() { setNotification(null); }, 4000);
+        fetchOrders();
+      }
+    } catch (err) {
+      console.error('Confirm pickup error:', err);
+      alert(err.response?.data?.error || 'Failed to confirm pickup');
+    } finally {
+      setConfirmingId(null);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex justify-center items-center h-full">
@@ -89,7 +107,7 @@ const MyOrders = () => {
       </div>
 
       {notification && (
-        <div className={'rounded-xl p-3 text-center animate-pulse ' + (notification.includes('ready') ? 'bg-green-100 dark:bg-green-900/30 border border-green-200 dark:border-green-800 text-green-700 dark:text-green-400' : notification.includes('Failed') ? 'bg-red-100 dark:bg-red-900/30 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400' : 'bg-blue-100 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-400')}>
+        <div className={'rounded-xl p-3 text-center animate-pulse ' + (notification.includes('ready') || notification.includes('Pickup') ? 'bg-green-100 dark:bg-green-900/30 border border-green-200 dark:border-green-800 text-green-700 dark:text-green-400' : notification.includes('Failed') ? 'bg-red-100 dark:bg-red-900/30 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400' : 'bg-blue-100 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-400')}>
           <Bell size={18} className="inline mr-2" />
           {notification}
         </div>
@@ -158,6 +176,19 @@ const MyOrders = () => {
                       <p className="text-yellow-700 dark:text-yellow-400 text-xs">{t('note')}: {order.notes}</p>
                     </div>
                   )}
+
+                  {/* WAITER PICKUP CONFIRMATION */}
+                  {order.status === 'ready' && (
+                    <button
+                      onClick={function() { confirmPickup(order.id); }}
+                      disabled={confirmingId === order.id}
+                      className="mt-3 w-full py-3 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white rounded-lg text-sm font-bold transition flex items-center justify-center gap-2 disabled:opacity-60"
+                    >
+                      {confirmingId === order.id ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle size={16} />}
+                      Confirm Pickup — Send to Cashier
+                    </button>
+                  )}
+
                   <button
                     onClick={function() { setSelectedOrder(order); }}
                     className="mt-3 w-full py-2 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-lg text-sm font-semibold transition flex items-center justify-center gap-1"
@@ -194,6 +225,6 @@ const MyOrders = () => {
       )}
     </div>
   );
-};
+};s
 
 export default MyOrders;

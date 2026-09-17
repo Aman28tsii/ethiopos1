@@ -116,8 +116,6 @@ router.get("/track/:orderNumber", trackLimiter, async (req, res) => {
 
 // ==================== FIXED QR ORDER ROUTE ====================
 router.post("/qr-order", 
-    // `protect` intentionally NOT applied — QR-menu customers submit anonymously.
-    // Tenant context is derived from table_id inside the handler.
     mutationLimiter,
     requireIdempotency,
     idempotent,
@@ -524,12 +522,19 @@ router.put("/confirm/:orderId", authorizeBranch, allowWaiter, async (req, res) =
     }
 });
 
-// ==================== READY ORDERS ENDPOINT - FIXED ====================
+// ==================== READY ORDERS (waiter-confirmed pickup only) ====================
+// FIXED: safe LEFT JOIN on tables, only existing columns, gated by
+// waiter_confirmed_pickup so orders only reach the cashier after the
+// waiter has physically picked the food up from the kitchen.
 router.get("/ready", protect, async (req, res) => {
     try {
-        const branchId = req.user?.branch_id || 1;
-        const companyId = req.user?.company_id || 1;
-        
+        const branchId = req.user?.branch_id;
+        const companyId = req.user?.company_id;
+
+        if (!branchId || !companyId) {
+            return res.status(401).json({ success: false, error: "Authentication required" });
+        }
+
         const result = await pool.query(`
             SELECT 
                 o.id, 
@@ -540,25 +545,219 @@ router.get("/ready", protect, async (req, res) => {
                 o.created_at,
                 o.status,
                 o.payment_status,
-                ko.status as kitchen_status
-                t.table_number 
+                ko.status as kitchen_status,
+                t.table_number
             FROM orders o
-            JOIN kitchen_orders ko ON o.id = ko.order_id
+            INNER JOIN kitchen_orders ko ON o.id = ko.order_id
             LEFT JOIN tables t ON o.table_id = t.id
             WHERE o.payment_status = 'pending'
-                AND o.status IN ('pending', 'ready')
                 AND ko.status = 'ready'
+                AND o.waiter_confirmed_pickup = true
                 AND o.branch_id = $1
                 AND o.company_id = $2
-            ORDER BY o.created_at ASC
+            ORDER BY ko.completed_at ASC NULLS LAST, o.created_at ASC
         `, [branchId, companyId]);
-        
+
         res.json({ success: true, data: result.rows });
     } catch (err) {
         console.error("[READY] Error:", err.message);
         res.status(500).json({ success: false, error: err.message });
     }
 });
+
+// ==================== ADD ITEMS TO EXISTING ORDER (NEW) ====================
+// Allows the waiter to append items to an open order on an occupied table,
+// even if that order was previously paid. Reopens the order so the kitchen
+// sees the new items and the cashier sees the outstanding balance.
+router.post("/:orderId/add-items",
+    authorizeBranch,
+    allowWaiter,
+    mutationLimiter,
+    async (req, res) => {
+        const { orderId } = req.params;
+        const { items } = req.body;
+        const userId = req.user.id;
+        const companyId = req.user.company_id;
+        const branchId = req.user.branch_id;
+
+        if (!items || !Array.isArray(items) || items.length === 0) {
+            return res.status(400).json({ success: false, error: "No items to add" });
+        }
+
+        const client = await pool.connect();
+        try {
+            await client.query("BEGIN");
+
+            const orderCheck = await client.query(`
+                SELECT id, order_number, total_amount, payment_status, status, table_id
+                FROM orders
+                WHERE id = $1 AND company_id = $2 AND branch_id = $3
+            `, [orderId, companyId, branchId]);
+
+            if (orderCheck.rows.length === 0) {
+                await client.query("ROLLBACK");
+                return res.status(404).json({ success: false, error: "Order not found" });
+            }
+
+            const order = orderCheck.rows[0];
+
+            if (order.status === 'completed' || order.status === 'cancelled') {
+                await client.query("ROLLBACK");
+                return res.status(400).json({ success: false, error: "Cannot add items to a closed order" });
+            }
+
+            let additionalAmount = 0;
+
+            for (const item of items) {
+                const productResult = await client.query(
+                    `SELECT price, name, company_id FROM products WHERE id = $1`,
+                    [item.product_id]
+                );
+
+                if (productResult.rows.length === 0) {
+                    throw new Error(`Product ${item.product_id} not found`);
+                }
+                if (productResult.rows[0].company_id !== companyId) {
+                    throw new Error(`Product ${item.product_id} does not belong to your company`);
+                }
+
+                const unitPrice = parseFloat(productResult.rows[0].price);
+                const itemTotal = unitPrice * item.quantity;
+                additionalAmount += itemTotal;
+
+                await client.query(`
+                    INSERT INTO order_items (order_id, product_id, quantity, unit_price, total_price)
+                    VALUES ($1, $2, $3, $4, $5)
+                `, [orderId, item.product_id, item.quantity, unitPrice, itemTotal]);
+            }
+
+            const newTotal = parseFloat(order.total_amount) + additionalAmount;
+
+            await client.query(`
+                UPDATE orders
+                SET total_amount = $1,
+                    payment_status = 'pending',
+                    status = 'pending',
+                    updated_at = NOW()
+                WHERE id = $2
+            `, [newTotal, orderId]);
+
+            // Reset the kitchen order so kitchen re-sees it with the added items
+            await client.query(`
+                UPDATE kitchen_orders
+                SET status = 'pending',
+                    completed_at = NULL,
+                    updated_at = NOW()
+                WHERE order_id = $1
+            `, [orderId]);
+
+            await client.query("COMMIT");
+
+            const io = req.app.get('io');
+            if (io) {
+                io.to(`kitchen_${companyId}_${branchId}`).emit('new_order', {
+                    order_id: parseInt(orderId),
+                    order_number: order.order_number,
+                    status: 'pending'
+                });
+                io.to(`branch_${companyId}_${branchId}`).emit('order_status_updated', {
+                    order_id: parseInt(orderId),
+                    status: 'pending'
+                });
+            }
+
+            res.json({
+                success: true,
+                message: "Items added to order",
+                additional_amount: additionalAmount,
+                new_total: newTotal
+            });
+
+        } catch (err) {
+            await client.query("ROLLBACK");
+            console.error("[ADD ITEMS] Error:", err.message);
+            res.status(500).json({ success: false, error: err.message });
+        } finally {
+            client.release();
+        }
+    }
+);
+
+// ==================== WAITER CONFIRMS PICKUP FROM KITCHEN (NEW) ====================
+// After this flag is set, /ready returns the order and the cashier sees it.
+router.post("/:orderId/confirm-pickup",
+    authorizeBranch,
+    allowWaiter,
+    mutationLimiter,
+    async (req, res) => {
+        const { orderId } = req.params;
+        const userId = req.user.id;
+        const companyId = req.user.company_id;
+        const branchId = req.user.branch_id;
+
+        const client = await pool.connect();
+        try {
+            await client.query("BEGIN");
+
+            const orderCheck = await client.query(`
+                SELECT o.id, o.order_number, o.table_id, ko.status AS kitchen_status
+                FROM orders o
+                JOIN kitchen_orders ko ON ko.order_id = o.id
+                WHERE o.id = $1 AND o.company_id = $2 AND o.branch_id = $3
+            `, [orderId, companyId, branchId]);
+
+            if (orderCheck.rows.length === 0) {
+                await client.query("ROLLBACK");
+                return res.status(404).json({ success: false, error: "Order not found" });
+            }
+
+            const order = orderCheck.rows[0];
+
+            if (order.kitchen_status !== 'ready') {
+                await client.query("ROLLBACK");
+                return res.status(400).json({ success: false, error: "Kitchen has not marked this order ready yet" });
+            }
+
+            await client.query(`
+                UPDATE orders
+                SET waiter_confirmed_pickup = true,
+                    waiter_pickup_at = NOW(),
+                    waiter_pickup_by = $1,
+                    status = 'ready',
+                    updated_at = NOW()
+                WHERE id = $2
+            `, [userId, orderId]);
+
+            await client.query("COMMIT");
+
+            const io = req.app.get('io');
+            if (io) {
+                io.to(`cashier_${companyId}_${branchId}`).emit('order_ready_for_cashier', {
+                    order_id: parseInt(orderId),
+                    order_number: order.order_number,
+                    table_id: order.table_id
+                });
+                io.to(`branch_${companyId}_${branchId}`).emit('order_status_updated', {
+                    order_id: parseInt(orderId),
+                    status: 'ready'
+                });
+            }
+
+            res.json({
+                success: true,
+                message: "Pickup confirmed. Cashier can now see this order.",
+                data: { order_id: parseInt(orderId), status: 'ready' }
+            });
+
+        } catch (err) {
+            await client.query("ROLLBACK");
+            console.error("[CONFIRM PICKUP] Error:", err.message);
+            res.status(500).json({ success: false, error: err.message });
+        } finally {
+            client.release();
+        }
+    }
+);
 
 // ==================== PAYMENT ENDPOINT ====================
 router.post("/:orderId/pay", 
@@ -688,7 +887,6 @@ router.post("/:orderId/pay",
             await client.query("ROLLBACK");
             console.error("Payment error:", err);
 
-            // ✅ FIXED: return proper status codes instead of blanket 500
             if (err.message === "Order not found") {
                 return res.status(404).json({ success: false, error: err.message });
             }
@@ -698,7 +896,6 @@ router.post("/:orderId/pay",
             if (err.message === "Order already paid") {
                 return res.status(409).json({ success: false, error: err.message });
             }
-            // Postgres invalid_text_representation = cast error (e.g. "abc" as integer)
             if (err.code === "22P02") {
                 return res.status(400).json({ success: false, error: "Invalid order ID" });
             }
@@ -709,7 +906,7 @@ router.post("/:orderId/pay",
     }
 );
 
-// ==================== MY ORDERS (waiter) — ✅ FIXED: JSON key quoting ====================
+// ==================== MY ORDERS (waiter) ====================
 router.get("/my-orders", authorizeBranch, allowWaiter, async (req, res) => {
     const userId = req.user.id;
     const branchId = req.user.branch_id;
@@ -747,7 +944,7 @@ router.get("/my-orders", authorizeBranch, allowWaiter, async (req, res) => {
     }
 });
 
-// ==================== PENDING CONFIRMATION — ✅ FIXED: JSON key quoting ====================
+// ==================== PENDING CONFIRMATION ====================
 router.get("/pending-confirmation", authorizeBranch, allowWaiter, async (req, res) => {
     const waiterId = req.user.id;
     const branchId = req.user.branch_id;
@@ -786,9 +983,6 @@ router.get("/pending-confirmation", authorizeBranch, allowWaiter, async (req, re
     }
 });
 
-// ==================== ACTIVE ORDER ON TABLE (waiter) ====================
-// Used to allow adding items to a table that already has an order
-// (whether the previous round was already paid or not).
 router.get("/table/:tableId/active-order", authorizeBranch, allowWaiter, async (req, res) => {
     const { tableId } = req.params;
     const branchId = req.user.branch_id;
@@ -797,9 +991,7 @@ router.get("/table/:tableId/active-order", authorizeBranch, allowWaiter, async (
         const result = await pool.query(`
             SELECT id, order_number, total_amount, status, payment_status, created_at
             FROM orders 
-            WHERE table_id = $1 
-              AND branch_id = $2 
-              AND company_id = $3
+            WHERE table_id = $1 AND branch_id = $2 AND company_id = $3
               AND status NOT IN ('completed', 'cancelled')
             ORDER BY created_at DESC 
             LIMIT 1
@@ -810,6 +1002,7 @@ router.get("/table/:tableId/active-order", authorizeBranch, allowWaiter, async (
         res.status(500).json({ success: false, error: err.message });
     }
 });
+
 router.put("/:orderId/cancel", authorizeBranch, allowWaiter, async (req, res) => {
     const { orderId } = req.params;
     const { reason } = req.body;
@@ -1009,7 +1202,6 @@ router.put("/:orderId/cancel", authorizeBranch, allowWaiter, async (req, res) =>
         await client.query("ROLLBACK");
         console.error("Cancel order error:", error);
 
-        // ✅ FIXED: proper status codes
         if (error.message === "Order not found") {
             return res.status(404).json({ success: false, error: error.message });
         }
@@ -1032,9 +1224,6 @@ router.put("/:orderId/cancel", authorizeBranch, allowWaiter, async (req, res) =>
 });
 
 // ==================== GET ORDER BY ID (MUST BE LAST) ====================
-// This is a catch-all for /:orderId — must be defined AFTER all specific routes
-// like /my-orders, /pending-confirmation, /ready, /table/:tableId, etc.,
-// otherwise it shadows them.
 router.get("/:orderId", authorizeBranch, allowWaiter, async (req, res) => {
     const { orderId } = req.params;
     const branchId = req.user.branch_id;

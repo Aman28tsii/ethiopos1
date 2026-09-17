@@ -141,7 +141,7 @@ router.put("/orders/:orderId/status", authorizeBranch, allowKitchen, async (req,
             [orderIdInt]
         );
 
-        // Emit socket events — company-scoped rooms only.
+        // Emit socket events вҖ” company-scoped rooms only.
         const io = req.app.get('io');
         if (io) {
             io.to(`branch_${companyId}_${branchId}`).emit('order_status_updated', {
@@ -150,11 +150,11 @@ router.put("/orders/:orderId/status", authorizeBranch, allowKitchen, async (req,
                 order_status: orderStatus
             });
 
+            // вң… When kitchen marks ready, notify the WAITER only.
+            // The cashier is NOT notified here вҖ” the waiter must first
+            // confirm pickup via POST /orders/:id/confirm-pickup, which
+            // then notifies the cashier.
             if (status === 'ready') {
-                io.to(`cashier_${companyId}_${branchId}`).emit('order_ready_for_cashier', {
-                    order_id: orderIdInt,
-                    status: 'ready'
-                });
                 io.to(`waiter_${companyId}_${branchId}`).emit('order_ready_for_waiter', {
                     order_id: orderIdInt,
                     status: 'ready',
@@ -332,7 +332,7 @@ router.put("/orders/bulk-status", authorizeBranch, allowKitchen, async (req, res
             results.push({ order_id: orderIdInt, status: status });
         }
 
-        // Emit socket events — company-scoped rooms only.
+        // Emit socket events вҖ” company-scoped rooms only.
         const io = req.app.get('io');
         if (io) {
             io.to(`branch_${companyId}_${branchId}`).emit('order_status_updated', {
@@ -344,12 +344,10 @@ router.put("/orders/bulk-status", authorizeBranch, allowKitchen, async (req, res
                              status === 'completed' ? 'completed' : 'cancelled'
             });
 
+            // вң… When kitchen marks ready in bulk, notify the WAITER only.
+            // The cashier is notified only after the waiter confirms pickup.
             if (status === 'ready') {
                 results.forEach(r => {
-                    io.to(`cashier_${companyId}_${branchId}`).emit('order_ready_for_cashier', {
-                        order_id: r.order_id,
-                        status: 'ready'
-                    });
                     io.to(`waiter_${companyId}_${branchId}`).emit('order_ready_for_waiter', {
                         order_id: r.order_id,
                         status: 'ready',
