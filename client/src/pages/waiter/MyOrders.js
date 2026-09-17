@@ -212,19 +212,51 @@ const MyOrders = () => {
               <button onClick={function() { setSelectedOrder(null); }} className="text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">X</button>
             </div>
             <div className="p-4 space-y-4">
-              <div><p className="text-gray-500 dark:text-gray-400 text-xs">{t('orderNumber')}</p><p className="text-gray-900 dark:text-white font-bold">{selectedOrder.order_number}</p></div>
-              <div><p className="text-gray-500 dark:text-gray-400 text-xs">{t('customer')}</p><p className="text-gray-900 dark:text-white">{selectedOrder.customer_name || t('walkInCustomer')}</p></div>
-              <div><p className="text-gray-500 dark:text-gray-400 text-xs">{t('table')}</p><p className="text-gray-900 dark:text-white">{t('table')} {selectedOrder.table_number}</p></div>
-              <div><p className="text-gray-500 dark:text-gray-400 text-xs">{t('status')}</p><StatusBadge status={selectedOrder.status} /></div>
-              <div><p className="text-gray-500 dark:text-gray-400 text-xs">{t('items')}</p>{selectedOrder.items && selectedOrder.items.map(function(item, idx) { return (<div key={idx} className="flex justify-between text-sm py-1"><span className="text-gray-700 dark:text-gray-300">{item.quantity}x {item.name}</span><span className="text-gray-700 dark:text-gray-300">{formatCurrency(item.price * item.quantity)}</span></div>); })}</div>
-              <div className="border-t border-gray-200 dark:border-gray-700 pt-2"><div className="flex justify-between font-bold"><span className="text-gray-900 dark:text-white">{t('total')}</span><span className="text-green-600 dark:text-green-400">{formatCurrency(selectedOrder.total_amount)}</span></div></div>
-              {selectedOrder.notes && (<div className="bg-yellow-50 dark:bg-yellow-900/20 rounded-lg p-3"><p className="text-yellow-700 dark:text-yellow-400 text-xs">{t('specialInstructions')}</p><p className="text-gray-700 dark:text-gray-300">{selectedOrder.notes}</p></div>)}
+              <div>
+                <p className="text-gray-500 dark:text-gray-400 text-xs">{t('orderNumber')}</p>
+                <p className="text-gray-900 dark:text-white font-bold">{selectedOrder.order_number}</p>
+              </div>
+              <div>
+                <p className="text-gray-500 dark:text-gray-400 text-xs">{t('customer')}</p>
+                <p className="text-gray-900 dark:text-white">{selectedOrder.customer_name || t('walkInCustomer')}</p>
+              </div>
+              <div>
+                <p className="text-gray-500 dark:text-gray-400 text-xs">{t('table')}</p>
+                <p className="text-gray-900 dark:text-white">{t('table')} {selectedOrder.table_number}</p>
+              </div>
+              <div>
+                <p className="text-gray-500 dark:text-gray-400 text-xs">{t('status')}</p>
+                <StatusBadge status={selectedOrder.status} />
+              </div>
+              <div>
+                <p className="text-gray-500 dark:text-gray-400 text-xs">{t('items')}</p>
+                {selectedOrder.items && selectedOrder.items.map(function(item, idx) {
+                  return (
+                    <div key={idx} className="flex justify-between text-sm py-1">
+                      <span className="text-gray-700 dark:text-gray-300">{item.quantity}x {item.name}</span>
+                      <span className="text-gray-700 dark:text-gray-300">{formatCurrency(item.price * item.quantity)}</span>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="border-t border-gray-200 dark:border-gray-700 pt-2">
+                <div className="flex justify-between font-bold">
+                  <span className="text-gray-900 dark:text-white">{t('total')}</span>
+                  <span className="text-green-600 dark:text-green-400">{formatCurrency(selectedOrder.total_amount)}</span>
+                </div>
+              </div>
+              {selectedOrder.notes && (
+                <div className="bg-yellow-50 dark:bg-yellow-900/20 rounded-lg p-3">
+                  <p className="text-yellow-700 dark:text-yellow-400 text-xs">{t('specialInstructions')}</p>
+                  <p className="text-gray-700 dark:text-gray-300">{selectedOrder.notes}</p>
+                </div>
+              )}
             </div>
           </div>
         </div>
       )}
     </div>
   );
-};s
+};
 
 export default MyOrders;
