@@ -33,19 +33,36 @@ const Settings = () => {
     // Save local restaurant settings (unchanged behavior).
     localStorage.setItem('restaurantSettings', JSON.stringify(settings));
 
-    // Also persist the logo to the company record so the sidebar,
-    // QR menu and any other tenant surface picks it up.
+    // Persist the logo AND the name to the company record so the sidebar,
+    // QR menu, browser tab and any other tenant surface pick them up.
     try {
       const user = JSON.parse(localStorage.getItem('user') || '{}');
       const companyId = user?.company_id;
       if (companyId) {
-        await API.put(`/companies/${companyId}/branding`, {
+        const trimmedName = (settings.restaurantName || '').trim();
+        const payload = {
           logo_url: settings.logoUrl && settings.logoUrl.trim() ? settings.logoUrl.trim() : null
-        });
-        // Update the cached user so the sidebar reflects the change
+        };
+        if (trimmedName.length >= 2) {
+          payload.name = trimmedName;
+        }
+
+        const resp = await API.put(`/companies/${companyId}/branding`, payload);
+        const updatedCompany = resp?.data?.data?.company;
+
+        // Update cached user so sidebar + title reflect the change
         // without requiring a re-login.
-        const refreshed = { ...user, company_logo_url: settings.logoUrl || null };
+        const refreshed = {
+          ...user,
+          company_name: updatedCompany?.name ?? user.company_name,
+          company_logo_url: updatedCompany?.logo_url ?? (settings.logoUrl || null)
+        };
         localStorage.setItem('user', JSON.stringify(refreshed));
+
+        // Also update the top-level title immediately.
+        if (refreshed.company_name) {
+          document.title = refreshed.company_name;
+        }
       }
     } catch (err) {
       console.error('Branding update error:', err);
@@ -108,6 +125,9 @@ const Settings = () => {
                   onChange={handleChange}
                   className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-50 dark:bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-gray-900 dark:text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  This is the name shown in the sidebar, QR menu and browser tab.
+                </p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-600 dark:text-gray-600 dark:text-gray-300 mb-1">{t('address')}</label>

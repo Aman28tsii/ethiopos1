@@ -245,10 +245,9 @@ export const listCompanies = catchAsync(async (req, res) => {
 
 // ============================================================
 // UPDATE COMPANY BRANDING (Owner only, tenant-scoped)
-// Accepts { logo_url }. Company name is intentionally not editable
-// here — we reuse the existing name field. Only the logo changes.
-// The :id in the URL is validated against req.user.company_id;
-// a caller can never modify another tenant's branding.
+// Accepts { name?, logo_url? }. Either or both may be provided.
+// Company is validated against req.user.company_id; a caller
+// can never modify another tenant's branding.
 // ============================================================
 export const updateCompanyBranding = catchAsync(async (req, res) => {
     const { id } = req.params;
@@ -262,31 +261,71 @@ export const updateCompanyBranding = catchAsync(async (req, res) => {
         throw new AppError('Company not found', 404);
     }
 
-    const { logo_url } = req.body || {};
+    const body = req.body || {};
 
-    if (logo_url !== null && logo_url !== undefined && typeof logo_url !== 'string') {
-        throw new AppError('logo_url must be a string or null', 400);
+    // ---- Validate name (optional) ----
+    let normalizedName = null;
+    let nameProvided = false;
+    if (body.name !== undefined && body.name !== null) {
+        nameProvided = true;
+        if (typeof body.name !== 'string') {
+            throw new AppError('name must be a string', 400);
+        }
+        const trimmed = body.name.trim();
+        if (trimmed.length < 2) {
+            throw new AppError('Company name must be at least 2 characters', 400);
+        }
+        if (trimmed.length > 200) {
+            throw new AppError('Company name is too long', 400);
+        }
+        normalizedName = trimmed;
     }
 
+    // ---- Validate logo_url (optional) ----
     let normalizedLogoUrl = null;
-    if (typeof logo_url === 'string') {
-        const trimmed = logo_url.trim();
-        if (trimmed.length > 0) {
-            if (trimmed.length > 2048) {
-                throw new AppError('logo_url is too long', 400);
+    let logoProvided = false;
+    if (body.logo_url !== undefined) {
+        logoProvided = true;
+        if (body.logo_url !== null && typeof body.logo_url !== 'string') {
+            throw new AppError('logo_url must be a string or null', 400);
+        }
+        if (typeof body.logo_url === 'string') {
+            const trimmed = body.logo_url.trim();
+            if (trimmed.length > 0) {
+                if (trimmed.length > 2048) {
+                    throw new AppError('logo_url is too long', 400);
+                }
+                normalizedLogoUrl = trimmed;
             }
-            normalizedLogoUrl = trimmed;
         }
     }
 
-    const result = await query(
-        `UPDATE companies
-            SET logo_url = $1,
-                updated_at = CURRENT_TIMESTAMP
-          WHERE id = $2
-          RETURNING id, name, logo_url, updated_at`,
-        [normalizedLogoUrl, numericId]
-    );
+    if (!nameProvided && !logoProvided) {
+        throw new AppError('Nothing to update. Provide name and/or logo_url.', 400);
+    }
+
+    // ---- Build dynamic UPDATE ----
+    const setParts = [];
+    const params = [];
+    let idx = 1;
+
+    if (nameProvided) {
+        setParts.push(`name = $${idx++}`);
+        params.push(normalizedName);
+    }
+    if (logoProvided) {
+        setParts.push(`logo_url = $${idx++}`);
+        params.push(normalizedLogoUrl);
+    }
+    setParts.push(`updated_at = CURRENT_TIMESTAMP`);
+    params.push(numericId);
+
+    const sql = `UPDATE companies
+                    SET ${setParts.join(', ')}
+                  WHERE id = $${idx}
+                  RETURNING id, name, logo_url, updated_at`;
+
+    const result = await query(sql, params);
 
     if (result.rows.length === 0) {
         throw new AppError('Company not found', 404);
