@@ -158,7 +158,7 @@ export const getIngredientCategories = catchAsync(async (req, res) => {
 });
 
 // ============================================================
-// CREATE INGREDIENT (Branch-validated) - WITH OPENING STOCK AUDIT TRAIL (INV-004 FIX 3)
+// CREATE INGREDIENT (Branch-validated) — WITH OPENING STOCK AUDIT TRAIL
 // ============================================================
 export const createIngredient = catchAsync(async (req, res) => {
     const { 
@@ -206,9 +206,12 @@ export const createIngredient = catchAsync(async (req, res) => {
         
         const ingredient = result.rows[0];
         
-        // Fix 3: Create opening_stock transaction if initial quantity > 0
+        // ★ FIX: Create opening_stock transaction if initial quantity > 0.
+        //   The result of the INSERT is now verified — if no row was written,
+        //   we throw so the whole transaction rolls back and we see the real error
+        //   instead of silently succeeding without an audit trail.
         if (initialQuantity > 0) {
-            await client.query(`
+            const auditResult = await client.query(`
                 INSERT INTO stock_transactions (
                     ingredient_id,
                     expected_quantity,
@@ -220,6 +223,7 @@ export const createIngredient = catchAsync(async (req, res) => {
                     company_id,
                     branch_id
                 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                RETURNING id
             `, [
                 ingredient.id,
                 initialQuantity,
@@ -231,6 +235,15 @@ export const createIngredient = catchAsync(async (req, res) => {
                 companyId,
                 branchId
             ]);
+
+            // ★ FIX: if the audit insert wrote zero rows, the table is
+            //   missing, misnamed, or has a broken schema. Abort cleanly.
+            if (!auditResult.rows || auditResult.rows.length === 0) {
+                throw new Error(
+                    'Audit trail failure: stock_transactions insert returned no rows. ' +
+                    'Verify the stock_transactions table exists with the expected columns.'
+                );
+            }
         }
         
         await client.query('COMMIT');
@@ -244,7 +257,12 @@ export const createIngredient = catchAsync(async (req, res) => {
     } catch (error) {
         await client.query('ROLLBACK');
         console.error('Create ingredient error:', error);
-        throw error;
+        // ★ FIX: surface the real DB error message instead of the generic
+        //   "Internal server error", so tests can see what's actually wrong.
+        throw new AppError(
+            `Create ingredient failed: ${error.message || 'unknown error'}`,
+            500
+        );
     } finally {
         client.release();
     }
@@ -342,7 +360,11 @@ export const deleteIngredient = catchAsync(async (req, res) => {
 });
 
 // ============================================================
-// ADJUST STOCK (Branch-validated) - WITH ROW-LEVEL LOCKING, ZERO AMOUNT VALIDATION & IDEMPOTENCY (INV-004 FIX 1 & 2 + INV-005)
+// ADJUST STOCK (Branch-validated)
+//   - Row-level locking
+//   - Zero amount validation
+//   - Idempotency
+//   - ★ FIX: Verified audit trail insert (rolls back on failure)
 // ============================================================
 export const adjustStock = catchAsync(async (req, res) => {
     const { id } = req.params;
@@ -355,7 +377,7 @@ export const adjustStock = catchAsync(async (req, res) => {
     const companyId = req.user.company_id;
     const branchId = req.user.branch_id;
     
-    // Fix 2: Validate amount is a valid non-zero number
+    // Validate amount is a valid non-zero number
     if (amount === undefined || amount === null || amount === '') {
         throw new AppError('Amount is required', 400);
     }
@@ -371,7 +393,7 @@ export const adjustStock = catchAsync(async (req, res) => {
     }
     
     // ============================================================
-    // ✅ FIX: IDEMPOTENCY CHECK (INV-005) - Check BEFORE transaction
+    // IDEMPOTENCY CHECK (INV-005) — Check BEFORE transaction
     // ============================================================
     const idempotencyKey = req.headers['idempotency-key'];
     let recordId = null;
@@ -393,7 +415,6 @@ export const adjustStock = catchAsync(async (req, res) => {
         
         if (existing.rows.length > 0) {
             console.log(`[IDEMPOTENCY] Cache hit for ${idempotencyKey}`);
-            // Return cached response
             return res.status(200).json(existing.rows[0].response_data);
         }
         
@@ -413,7 +434,6 @@ export const adjustStock = catchAsync(async (req, res) => {
             if (conflicting.rows[0].request_hash !== requestHash) {
                 throw new AppError('Idempotency key reused with different request payload', 409);
             }
-            // If status is 'processing', reject as duplicate in progress
             if (conflicting.rows[0].status === 'processing') {
                 throw new AppError('Duplicate request is being processed', 409);
             }
@@ -425,7 +445,7 @@ export const adjustStock = catchAsync(async (req, res) => {
     try {
         await client.query('BEGIN');
         
-        // ✅ SAVE idempotency record FIRST (before stock update)
+        // Save idempotency record FIRST (before stock update)
         if (idempotencyKey) {
             const requestHash = crypto.createHash('sha256').update(JSON.stringify(req.body)).digest('hex');
             
@@ -448,7 +468,7 @@ export const adjustStock = catchAsync(async (req, res) => {
             console.log(`[IDEMPOTENCY] Created processing record ${recordId} for ${idempotencyKey}`);
         }
         
-        // Fix 1: Row-level lock using FOR UPDATE
+        // Row-level lock using FOR UPDATE
         const lockResult = await client.query(`
             SELECT id, name, quantity, unit, unit_cost, company_id, branch_id
             FROM ingredients
@@ -482,8 +502,11 @@ export const adjustStock = catchAsync(async (req, res) => {
         const transactionType = numericAmount > 0 ? 'adjustment_add' : 'adjustment_remove';
         const absAmount = Math.abs(numericAmount);
         
-        // Record stock transaction
-        await client.query(`
+        // ★ FIX: Record stock transaction and verify it was actually written.
+        //   If the insert fails silently (table missing, schema drift, etc.),
+        //   we abort the whole operation so the client never sees a stock
+        //   change without an accompanying audit row.
+        const auditResult = await client.query(`
             INSERT INTO stock_transactions (
                 ingredient_id,
                 expected_quantity,
@@ -495,6 +518,7 @@ export const adjustStock = catchAsync(async (req, res) => {
                 company_id,
                 branch_id
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            RETURNING id
         `, [
             id,
             absAmount,
@@ -506,6 +530,15 @@ export const adjustStock = catchAsync(async (req, res) => {
             companyId,
             branchId
         ]);
+
+        // ★ FIX: if the audit insert wrote zero rows, we have a real problem.
+        //   Abort and surface the reason instead of committing silently.
+        if (!auditResult.rows || auditResult.rows.length === 0) {
+            throw new Error(
+                'Audit trail failure: stock_transactions insert returned no rows. ' +
+                'Verify the stock_transactions table exists with the expected columns.'
+            );
+        }
         
         const action = numericAmount > 0 ? 'added to' : 'removed from';
         
@@ -515,7 +548,7 @@ export const adjustStock = catchAsync(async (req, res) => {
             data: updateResult.rows[0]
         };
         
-        // ✅ UPDATE idempotency record to completed
+        // Update idempotency record to completed
         if (recordId) {
             await client.query(
                 `UPDATE idempotency_records 
@@ -536,7 +569,12 @@ export const adjustStock = catchAsync(async (req, res) => {
     } catch (error) {
         await client.query('ROLLBACK');
         console.error('Adjust stock error:', error);
-        throw error;
+        // ★ FIX: surface the real DB error message so we can see what failed.
+        const statusCode = error.statusCode || 500;
+        const message = error.isOperational
+            ? error.message
+            : `Adjust stock failed: ${error.message || 'unknown error'}`;
+        throw new AppError(message, statusCode);
     } finally {
         client.release();
     }
