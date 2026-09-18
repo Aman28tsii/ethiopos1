@@ -5943,7 +5943,9 @@ const CashierPOS = () => {
                                         <div className="flex justify-between items-start mb-3">
                                             <div>
                                                 <p className="text-gray-900 dark:text-white font-bold text-lg">{order.order_number}</p>
-                                                <p className="text-gray-500 dark:text-gray-400 text-sm">Table: {order.table_number || 'Takeaway'}</p>
+                                                <p className="text-gray-500 dark:text-gray-400 text-sm">
+                                                    Table: {order.table_number ? order.table_number : 'Takeaway'}
+                                                </p>
                                             </div>
                                             <p className="text-green-600 dark:text-green-400 font-bold text-xl">{formatCurrency(order.total_amount)}</p>
                                         </div>
@@ -5963,6 +5965,9 @@ const CashierPOS = () => {
                             <div className="mb-6">
                                 <h2 className="text-xl font-bold text-gray-900 dark:text-white">Payment</h2>
                                 <p className="text-gray-500 dark:text-gray-400 text-sm">Order: {selectedOrder.order_number}</p>
+                                <p className="text-gray-500 dark:text-gray-400 text-sm">
+                                    Table: {selectedOrder.table_number ? selectedOrder.table_number : 'Takeaway'}
+                                </p>
                             </div>
 
                             <div className="bg-gray-50 dark:bg-gray-700 rounded-xl p-4 mb-6">
@@ -6031,11 +6036,11 @@ const CashierPOS = () => {
                     )}
                 </div>
             ) : (
-                // Sales History
+                // Sales History — now scrollable
                 <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 overflow-hidden">
-                    <div className="overflow-x-auto">
+                    <div className="overflow-x-auto overflow-y-auto max-h-[60vh]">
                         <table className="w-full text-left">
-                            <thead className="bg-gray-50 dark:bg-gray-700/50">
+                            <thead className="bg-gray-50 dark:bg-gray-700/50 sticky top-0 z-10">
                                 <tr>
                                     <th className="px-6 py-3 text-gray-600 dark:text-gray-400 text-sm font-semibold">Sale #</th>
                                     <th className="px-6 py-3 text-gray-600 dark:text-gray-400 text-sm font-semibold">Date</th>
@@ -9137,6 +9142,7 @@ const MyOrders = () => {
   const [loading, setLoading] = useState(true);
   const [notification, setNotification] = useState(null);
   const [selectedOrder, setSelectedOrder] = useState(null);
+  const [confirmingId, setConfirmingId] = useState(null);
 
   useEffect(function() {
     fetchOrders();
@@ -9192,6 +9198,23 @@ const MyOrders = () => {
     }
   };
 
+  const confirmPickup = async function(orderId) {
+    setConfirmingId(orderId);
+    try {
+      const res = await API.post(`/orders/${orderId}/confirm-pickup`);
+      if (res.data.success) {
+        setNotification(`✅ Pickup confirmed for order #${orderId}. Cashier notified.`);
+        setTimeout(function() { setNotification(null); }, 4000);
+        fetchOrders();
+      }
+    } catch (err) {
+      console.error('Confirm pickup error:', err);
+      alert(err.response?.data?.error || 'Failed to confirm pickup');
+    } finally {
+      setConfirmingId(null);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex justify-center items-center h-full">
@@ -9214,7 +9237,7 @@ const MyOrders = () => {
       </div>
 
       {notification && (
-        <div className={'rounded-xl p-3 text-center animate-pulse ' + (notification.includes('ready') ? 'bg-green-100 dark:bg-green-900/30 border border-green-200 dark:border-green-800 text-green-700 dark:text-green-400' : notification.includes('Failed') ? 'bg-red-100 dark:bg-red-900/30 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400' : 'bg-blue-100 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-400')}>
+        <div className={'rounded-xl p-3 text-center animate-pulse ' + (notification.includes('ready') || notification.includes('Pickup') ? 'bg-green-100 dark:bg-green-900/30 border border-green-200 dark:border-green-800 text-green-700 dark:text-green-400' : notification.includes('Failed') ? 'bg-red-100 dark:bg-red-900/30 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400' : 'bg-blue-100 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-400')}>
           <Bell size={18} className="inline mr-2" />
           {notification}
         </div>
@@ -9283,6 +9306,19 @@ const MyOrders = () => {
                       <p className="text-yellow-700 dark:text-yellow-400 text-xs">{t('note')}: {order.notes}</p>
                     </div>
                   )}
+
+                  {/* WAITER PICKUP CONFIRMATION */}
+                  {order.status === 'ready' && (
+                    <button
+                      onClick={function() { confirmPickup(order.id); }}
+                      disabled={confirmingId === order.id}
+                      className="mt-3 w-full py-3 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white rounded-lg text-sm font-bold transition flex items-center justify-center gap-2 disabled:opacity-60"
+                    >
+                      {confirmingId === order.id ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle size={16} />}
+                      Confirm Pickup — Send to Cashier
+                    </button>
+                  )}
+
                   <button
                     onClick={function() { setSelectedOrder(order); }}
                     className="mt-3 w-full py-2 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-lg text-sm font-semibold transition flex items-center justify-center gap-1"
@@ -9306,13 +9342,45 @@ const MyOrders = () => {
               <button onClick={function() { setSelectedOrder(null); }} className="text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">X</button>
             </div>
             <div className="p-4 space-y-4">
-              <div><p className="text-gray-500 dark:text-gray-400 text-xs">{t('orderNumber')}</p><p className="text-gray-900 dark:text-white font-bold">{selectedOrder.order_number}</p></div>
-              <div><p className="text-gray-500 dark:text-gray-400 text-xs">{t('customer')}</p><p className="text-gray-900 dark:text-white">{selectedOrder.customer_name || t('walkInCustomer')}</p></div>
-              <div><p className="text-gray-500 dark:text-gray-400 text-xs">{t('table')}</p><p className="text-gray-900 dark:text-white">{t('table')} {selectedOrder.table_number}</p></div>
-              <div><p className="text-gray-500 dark:text-gray-400 text-xs">{t('status')}</p><StatusBadge status={selectedOrder.status} /></div>
-              <div><p className="text-gray-500 dark:text-gray-400 text-xs">{t('items')}</p>{selectedOrder.items && selectedOrder.items.map(function(item, idx) { return (<div key={idx} className="flex justify-between text-sm py-1"><span className="text-gray-700 dark:text-gray-300">{item.quantity}x {item.name}</span><span className="text-gray-700 dark:text-gray-300">{formatCurrency(item.price * item.quantity)}</span></div>); })}</div>
-              <div className="border-t border-gray-200 dark:border-gray-700 pt-2"><div className="flex justify-between font-bold"><span className="text-gray-900 dark:text-white">{t('total')}</span><span className="text-green-600 dark:text-green-400">{formatCurrency(selectedOrder.total_amount)}</span></div></div>
-              {selectedOrder.notes && (<div className="bg-yellow-50 dark:bg-yellow-900/20 rounded-lg p-3"><p className="text-yellow-700 dark:text-yellow-400 text-xs">{t('specialInstructions')}</p><p className="text-gray-700 dark:text-gray-300">{selectedOrder.notes}</p></div>)}
+              <div>
+                <p className="text-gray-500 dark:text-gray-400 text-xs">{t('orderNumber')}</p>
+                <p className="text-gray-900 dark:text-white font-bold">{selectedOrder.order_number}</p>
+              </div>
+              <div>
+                <p className="text-gray-500 dark:text-gray-400 text-xs">{t('customer')}</p>
+                <p className="text-gray-900 dark:text-white">{selectedOrder.customer_name || t('walkInCustomer')}</p>
+              </div>
+              <div>
+                <p className="text-gray-500 dark:text-gray-400 text-xs">{t('table')}</p>
+                <p className="text-gray-900 dark:text-white">{t('table')} {selectedOrder.table_number}</p>
+              </div>
+              <div>
+                <p className="text-gray-500 dark:text-gray-400 text-xs">{t('status')}</p>
+                <StatusBadge status={selectedOrder.status} />
+              </div>
+              <div>
+                <p className="text-gray-500 dark:text-gray-400 text-xs">{t('items')}</p>
+                {selectedOrder.items && selectedOrder.items.map(function(item, idx) {
+                  return (
+                    <div key={idx} className="flex justify-between text-sm py-1">
+                      <span className="text-gray-700 dark:text-gray-300">{item.quantity}x {item.name}</span>
+                      <span className="text-gray-700 dark:text-gray-300">{formatCurrency(item.price * item.quantity)}</span>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="border-t border-gray-200 dark:border-gray-700 pt-2">
+                <div className="flex justify-between font-bold">
+                  <span className="text-gray-900 dark:text-white">{t('total')}</span>
+                  <span className="text-green-600 dark:text-green-400">{formatCurrency(selectedOrder.total_amount)}</span>
+                </div>
+              </div>
+              {selectedOrder.notes && (
+                <div className="bg-yellow-50 dark:bg-yellow-900/20 rounded-lg p-3">
+                  <p className="text-yellow-700 dark:text-yellow-400 text-xs">{t('specialInstructions')}</p>
+                  <p className="text-gray-700 dark:text-gray-300">{selectedOrder.notes}</p>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -45619,6 +45687,7 @@ import express from "express";
 import { protect, allowKitchen } from "../middleware/auth.js";
 import { authorizeBranch, requireCompanyContext } from "../middleware/authorization.js";
 import { pool } from "../config/database.js";
+import { processOrderStockDeduction } from "../controllers/recipeController.js";
 
 const router = express.Router();
 
@@ -45644,6 +45713,7 @@ router.get("/orders", authorizeBranch, allowKitchen, async (req, res) => {
                 o.total_amount,
                 o.customer_name,
                 o.table_id,
+                o.source,
                 t.table_number,
                 COALESCE(
                     json_agg(
@@ -45661,7 +45731,7 @@ router.get("/orders", authorizeBranch, allowKitchen, async (req, res) => {
             LEFT JOIN products p ON oi.product_id = p.id
             WHERE ko.status IN ('pending', 'preparing')
               AND o.branch_id = $1
-            GROUP BY ko.id, o.order_number, o.total_amount, o.customer_name, o.table_id, ko.status, ko.notes, ko.started_at, ko.completed_at, ko.created_at, t.table_number
+            GROUP BY ko.id, o.order_number, o.total_amount, o.customer_name, o.table_id, o.source, ko.status, ko.notes, ko.started_at, ko.completed_at, ko.created_at, t.table_number
             ORDER BY 
                 CASE ko.status 
                     WHEN 'pending' THEN 1 
@@ -45679,7 +45749,7 @@ router.get("/orders", authorizeBranch, allowKitchen, async (req, res) => {
 });
 
 // ============================================================
-// UPDATE KITCHEN ORDER STATUS - FIXED
+// UPDATE KITCHEN ORDER STATUS
 // ============================================================
 router.put("/orders/:orderId/status", authorizeBranch, allowKitchen, async (req, res) => {
     const { orderId } = req.params;
@@ -45701,7 +45771,6 @@ router.put("/orders/:orderId/status", authorizeBranch, allowKitchen, async (req,
             return res.status(400).json({ success: false, error: 'Invalid order ID' });
         }
 
-        // Check if order exists
         const orderCheck = await pool.query(
             `SELECT id FROM kitchen_orders WHERE order_id = $1`,
             [orderIdInt]
@@ -45711,7 +45780,6 @@ router.put("/orders/:orderId/status", authorizeBranch, allowKitchen, async (req,
             return res.status(404).json({ success: false, error: "Order not found in kitchen" });
         }
 
-        // Update kitchen order status
         await pool.query(
             `UPDATE kitchen_orders 
              SET status = $1, updated_at = NOW() 
@@ -45719,7 +45787,6 @@ router.put("/orders/:orderId/status", authorizeBranch, allowKitchen, async (req,
             [status, orderIdInt]
         );
 
-        // Update started_at if preparing
         if (status === 'preparing') {
             await pool.query(
                 `UPDATE kitchen_orders 
@@ -45729,7 +45796,6 @@ router.put("/orders/:orderId/status", authorizeBranch, allowKitchen, async (req,
             );
         }
 
-        // Update completed_at if ready or completed
         if (status === 'ready' || status === 'completed') {
             await pool.query(
                 `UPDATE kitchen_orders 
@@ -45739,7 +45805,6 @@ router.put("/orders/:orderId/status", authorizeBranch, allowKitchen, async (req,
             );
         }
 
-        // Update main order status
         const orderStatus = status === 'pending' ? 'pending' : 
                            status === 'preparing' ? 'preparing' : 
                            status === 'ready' ? 'ready' : 
@@ -45750,13 +45815,91 @@ router.put("/orders/:orderId/status", authorizeBranch, allowKitchen, async (req,
             [orderStatus, orderIdInt]
         );
 
-        // Get updated record
+        // ============================================================
+        // STOCK DEDUCTION happens HERE, when food leaves the kitchen.
+        // Guard: only deduct once per order, even if the kitchen clicks
+        // "ready" multiple times. We use the stock_transactions table as
+        // the source of truth for "was this order already deducted?".
+        // ============================================================
+        let stockDeductionResult = null;
+
+        if (status === 'ready') {
+            const alreadyDeducted = await pool.query(
+                `SELECT 1 FROM stock_transactions
+                 WHERE order_id = $1 AND transaction_type = 'order_deduction'
+                 LIMIT 1`,
+                [orderIdInt]
+            );
+
+            if (alreadyDeducted.rows.length === 0) {
+                const itemsRes = await pool.query(
+                    `SELECT product_id, quantity FROM order_items WHERE order_id = $1`,
+                    [orderIdInt]
+                );
+
+                const client = await pool.connect();
+                try {
+                    await client.query('BEGIN');
+                    stockDeductionResult = await processOrderStockDeduction(
+                        orderIdInt,
+                        itemsRes.rows,
+                        client,
+                        companyId,
+                        branchId
+                    );
+                    await client.query('COMMIT');
+                    console.log(`[KITCHEN] Stock deducted for order ${orderIdInt}:`,
+                        stockDeductionResult?.deductions?.length, 'ingredients');
+                } catch (deductErr) {
+                    await client.query('ROLLBACK');
+                    console.error(`[KITCHEN] Stock deduction FAILED for order ${orderIdInt}:`, deductErr.message);
+
+                    // Roll back the "ready" status so the kitchen can retry
+                    await pool.query(
+                        `UPDATE kitchen_orders SET status = 'preparing', updated_at = NOW() WHERE order_id = $1`,
+                        [orderIdInt]
+                    );
+                    await pool.query(
+                        `UPDATE orders SET status = 'preparing', updated_at = NOW() WHERE id = $1`,
+                        [orderIdInt]
+                    );
+
+                    return res.status(409).json({
+                        success: false,
+                        error: deductErr.message || 'Insufficient stock to complete this order',
+                        code: 'STOCK_DEDUCTION_FAILED'
+                    });
+                } finally {
+                    client.release();
+                }
+            } else {
+                console.log(`[KITCHEN] Stock already deducted for order ${orderIdInt}, skipping.`);
+            }
+        }
+
+        // AUTO-CONFIRM PICKUP FOR CASHIER-MANUAL ORDERS ONLY.
+        let autoConfirmedCashier = false;
+        if (status === 'ready') {
+            const autoConfirmResult = await pool.query(
+                `UPDATE orders
+                 SET waiter_confirmed_pickup = true,
+                     waiter_pickup_at = NOW(),
+                     updated_at = NOW()
+                 WHERE id = $1
+                   AND (source = 'cashier_manual' OR source = 'cashier')
+                 RETURNING id, order_number, table_id, source`,
+                [orderIdInt]
+            );
+            if (autoConfirmResult.rows.length > 0) {
+                autoConfirmedCashier = true;
+            }
+        }
+
         const result = await pool.query(
             `SELECT * FROM kitchen_orders WHERE order_id = $1`,
             [orderIdInt]
         );
 
-        // Emit socket events — company-scoped rooms only.
         const io = req.app.get('io');
         if (io) {
             io.to(`branch_${companyId}_${branchId}`).emit('order_status_updated', {
@@ -45766,15 +45909,24 @@ router.put("/orders/:orderId/status", authorizeBranch, allowKitchen, async (req,
             });
 
             if (status === 'ready') {
-                io.to(`cashier_${companyId}_${branchId}`).emit('order_ready_for_cashier', {
-                    order_id: orderIdInt,
-                    status: 'ready'
-                });
-                io.to(`waiter_${companyId}_${branchId}`).emit('order_ready_for_waiter', {
-                    order_id: orderIdInt,
-                    status: 'ready',
-                    message: `Order #${orderIdInt} is ready for pickup!`
-                });
+                if (autoConfirmedCashier) {
+                    const autoRow = await pool.query(
+                        `SELECT id, order_number, table_id FROM orders WHERE id = $1`,
+                        [orderIdInt]
+                    );
+                    const row = autoRow.rows[0];
+                    io.to(`cashier_${companyId}_${branchId}`).emit('order_ready_for_cashier', {
+                        order_id: orderIdInt,
+                        order_number: row?.order_number,
+                        table_id: row?.table_id
+                    });
+                } else {
+                    io.to(`waiter_${companyId}_${branchId}`).emit('order_ready_for_waiter', {
+                        order_id: orderIdInt,
+                        status: 'ready',
+                        message: `Order #${orderIdInt} is ready for pickup!`
+                    });
+                }
             }
 
             if (status === 'completed') {
@@ -45788,7 +45940,13 @@ router.put("/orders/:orderId/status", authorizeBranch, allowKitchen, async (req,
         res.json({
             success: true,
             message: `Order status updated to ${status}`,
-            data: result.rows[0]
+            data: result.rows[0],
+            stock_deduction: stockDeductionResult
+                ? {
+                    ingredients_deducted: stockDeductionResult.deductions.length,
+                    total_wastage_cost: stockDeductionResult.totalWastageCost
+                }
+                : null
         });
     } catch (err) {
         console.error("Update kitchen order error:", err);
@@ -45905,9 +46063,50 @@ router.put("/orders/bulk-status", authorizeBranch, allowKitchen, async (req, res
 
     try {
         const results = [];
+        const stockErrors = [];
+
         for (const orderId of orderIds) {
             const orderIdInt = parseInt(orderId);
             if (isNaN(orderIdInt)) continue;
+
+            if (status === 'ready') {
+                const alreadyDeducted = await pool.query(
+                    `SELECT 1 FROM stock_transactions
+                     WHERE order_id = $1 AND transaction_type = 'order_deduction'
+                     LIMIT 1`,
+                    [orderIdInt]
+                );
+
+                if (alreadyDeducted.rows.length === 0) {
+                    const itemsRes = await pool.query(
+                        `SELECT product_id, quantity FROM order_items WHERE order_id = $1`,
+                        [orderIdInt]
+                    );
+
+                    const client = await pool.connect();
+                    try {
+                        await client.query('BEGIN');
+                        await processOrderStockDeduction(
+                            orderIdInt,
+                            itemsRes.rows,
+                            client,
+                            companyId,
+                            branchId
+                        );
+                        await client.query('COMMIT');
+                    } catch (deductErr) {
+                        await client.query('ROLLBACK');
+                        console.error(`[KITCHEN BULK] Stock deduction failed for order ${orderIdInt}:`, deductErr.message);
+                        stockErrors.push({
+                            order_id: orderIdInt,
+                            error: deductErr.message
+                        });
+                        continue;
+                    } finally {
+                        client.release();
+                    }
+                }
+            }
             
             await pool.query(
                 `UPDATE kitchen_orders 
@@ -45944,10 +46143,21 @@ router.put("/orders/bulk-status", authorizeBranch, allowKitchen, async (req, res
                 [orderStatus, orderIdInt]
             );
 
+            if (status === 'ready') {
+                await pool.query(
+                    `UPDATE orders
+                     SET waiter_confirmed_pickup = true,
+                         waiter_pickup_at = NOW(),
+                         updated_at = NOW()
+                     WHERE id = $1
+                       AND (source = 'cashier_manual' OR source = 'cashier')`,
+                    [orderIdInt]
+                );
+            }
+
             results.push({ order_id: orderIdInt, status: status });
         }
 
-        // Emit socket events — company-scoped rooms only.
         const io = req.app.get('io');
         if (io) {
             io.to(`branch_${companyId}_${branchId}`).emit('order_status_updated', {
@@ -45959,18 +46169,30 @@ router.put("/orders/bulk-status", authorizeBranch, allowKitchen, async (req, res
                              status === 'completed' ? 'completed' : 'cancelled'
             });
 
-            if (status === 'ready') {
-                results.forEach(r => {
-                    io.to(`cashier_${companyId}_${branchId}`).emit('order_ready_for_cashier', {
-                        order_id: r.order_id,
-                        status: 'ready'
-                    });
-                    io.to(`waiter_${companyId}_${branchId}`).emit('order_ready_for_waiter', {
-                        order_id: r.order_id,
-                        status: 'ready',
-                        message: `Order #${r.order_id} is ready for pickup!`
-                    });
-                });
+            if (status === 'ready' && results.length > 0) {
+                const checkResult = await pool.query(
+                    `SELECT id, order_number, table_id, source,
+                            waiter_confirmed_pickup
+                     FROM orders
+                     WHERE id = ANY($1::int[])`,
+                    [results.map(r => r.order_id)]
+                );
+
+                for (const row of checkResult.rows) {
+                    if (row.source === 'cashier_manual' || row.source === 'cashier') {
+                        io.to(`cashier_${companyId}_${branchId}`).emit('order_ready_for_cashier', {
+                            order_id: row.id,
+                            order_number: row.order_number,
+                            table_id: row.table_id
+                        });
+                    } else {
+                        io.to(`waiter_${companyId}_${branchId}`).emit('order_ready_for_waiter', {
+                            order_id: row.id,
+                            status: 'ready',
+                            message: `Order #${row.id} is ready for pickup!`
+                        });
+                    }
+                }
             }
 
             if (status === 'completed') {
@@ -45986,7 +46208,8 @@ router.put("/orders/bulk-status", authorizeBranch, allowKitchen, async (req, res
         res.json({
             success: true,
             message: `Updated ${results.length} orders to ${status}`,
-            data: results
+            data: results,
+            stock_errors: stockErrors.length > 0 ? stockErrors : undefined
         });
     } catch (err) {
         console.error("Bulk update error:", err);
@@ -46142,10 +46365,10 @@ router.get("/track/:orderNumber", trackLimiter, async (req, res) => {
     }
 });
 
-// ==================== FIXED QR ORDER ROUTE ====================
+// ==================== QR ORDER ROUTE ====================
+// NOTE: Stock deduction now happens when the kitchen marks the order
+// ready (see kitchen.js). This handler no longer touches inventory.
 router.post("/qr-order", 
-    // `protect` intentionally NOT applied â€” QR-menu customers submit anonymously.
-    // Tenant context is derived from table_id inside the handler.
     mutationLimiter,
     requireIdempotency,
     idempotent,
@@ -46254,18 +46477,8 @@ router.post("/qr-order",
                     console.log('[QR ORDER] Item inserted:', item.product_id, 'x', item.quantity);
                 }
                 
-                let stockResult = { deductions: [], totalWastageCost: 0 };
-                try {
-                    stockResult = await processOrderStockDeduction(orderId, items, client, companyId, branchId);
-                    console.log('[QR ORDER] Stock deduction completed');
-                } catch (stockError) {
-                    console.error('[QR ORDER] Stock deduction failed:', stockError.message);
-                    await client.query('ROLLBACK');
-                    return res.status(409).json({ 
-                        success: false, 
-                        error: stockError.message || 'Insufficient stock for order' 
-                    });
-                }
+                // Ð²Ò£â€¦ Stock is NOT deducted here anymore.
+                // It will be deducted by kitchen.js when the order is marked 'ready'.
                 
                 await client.query("COMMIT");
                 console.log('[QR ORDER] Transaction committed successfully');
@@ -46295,9 +46508,7 @@ router.post("/qr-order",
                         order_id: orderId, 
                         order_number: orderNumber, 
                         total_amount: totalAmount, 
-                        status: 'pending_confirmation',
-                        stock_deductions: stockResult.deductions,
-                        total_wastage_cost: stockResult.totalWastageCost
+                        status: 'pending_confirmation'
                     }
                 });
                 console.log('[QR ORDER] ====== SUCCESS ======');
@@ -46357,6 +46568,10 @@ router.get("/", authorizeBranch, allowWaiter, async (req, res) => {
     }
 });
 
+// ==================== CREATE ORDER (waiter / cashier manual) ====================
+// NOTE: Stock is NOT deducted here anymore. kitchen.js deducts stock
+// when the order is marked 'ready'. This applies to waiter orders and
+// cashier-manual orders identically.
 router.post("/", 
     authorizeBranch, 
     allowWaiter, 
@@ -46436,12 +46651,8 @@ router.post("/",
                     `, [orderId, table_id]);
                 }
                 
-                let stockResult = { deductions: [], totalWastageCost: 0 };
-                try {
-                    stockResult = await processOrderStockDeduction(orderId, items, client, companyId, branchId);
-                } catch (stockError) {
-                    console.warn("Stock deduction warning:", stockError.message);
-                }
+                // Ð²Ò£â€¦ Stock is NOT deducted here anymore.
+                // kitchen.js will deduct when the order is marked 'ready'.
                 
                 await client.query("COMMIT");
                 
@@ -46468,9 +46679,7 @@ router.post("/",
                         order_id: orderId, 
                         order_number: orderNumber, 
                         total_amount: totalAmount, 
-                        status: 'pending',
-                        stock_deductions: stockResult.deductions, 
-                        total_wastage_cost: stockResult.totalWastageCost 
+                        status: 'pending'
                     }
                 });
             } catch (err) {
@@ -46552,12 +46761,16 @@ router.put("/confirm/:orderId", authorizeBranch, allowWaiter, async (req, res) =
     }
 });
 
-// ==================== READY ORDERS ENDPOINT - FIXED ====================
+// ==================== READY ORDERS (waiter-confirmed pickup only) ====================
 router.get("/ready", protect, async (req, res) => {
     try {
-        const branchId = req.user?.branch_id || 1;
-        const companyId = req.user?.company_id || 1;
-        
+        const branchId = req.user?.branch_id;
+        const companyId = req.user?.company_id;
+
+        if (!branchId || !companyId) {
+            return res.status(401).json({ success: false, error: "Authentication required" });
+        }
+
         const result = await pool.query(`
             SELECT 
                 o.id, 
@@ -46568,23 +46781,214 @@ router.get("/ready", protect, async (req, res) => {
                 o.created_at,
                 o.status,
                 o.payment_status,
-                ko.status as kitchen_status
+                ko.status as kitchen_status,
+                t.table_number
             FROM orders o
-            JOIN kitchen_orders ko ON o.id = ko.order_id
+            INNER JOIN kitchen_orders ko ON o.id = ko.order_id
+            LEFT JOIN tables t ON o.table_id = t.id
             WHERE o.payment_status = 'pending'
-                AND o.status IN ('pending', 'ready')
                 AND ko.status = 'ready'
+                AND o.waiter_confirmed_pickup = true
                 AND o.branch_id = $1
                 AND o.company_id = $2
-            ORDER BY o.created_at ASC
+            ORDER BY ko.completed_at ASC NULLS LAST, o.created_at ASC
         `, [branchId, companyId]);
-        
+
         res.json({ success: true, data: result.rows });
     } catch (err) {
         console.error("[READY] Error:", err.message);
         res.status(500).json({ success: false, error: err.message });
     }
 });
+
+// ==================== ADD ITEMS TO EXISTING ORDER ====================
+router.post("/:orderId/add-items",
+    authorizeBranch,
+    allowWaiter,
+    mutationLimiter,
+    async (req, res) => {
+        const { orderId } = req.params;
+        const { items } = req.body;
+        const userId = req.user.id;
+        const companyId = req.user.company_id;
+        const branchId = req.user.branch_id;
+
+        if (!items || !Array.isArray(items) || items.length === 0) {
+            return res.status(400).json({ success: false, error: "No items to add" });
+        }
+
+        const client = await pool.connect();
+        try {
+            await client.query("BEGIN");
+
+            const orderCheck = await client.query(`
+                SELECT id, order_number, total_amount, payment_status, status, table_id
+                FROM orders
+                WHERE id = $1 AND company_id = $2 AND branch_id = $3
+            `, [orderId, companyId, branchId]);
+
+            if (orderCheck.rows.length === 0) {
+                await client.query("ROLLBACK");
+                return res.status(404).json({ success: false, error: "Order not found" });
+            }
+
+            const order = orderCheck.rows[0];
+
+            if (order.status === 'completed' || order.status === 'cancelled') {
+                await client.query("ROLLBACK");
+                return res.status(400).json({ success: false, error: "Cannot add items to a closed order" });
+            }
+
+            let additionalAmount = 0;
+
+            for (const item of items) {
+                const productResult = await client.query(
+                    `SELECT price, name, company_id FROM products WHERE id = $1`,
+                    [item.product_id]
+                );
+
+                if (productResult.rows.length === 0) {
+                    throw new Error(`Product ${item.product_id} not found`);
+                }
+                if (productResult.rows[0].company_id !== companyId) {
+                    throw new Error(`Product ${item.product_id} does not belong to your company`);
+                }
+
+                const unitPrice = parseFloat(productResult.rows[0].price);
+                const itemTotal = unitPrice * item.quantity;
+                additionalAmount += itemTotal;
+
+                await client.query(`
+                    INSERT INTO order_items (order_id, product_id, quantity, unit_price, total_price)
+                    VALUES ($1, $2, $3, $4, $5)
+                `, [orderId, item.product_id, item.quantity, unitPrice, itemTotal]);
+            }
+
+            const newTotal = parseFloat(order.total_amount) + additionalAmount;
+
+            await client.query(`
+                UPDATE orders
+                SET total_amount = $1,
+                    payment_status = 'pending',
+                    status = 'pending',
+                    updated_at = NOW()
+                WHERE id = $2
+            `, [newTotal, orderId]);
+
+            await client.query(`
+                UPDATE kitchen_orders
+                SET status = 'pending',
+                    completed_at = NULL,
+                    updated_at = NOW()
+                WHERE order_id = $1
+            `, [orderId]);
+
+            await client.query("COMMIT");
+
+            const io = req.app.get('io');
+            if (io) {
+                io.to(`kitchen_${companyId}_${branchId}`).emit('new_order', {
+                    order_id: parseInt(orderId),
+                    order_number: order.order_number,
+                    status: 'pending'
+                });
+                io.to(`branch_${companyId}_${branchId}`).emit('order_status_updated', {
+                    order_id: parseInt(orderId),
+                    status: 'pending'
+                });
+            }
+
+            res.json({
+                success: true,
+                message: "Items added to order",
+                additional_amount: additionalAmount,
+                new_total: newTotal
+            });
+
+        } catch (err) {
+            await client.query("ROLLBACK");
+            console.error("[ADD ITEMS] Error:", err.message);
+            res.status(500).json({ success: false, error: err.message });
+        } finally {
+            client.release();
+        }
+    }
+);
+
+// ==================== WAITER CONFIRMS PICKUP FROM KITCHEN ====================
+router.post("/:orderId/confirm-pickup",
+    authorizeBranch,
+    allowWaiter,
+    mutationLimiter,
+    async (req, res) => {
+        const { orderId } = req.params;
+        const userId = req.user.id;
+        const companyId = req.user.company_id;
+        const branchId = req.user.branch_id;
+
+        const client = await pool.connect();
+        try {
+            await client.query("BEGIN");
+
+            const orderCheck = await client.query(`
+                SELECT o.id, o.order_number, o.table_id, ko.status AS kitchen_status
+                FROM orders o
+                JOIN kitchen_orders ko ON ko.order_id = o.id
+                WHERE o.id = $1 AND o.company_id = $2 AND o.branch_id = $3
+            `, [orderId, companyId, branchId]);
+
+            if (orderCheck.rows.length === 0) {
+                await client.query("ROLLBACK");
+                return res.status(404).json({ success: false, error: "Order not found" });
+            }
+
+            const order = orderCheck.rows[0];
+
+            if (order.kitchen_status !== 'ready') {
+                await client.query("ROLLBACK");
+                return res.status(400).json({ success: false, error: "Kitchen has not marked this order ready yet" });
+            }
+
+            await client.query(`
+                UPDATE orders
+                SET waiter_confirmed_pickup = true,
+                    waiter_pickup_at = NOW(),
+                    waiter_pickup_by = $1,
+                    status = 'ready',
+                    updated_at = NOW()
+                WHERE id = $2
+            `, [userId, orderId]);
+
+            await client.query("COMMIT");
+
+            const io = req.app.get('io');
+            if (io) {
+                io.to(`cashier_${companyId}_${branchId}`).emit('order_ready_for_cashier', {
+                    order_id: parseInt(orderId),
+                    order_number: order.order_number,
+                    table_id: order.table_id
+                });
+                io.to(`branch_${companyId}_${branchId}`).emit('order_status_updated', {
+                    order_id: parseInt(orderId),
+                    status: 'ready'
+                });
+            }
+
+            res.json({
+                success: true,
+                message: "Pickup confirmed. Cashier can now see this order.",
+                data: { order_id: parseInt(orderId), status: 'ready' }
+            });
+
+        } catch (err) {
+            await client.query("ROLLBACK");
+            console.error("[CONFIRM PICKUP] Error:", err.message);
+            res.status(500).json({ success: false, error: err.message });
+        } finally {
+            client.release();
+        }
+    }
+);
 
 // ==================== PAYMENT ENDPOINT ====================
 router.post("/:orderId/pay", 
@@ -46714,7 +47118,6 @@ router.post("/:orderId/pay",
             await client.query("ROLLBACK");
             console.error("Payment error:", err);
 
-            // âœ… FIXED: return proper status codes instead of blanket 500
             if (err.message === "Order not found") {
                 return res.status(404).json({ success: false, error: err.message });
             }
@@ -46724,7 +47127,6 @@ router.post("/:orderId/pay",
             if (err.message === "Order already paid") {
                 return res.status(409).json({ success: false, error: err.message });
             }
-            // Postgres invalid_text_representation = cast error (e.g. "abc" as integer)
             if (err.code === "22P02") {
                 return res.status(400).json({ success: false, error: "Invalid order ID" });
             }
@@ -46735,7 +47137,7 @@ router.post("/:orderId/pay",
     }
 );
 
-// ==================== MY ORDERS (waiter) â€” âœ… FIXED: JSON key quoting ====================
+// ==================== MY ORDERS (waiter) ====================
 router.get("/my-orders", authorizeBranch, allowWaiter, async (req, res) => {
     const userId = req.user.id;
     const branchId = req.user.branch_id;
@@ -46773,7 +47175,7 @@ router.get("/my-orders", authorizeBranch, allowWaiter, async (req, res) => {
     }
 });
 
-// ==================== PENDING CONFIRMATION â€” âœ… FIXED: JSON key quoting ====================
+// ==================== PENDING CONFIRMATION ====================
 router.get("/pending-confirmation", authorizeBranch, allowWaiter, async (req, res) => {
     const waiterId = req.user.id;
     const branchId = req.user.branch_id;
@@ -46822,7 +47224,6 @@ router.get("/table/:tableId/active-order", authorizeBranch, allowWaiter, async (
             FROM orders 
             WHERE table_id = $1 AND branch_id = $2 AND company_id = $3
               AND status NOT IN ('completed', 'cancelled')
-              AND payment_status != 'paid'
             ORDER BY created_at DESC 
             LIMIT 1
         `, [tableId, branchId, companyId]);
@@ -46883,111 +47284,123 @@ router.put("/:orderId/cancel", authorizeBranch, allowWaiter, async (req, res) =>
         if (order.payment_status === 'paid') {
             throw new Error("Cannot cancel a paid order");
         }
+
+        // Ð²Ò£â€¦ Only restore stock if the order was actually deducted
+        // (i.e. it was marked 'ready' by the kitchen at some point).
+        const deductionCheck = await client.query(
+            `SELECT 1 FROM stock_transactions
+             WHERE order_id = $1 AND transaction_type = 'order_deduction'
+             LIMIT 1`,
+            [orderId]
+        );
+        const wasDeducted = deductionCheck.rows.length > 0;
         
-        const orderItemsResult = await client.query(`
-            SELECT 
-                oi.product_id,
-                oi.quantity,
-                p.name as product_name,
-                ri.ingredient_id,
-                ri.quantity_required,
-                ri.wastage_percentage,
-                ri.cooking_loss_percentage,
-                i.name as ingredient_name,
-                i.unit,
-                i.unit_cost,
-                i.quantity as current_stock
-            FROM order_items oi
-            JOIN products p ON oi.product_id = p.id
-            LEFT JOIN recipes r ON p.id = r.product_id
-            LEFT JOIN recipe_ingredients ri ON r.id = ri.recipe_id
-            LEFT JOIN ingredients i ON ri.ingredient_id = i.id
-            WHERE oi.order_id = $1
-        `, [orderId]);
-        
-        const ingredientMap = new Map();
-        
-        for (const item of orderItemsResult.rows) {
-            if (!item.ingredient_id) continue;
+        if (wasDeducted) {
+            const orderItemsResult = await client.query(`
+                SELECT 
+                    oi.product_id,
+                    oi.quantity,
+                    p.name as product_name,
+                    ri.ingredient_id,
+                    ri.quantity_required,
+                    ri.wastage_percentage,
+                    ri.cooking_loss_percentage,
+                    i.name as ingredient_name,
+                    i.unit,
+                    i.unit_cost,
+                    i.quantity as current_stock
+                FROM order_items oi
+                JOIN products p ON oi.product_id = p.id
+                LEFT JOIN recipes r ON p.id = r.product_id
+                LEFT JOIN recipe_ingredients ri ON r.id = ri.recipe_id
+                LEFT JOIN ingredients i ON ri.ingredient_id = i.id
+                WHERE oi.order_id = $1
+            `, [orderId]);
             
-            const orderQty = parseFloat(item.quantity);
-            const qtyRequired = parseFloat(item.quantity_required) || 0;
-            const wastagePct = parseFloat(item.wastage_percentage) || 0;
-            const cookingLossPct = parseFloat(item.cooking_loss_percentage) || 0;
+            const ingredientMap = new Map();
             
-            const expectedQuantity = qtyRequired * orderQty;
-            const restoredQuantity = expectedQuantity * (1 + wastagePct / 100) * (1 + cookingLossPct / 100);
-            
-            if (ingredientMap.has(item.ingredient_id)) {
-                const existing = ingredientMap.get(item.ingredient_id);
-                existing.restore_quantity += restoredQuantity;
-                existing.ingredient_name = item.ingredient_name;
-                existing.unit = item.unit;
-                existing.unit_cost = item.unit_cost;
-                existing.current_stock = item.current_stock;
-            } else {
-                ingredientMap.set(item.ingredient_id, {
-                    ingredient_id: item.ingredient_id,
-                    ingredient_name: item.ingredient_name,
-                    restore_quantity: restoredQuantity,
-                    unit: item.unit,
-                    unit_cost: item.unit_cost,
-                    current_stock: item.current_stock
-                });
+            for (const item of orderItemsResult.rows) {
+                if (!item.ingredient_id) continue;
+                
+                const orderQty = parseFloat(item.quantity);
+                const qtyRequired = parseFloat(item.quantity_required) || 0;
+                const wastagePct = parseFloat(item.wastage_percentage) || 0;
+                const cookingLossPct = parseFloat(item.cooking_loss_percentage) || 0;
+                
+                const expectedQuantity = qtyRequired * orderQty;
+                const restoredQuantity = expectedQuantity * (1 + wastagePct / 100) * (1 + cookingLossPct / 100);
+                
+                if (ingredientMap.has(item.ingredient_id)) {
+                    const existing = ingredientMap.get(item.ingredient_id);
+                    existing.restore_quantity += restoredQuantity;
+                    existing.ingredient_name = item.ingredient_name;
+                    existing.unit = item.unit;
+                    existing.unit_cost = item.unit_cost;
+                    existing.current_stock = item.current_stock;
+                } else {
+                    ingredientMap.set(item.ingredient_id, {
+                        ingredient_id: item.ingredient_id,
+                        ingredient_name: item.ingredient_name,
+                        restore_quantity: restoredQuantity,
+                        unit: item.unit,
+                        unit_cost: item.unit_cost,
+                        current_stock: item.current_stock
+                    });
+                }
             }
-        }
-        
-        const ingredientIds = Array.from(ingredientMap.keys());
-        
-        if (ingredientIds.length > 0) {
-            const lockResult = await client.query(`
-                SELECT id, quantity, name, unit
-                FROM ingredients
-                WHERE id = ANY($1)
-                  AND company_id = $2
-                  AND branch_id = $3
-                FOR UPDATE
-            `, [ingredientIds, companyId, branchId]);
             
-            for (const row of lockResult.rows) {
-                const ingredientData = ingredientMap.get(row.id);
-                const restoreQty = ingredientData.restore_quantity;
-                const newQuantity = parseFloat(row.quantity) + restoreQty;
+            const ingredientIds = Array.from(ingredientMap.keys());
+            
+            if (ingredientIds.length > 0) {
+                const lockResult = await client.query(`
+                    SELECT id, quantity, name, unit
+                    FROM ingredients
+                    WHERE id = ANY($1)
+                      AND company_id = $2
+                      AND branch_id = $3
+                    FOR UPDATE
+                `, [ingredientIds, companyId, branchId]);
                 
-                await client.query(`
-                    UPDATE ingredients 
-                    SET quantity = $1,
-                        updated_at = NOW()
-                    WHERE id = $2
-                      AND company_id = $3
-                      AND branch_id = $4
-                `, [newQuantity, row.id, companyId, branchId]);
-                
-                await client.query(`
-                    INSERT INTO stock_transactions (
-                        ingredient_id,
-                        order_id,
-                        expected_quantity,
-                        actual_quantity,
-                        wastage_amount,
-                        wastage_percentage,
-                        transaction_type,
-                        notes,
-                        company_id,
-                        branch_id
-                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-                `, [
-                    row.id,
-                    orderId,
-                    restoreQty,
-                    restoreQty,
-                    0,
-                    0,
-                    'order_cancellation',
-                    `Stock restored from cancelled order ${order.order_number}`,
-                    companyId,
-                    branchId
-                ]);
+                for (const row of lockResult.rows) {
+                    const ingredientData = ingredientMap.get(row.id);
+                    const restoreQty = ingredientData.restore_quantity;
+                    const newQuantity = parseFloat(row.quantity) + restoreQty;
+                    
+                    await client.query(`
+                        UPDATE ingredients 
+                        SET quantity = $1,
+                            updated_at = NOW()
+                        WHERE id = $2
+                          AND company_id = $3
+                          AND branch_id = $4
+                    `, [newQuantity, row.id, companyId, branchId]);
+                    
+                    await client.query(`
+                        INSERT INTO stock_transactions (
+                            ingredient_id,
+                            order_id,
+                            expected_quantity,
+                            actual_quantity,
+                            wastage_amount,
+                            wastage_percentage,
+                            transaction_type,
+                            notes,
+                            company_id,
+                            branch_id
+                        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                    `, [
+                        row.id,
+                        orderId,
+                        restoreQty,
+                        restoreQty,
+                        0,
+                        0,
+                        'order_cancellation',
+                        `Stock restored from cancelled order ${order.order_number}`,
+                        companyId,
+                        branchId
+                    ]);
+                }
             }
         }
         
@@ -47020,11 +47433,10 @@ router.put("/:orderId/cancel", authorizeBranch, allowWaiter, async (req, res) =>
         
         res.json({ 
             success: true, 
-            message: "Order cancelled successfully. Stock restored to inventory.",
+            message: "Order cancelled successfully.",
             data: { 
                 order_id: orderId,
-                stock_restored: ingredientIds.length > 0,
-                ingredients_restored: ingredientIds.length
+                stock_restored: wasDeducted
             }
         });
         
@@ -47032,7 +47444,6 @@ router.put("/:orderId/cancel", authorizeBranch, allowWaiter, async (req, res) =>
         await client.query("ROLLBACK");
         console.error("Cancel order error:", error);
 
-        // âœ… FIXED: proper status codes
         if (error.message === "Order not found") {
             return res.status(404).json({ success: false, error: error.message });
         }
@@ -47055,9 +47466,6 @@ router.put("/:orderId/cancel", authorizeBranch, allowWaiter, async (req, res) =>
 });
 
 // ==================== GET ORDER BY ID (MUST BE LAST) ====================
-// This is a catch-all for /:orderId â€” must be defined AFTER all specific routes
-// like /my-orders, /pending-confirmation, /ready, /table/:tableId, etc.,
-// otherwise it shadows them.
 router.get("/:orderId", authorizeBranch, allowWaiter, async (req, res) => {
     const { orderId } = req.params;
     const branchId = req.user.branch_id;

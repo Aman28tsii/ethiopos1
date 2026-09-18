@@ -18,46 +18,65 @@ const requireCompanyId = (req) => {
     return companyId;
 };
 
+// ★ FIX: New helper — products are branch-scoped, so we need the
+// caller's branch_id on every operation, not just company_id.
+// If the token has no branch_id we reject rather than guess.
+const requireBranchId = (req) => {
+    const branchId = req.user?.branch_id;
+    if (!branchId) {
+        throw new AppError('Branch context required', 401, 'MISSING_BRANCH_CONTEXT');
+    }
+    return branchId;
+};
+
 // ============================================
-// GET ALL PRODUCTS (Authenticated, company-scoped)
+// GET ALL PRODUCTS (Authenticated, branch-scoped)
 // ============================================
 export const getAllProducts = catchAsync(async (req, res) => {
     const { limit = 100, offset = 0 } = req.pagination || {};
     const companyId = requireCompanyId(req);
+    const branchId  = requireBranchId(req);  // ★ FIX
 
+    // ★ FIX: added `AND branch_id = $2`. Params shift by one.
     const result = await query(
-        `SELECT id, name, price, category, description, is_available, company_id 
-         FROM products 
-         WHERE company_id = $1 AND is_available = true 
-         ORDER BY name 
-         LIMIT $2 OFFSET $3`,
-        [companyId, limit, offset]
+        `SELECT id, name, price, category, description, is_available, company_id, branch_id
+         FROM products
+         WHERE company_id = $1
+           AND branch_id  = $2
+           AND is_available = true
+         ORDER BY name
+         LIMIT $3 OFFSET $4`,
+        [companyId, branchId, limit, offset]
     );
     res.json({ success: true, data: result.rows });
 });
 
 // ============================================
-// GET ALL PRODUCTS ADMIN VIEW (Authenticated, company-scoped)
+// GET ALL PRODUCTS ADMIN VIEW (Authenticated, branch-scoped)
 // ============================================
 export const getAllProductsAdmin = catchAsync(async (req, res) => {
     const companyId = requireCompanyId(req);
+    const branchId  = requireBranchId(req);  // ★ FIX
 
+    // ★ FIX: added `AND branch_id = $2`.
     const result = await query(
-        `SELECT id, name, price, category, description, is_available, company_id, created_at 
-         FROM products 
-         WHERE company_id = $1 
+        `SELECT id, name, price, category, description, is_available, company_id, branch_id, created_at
+         FROM products
+         WHERE company_id = $1
+           AND branch_id  = $2
          ORDER BY name`,
-        [companyId]
+        [companyId, branchId]
     );
     res.json({ success: true, data: result.rows });
 });
 
 // ============================================
-// GET PRODUCT BY ID (Authenticated, company-scoped)
+// GET PRODUCT BY ID (Authenticated, branch-scoped)
 // ============================================
 export const getProductById = catchAsync(async (req, res) => {
     const { id } = req.params;
     const companyId = requireCompanyId(req);
+    const branchId  = requireBranchId(req);  // ★ FIX
 
     // Reject non-numeric IDs explicitly
     const numericId = parseInt(id, 10);
@@ -65,11 +84,15 @@ export const getProductById = catchAsync(async (req, res) => {
         throw new AppError('Invalid product ID', 400);
     }
 
+    // ★ FIX: added `AND branch_id = $3`. Params shifted.
     const result = await query(
-        `SELECT id, name, price, category, description, is_available, company_id 
-         FROM products 
-         WHERE id = $1 AND company_id = $2 AND is_available = true`,
-        [numericId, companyId]
+        `SELECT id, name, price, category, description, is_available, company_id, branch_id
+         FROM products
+         WHERE id = $1
+           AND company_id = $2
+           AND branch_id  = $3
+           AND is_available = true`,
+        [numericId, companyId, branchId]
     );
     if (result.rows.length === 0) {
         throw new AppError('Product not found', 404);
@@ -78,16 +101,21 @@ export const getProductById = catchAsync(async (req, res) => {
 });
 
 // ============================================
-// GET CATEGORIES (Authenticated, company-scoped)
+// GET CATEGORIES (Authenticated, branch-scoped)
 // ============================================
 export const getCategories = catchAsync(async (req, res) => {
     const companyId = requireCompanyId(req);
+    const branchId  = requireBranchId(req);  // ★ FIX
 
+    // ★ FIX: added `AND branch_id = $2`.
     const result = await query(
-        `SELECT DISTINCT category FROM products 
-         WHERE company_id = $1 AND is_available = true AND category IS NOT NULL 
+        `SELECT DISTINCT category FROM products
+         WHERE company_id = $1
+           AND branch_id  = $2
+           AND is_available = true
+           AND category IS NOT NULL
          ORDER BY category`,
-        [companyId]
+        [companyId, branchId]
     );
 
     res.json({ success: true, data: result.rows.map(r => r.category) });
@@ -97,8 +125,9 @@ export const getCategories = catchAsync(async (req, res) => {
 // GET PUBLIC PRODUCTS BY TABLE (NO AUTH — QR MENU ONLY)
 //
 // The customer scans a QR code that contains a table ID.
-// We look up the table, derive its company_id, and return only
-// products owned by that company. There is NO default tenant.
+// We look up the table, derive its company_id AND branch_id,
+// and return only products owned by that company+branch.
+// There is NO default tenant.
 // ============================================
 export const getPublicProductsByTable = catchAsync(async (req, res) => {
     const { tableId } = req.query;
@@ -108,14 +137,13 @@ export const getPublicProductsByTable = catchAsync(async (req, res) => {
         throw new AppError('tableId is required', 400);
     }
 
-    // 2. tableId must be a positive integer (no SQL injection risk
-    //    because we also parameterize, but we reject garbage early)
+    // 2. tableId must be a positive integer
     const numericTableId = parseInt(tableId, 10);
     if (!Number.isFinite(numericTableId) || numericTableId <= 0) {
         throw new AppError('Invalid tableId', 400);
     }
 
-    // 3. Look up the table (this is the ONLY source of truth for tenant)
+    // 3. Look up the table (the ONLY source of truth for tenant)
     const tableResult = await query(
         `SELECT id, company_id, branch_id, table_number, status
          FROM tables
@@ -129,18 +157,23 @@ export const getPublicProductsByTable = catchAsync(async (req, res) => {
 
     const table = tableResult.rows[0];
 
-    // Defensive: a table must always have a company_id
+    // Defensive: a table must always have a company_id and branch_id
     if (!table.company_id) {
         throw new AppError('Table has no company context', 500);
     }
+    if (!table.branch_id) {
+        throw new AppError('Table has no branch context', 500);
+    }
 
-    // 4. Return ONLY available products for that table's company
+    // ★ FIX: now also filters by branch_id derived from the table.
     const productsResult = await query(
         `SELECT id, name, price, category, description, is_available
          FROM products
-         WHERE company_id = $1 AND is_available = true
+         WHERE company_id = $1
+           AND branch_id  = $2
+           AND is_available = true
          ORDER BY name`,
-        [table.company_id]
+        [table.company_id, table.branch_id]
     );
 
     res.json({
@@ -157,21 +190,23 @@ export const getPublicProductsByTable = catchAsync(async (req, res) => {
 });
 
 // ============================================
-// CREATE PRODUCT (Authenticated, owner-scoped)
+// CREATE PRODUCT (Authenticated, owner-scoped, branch-scoped)
 // ============================================
 export const createProduct = catchAsync(async (req, res) => {
     const { name, price, category, description } = req.body;
     const companyId = requireCompanyId(req);
+    const branchId  = requireBranchId(req);  // ★ FIX
 
     if (!name || !price) {
         throw new AppError('Name and price are required', 400);
     }
 
+    // ★ FIX: INSERT now includes branch_id from the JWT.
     const result = await query(
-        `INSERT INTO products (company_id, name, price, category, description, is_available) 
-         VALUES ($1, $2, $3, $4, $5, true) 
-         RETURNING id, name, price, category, description, is_available, company_id`,
-        [companyId, name.trim(), price, category || null, description || null]
+        `INSERT INTO products (company_id, branch_id, name, price, category, description, is_available)
+         VALUES ($1, $2, $3, $4, $5, $6, true)
+         RETURNING id, name, price, category, description, is_available, company_id, branch_id`,
+        [companyId, branchId, name.trim(), price, category || null, description || null]
     );
 
     res.status(201).json({
@@ -182,29 +217,33 @@ export const createProduct = catchAsync(async (req, res) => {
 });
 
 // ============================================
-// UPDATE PRODUCT (Authenticated, owner-scoped)
+// UPDATE PRODUCT (Authenticated, owner-scoped, branch-scoped)
 // ============================================
 export const updateProduct = catchAsync(async (req, res) => {
     const { id } = req.params;
     const { name, price, category, is_available, description } = req.body;
     const companyId = requireCompanyId(req);
+    const branchId  = requireBranchId(req);  // ★ FIX
 
     const numericId = parseInt(id, 10);
     if (!Number.isFinite(numericId) || numericId <= 0) {
         throw new AppError('Invalid product ID', 400);
     }
 
+    // ★ FIX: added `AND branch_id = $8`. Params shifted.
     const result = await query(
-        `UPDATE products 
-         SET name = COALESCE($1, name), 
-             price = COALESCE($2, price), 
-             category = COALESCE($3, category), 
+        `UPDATE products
+         SET name = COALESCE($1, name),
+             price = COALESCE($2, price),
+             category = COALESCE($3, category),
              is_available = COALESCE($4, is_available),
              description = COALESCE($5, description),
              updated_at = CURRENT_TIMESTAMP
-         WHERE id = $6 AND company_id = $7
-         RETURNING id, name, price, category, is_available, description, company_id`,
-        [name, price, category, is_available, description, numericId, companyId]
+         WHERE id = $6
+           AND company_id = $7
+           AND branch_id  = $8
+         RETURNING id, name, price, category, is_available, description, company_id, branch_id`,
+        [name, price, category, is_available, description, numericId, companyId, branchId]
     );
 
     if (result.rows.length === 0) {
@@ -219,22 +258,26 @@ export const updateProduct = catchAsync(async (req, res) => {
 });
 
 // ============================================
-// DELETE PRODUCT (Soft delete — Authenticated, owner-scoped)
+// DELETE PRODUCT (Soft delete — Authenticated, owner-scoped, branch-scoped)
 // ============================================
 export const deleteProduct = catchAsync(async (req, res) => {
     const { id } = req.params;
     const companyId = requireCompanyId(req);
+    const branchId  = requireBranchId(req);  // ★ FIX
 
     const numericId = parseInt(id, 10);
     if (!Number.isFinite(numericId) || numericId <= 0) {
         throw new AppError('Invalid product ID', 400);
     }
 
+    // ★ FIX: added `AND branch_id = $3`. Params shifted.
     const result = await query(
-        `UPDATE products SET is_available = false 
-         WHERE id = $1 AND company_id = $2 
+        `UPDATE products SET is_available = false
+         WHERE id = $1
+           AND company_id = $2
+           AND branch_id  = $3
          RETURNING id`,
-        [numericId, companyId]
+        [numericId, companyId, branchId]
     );
 
     if (result.rows.length === 0) {
