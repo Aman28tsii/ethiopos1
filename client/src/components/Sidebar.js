@@ -10,6 +10,7 @@ import {
   Utensils, Building2  // ADDED Building2
 } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
+import Branding from './Branding';
 
 const Sidebar = ({ user, onLogout }) => {
   const { t } = useLanguage();
@@ -131,10 +132,17 @@ const Sidebar = ({ user, onLogout }) => {
       >
         <div className={`p-6 border-b border-gray-200 dark:border-gray-800 ${isCollapsed && !isMobile ? 'px-4' : ''}`}>
           <div className={`flex items-center ${isCollapsed && !isMobile ? 'justify-center' : 'gap-3'}`}>
-            <Store className="text-blue-600 dark:text-blue-500 flex-shrink-0" size={32} />
+            {isCollapsed && !isMobile ? (
+              <Store className="text-blue-600 dark:text-blue-500 flex-shrink-0" size={32} />
+            ) : (
+              <Branding
+                user={user}
+                size={32}
+                nameClassName="text-xl font-bold text-gray-900 dark:text-white"
+              />
+            )}
             {(!isCollapsed || isMobile) && (
               <div>
-                <h1 className="text-xl font-bold text-gray-900 dark:text-white">EthioPOS</h1>
                 <p className="text-xs text-gray-500 dark:text-gray-400 capitalize">{t(userRole)}</p>
               </div>
             )}

@@ -186,7 +186,7 @@ export const getCompanyInfo = catchAsync(async (req, res) => {
     }
 
     const companyResult = await query(
-        'SELECT id, name, created_at, updated_at FROM companies WHERE id = $1',
+        'SELECT id, name, logo_url, created_at, updated_at FROM companies WHERE id = $1',
         [companyId]
     );
 
@@ -240,5 +240,63 @@ export const listCompanies = catchAsync(async (req, res) => {
     res.json({
         success: true,
         data: result.rows
+    });
+});
+
+// ============================================================
+// UPDATE COMPANY BRANDING (Owner only, tenant-scoped)
+// Accepts { logo_url }. Company name is intentionally not editable
+// here — we reuse the existing name field. Only the logo changes.
+// The :id in the URL is validated against req.user.company_id;
+// a caller can never modify another tenant's branding.
+// ============================================================
+export const updateCompanyBranding = catchAsync(async (req, res) => {
+    const { id } = req.params;
+    const numericId = parseInt(id, 10);
+
+    if (!Number.isFinite(numericId) || numericId <= 0) {
+        throw new AppError('Invalid company ID', 400);
+    }
+
+    if (numericId !== req.user?.company_id) {
+        throw new AppError('Company not found', 404);
+    }
+
+    const { logo_url } = req.body || {};
+
+    if (logo_url !== null && logo_url !== undefined && typeof logo_url !== 'string') {
+        throw new AppError('logo_url must be a string or null', 400);
+    }
+
+    let normalizedLogoUrl = null;
+    if (typeof logo_url === 'string') {
+        const trimmed = logo_url.trim();
+        if (trimmed.length > 0) {
+            if (trimmed.length > 2048) {
+                throw new AppError('logo_url is too long', 400);
+            }
+            normalizedLogoUrl = trimmed;
+        }
+    }
+
+    const result = await query(
+        `UPDATE companies
+            SET logo_url = $1,
+                updated_at = CURRENT_TIMESTAMP
+          WHERE id = $2
+          RETURNING id, name, logo_url, updated_at`,
+        [normalizedLogoUrl, numericId]
+    );
+
+    if (result.rows.length === 0) {
+        throw new AppError('Company not found', 404);
+    }
+
+    res.json({
+        success: true,
+        message: 'Branding updated successfully',
+        data: {
+            company: result.rows[0]
+        }
     });
 });

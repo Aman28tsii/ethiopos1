@@ -108,11 +108,24 @@ function App() {
     }
   }, [isAuthenticated]);
 
+  // Keep the browser tab title in sync with the tenant's name.
+  useEffect(() => {
+    const name = (user && (user.company_name || user.companyName)) || 'EthioPOS';
+    document.title = String(name);
+  }, [user]);
+
   const handleLogin = useCallback((userData, token) => {
+    const enriched = { ...userData };
+    if (enriched.company_name === undefined && enriched.companyName !== undefined) {
+      enriched.company_name = enriched.companyName;
+    }
+    if (enriched.company_logo_url === undefined && enriched.companyLogoUrl !== undefined) {
+      enriched.company_logo_url = enriched.companyLogoUrl;
+    }
     localStorage.setItem('token', token);
-    localStorage.setItem('user', JSON.stringify(userData));
+    localStorage.setItem('user', JSON.stringify(enriched));
     setIsAuthenticated(true);
-    setUser(userData);
+    setUser(enriched);
   }, []);
 
   const handleLogout = useCallback(() => {

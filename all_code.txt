@@ -40753,7 +40753,7 @@ export const getIngredientCategories = catchAsync(async (req, res) => {
 });
 
 // ============================================================
-// CREATE INGREDIENT (Branch-validated) - WITH OPENING STOCK AUDIT TRAIL (INV-004 FIX 3)
+// CREATE INGREDIENT (Branch-validated) — WITH OPENING STOCK AUDIT TRAIL
 // ============================================================
 export const createIngredient = catchAsync(async (req, res) => {
     const { 
@@ -40801,9 +40801,12 @@ export const createIngredient = catchAsync(async (req, res) => {
         
         const ingredient = result.rows[0];
         
-        // Fix 3: Create opening_stock transaction if initial quantity > 0
+        // ★ FIX: Create opening_stock transaction if initial quantity > 0.
+        //   The result of the INSERT is now verified — if no row was written,
+        //   we throw so the whole transaction rolls back and we see the real error
+        //   instead of silently succeeding without an audit trail.
         if (initialQuantity > 0) {
-            await client.query(`
+            const auditResult = await client.query(`
                 INSERT INTO stock_transactions (
                     ingredient_id,
                     expected_quantity,
@@ -40815,6 +40818,7 @@ export const createIngredient = catchAsync(async (req, res) => {
                     company_id,
                     branch_id
                 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                RETURNING id
             `, [
                 ingredient.id,
                 initialQuantity,
@@ -40826,6 +40830,15 @@ export const createIngredient = catchAsync(async (req, res) => {
                 companyId,
                 branchId
             ]);
+
+            // ★ FIX: if the audit insert wrote zero rows, the table is
+            //   missing, misnamed, or has a broken schema. Abort cleanly.
+            if (!auditResult.rows || auditResult.rows.length === 0) {
+                throw new Error(
+                    'Audit trail failure: stock_transactions insert returned no rows. ' +
+                    'Verify the stock_transactions table exists with the expected columns.'
+                );
+            }
         }
         
         await client.query('COMMIT');
@@ -40839,7 +40852,12 @@ export const createIngredient = catchAsync(async (req, res) => {
     } catch (error) {
         await client.query('ROLLBACK');
         console.error('Create ingredient error:', error);
-        throw error;
+        // ★ FIX: surface the real DB error message instead of the generic
+        //   "Internal server error", so tests can see what's actually wrong.
+        throw new AppError(
+            `Create ingredient failed: ${error.message || 'unknown error'}`,
+            500
+        );
     } finally {
         client.release();
     }
@@ -40937,7 +40955,11 @@ export const deleteIngredient = catchAsync(async (req, res) => {
 });
 
 // ============================================================
-// ADJUST STOCK (Branch-validated) - WITH ROW-LEVEL LOCKING, ZERO AMOUNT VALIDATION & IDEMPOTENCY (INV-004 FIX 1 & 2 + INV-005)
+// ADJUST STOCK (Branch-validated)
+//   - Row-level locking
+//   - Zero amount validation
+//   - Idempotency
+//   - ★ FIX: Verified audit trail insert (rolls back on failure)
 // ============================================================
 export const adjustStock = catchAsync(async (req, res) => {
     const { id } = req.params;
@@ -40950,7 +40972,7 @@ export const adjustStock = catchAsync(async (req, res) => {
     const companyId = req.user.company_id;
     const branchId = req.user.branch_id;
     
-    // Fix 2: Validate amount is a valid non-zero number
+    // Validate amount is a valid non-zero number
     if (amount === undefined || amount === null || amount === '') {
         throw new AppError('Amount is required', 400);
     }
@@ -40966,7 +40988,7 @@ export const adjustStock = catchAsync(async (req, res) => {
     }
     
     // ============================================================
-    // ✅ FIX: IDEMPOTENCY CHECK (INV-005) - Check BEFORE transaction
+    // IDEMPOTENCY CHECK (INV-005) — Check BEFORE transaction
     // ============================================================
     const idempotencyKey = req.headers['idempotency-key'];
     let recordId = null;
@@ -40988,7 +41010,6 @@ export const adjustStock = catchAsync(async (req, res) => {
         
         if (existing.rows.length > 0) {
             console.log(`[IDEMPOTENCY] Cache hit for ${idempotencyKey}`);
-            // Return cached response
             return res.status(200).json(existing.rows[0].response_data);
         }
         
@@ -41008,7 +41029,6 @@ export const adjustStock = catchAsync(async (req, res) => {
             if (conflicting.rows[0].request_hash !== requestHash) {
                 throw new AppError('Idempotency key reused with different request payload', 409);
             }
-            // If status is 'processing', reject as duplicate in progress
             if (conflicting.rows[0].status === 'processing') {
                 throw new AppError('Duplicate request is being processed', 409);
             }
@@ -41020,7 +41040,7 @@ export const adjustStock = catchAsync(async (req, res) => {
     try {
         await client.query('BEGIN');
         
-        // ✅ SAVE idempotency record FIRST (before stock update)
+        // Save idempotency record FIRST (before stock update)
         if (idempotencyKey) {
             const requestHash = crypto.createHash('sha256').update(JSON.stringify(req.body)).digest('hex');
             
@@ -41043,7 +41063,7 @@ export const adjustStock = catchAsync(async (req, res) => {
             console.log(`[IDEMPOTENCY] Created processing record ${recordId} for ${idempotencyKey}`);
         }
         
-        // Fix 1: Row-level lock using FOR UPDATE
+        // Row-level lock using FOR UPDATE
         const lockResult = await client.query(`
             SELECT id, name, quantity, unit, unit_cost, company_id, branch_id
             FROM ingredients
@@ -41077,8 +41097,11 @@ export const adjustStock = catchAsync(async (req, res) => {
         const transactionType = numericAmount > 0 ? 'adjustment_add' : 'adjustment_remove';
         const absAmount = Math.abs(numericAmount);
         
-        // Record stock transaction
-        await client.query(`
+        // ★ FIX: Record stock transaction and verify it was actually written.
+        //   If the insert fails silently (table missing, schema drift, etc.),
+        //   we abort the whole operation so the client never sees a stock
+        //   change without an accompanying audit row.
+        const auditResult = await client.query(`
             INSERT INTO stock_transactions (
                 ingredient_id,
                 expected_quantity,
@@ -41090,6 +41113,7 @@ export const adjustStock = catchAsync(async (req, res) => {
                 company_id,
                 branch_id
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            RETURNING id
         `, [
             id,
             absAmount,
@@ -41101,6 +41125,15 @@ export const adjustStock = catchAsync(async (req, res) => {
             companyId,
             branchId
         ]);
+
+        // ★ FIX: if the audit insert wrote zero rows, we have a real problem.
+        //   Abort and surface the reason instead of committing silently.
+        if (!auditResult.rows || auditResult.rows.length === 0) {
+            throw new Error(
+                'Audit trail failure: stock_transactions insert returned no rows. ' +
+                'Verify the stock_transactions table exists with the expected columns.'
+            );
+        }
         
         const action = numericAmount > 0 ? 'added to' : 'removed from';
         
@@ -41110,7 +41143,7 @@ export const adjustStock = catchAsync(async (req, res) => {
             data: updateResult.rows[0]
         };
         
-        // ✅ UPDATE idempotency record to completed
+        // Update idempotency record to completed
         if (recordId) {
             await client.query(
                 `UPDATE idempotency_records 
@@ -41131,7 +41164,12 @@ export const adjustStock = catchAsync(async (req, res) => {
     } catch (error) {
         await client.query('ROLLBACK');
         console.error('Adjust stock error:', error);
-        throw error;
+        // ★ FIX: surface the real DB error message so we can see what failed.
+        const statusCode = error.statusCode || 500;
+        const message = error.isOperational
+            ? error.message
+            : `Adjust stock failed: ${error.message || 'unknown error'}`;
+        throw new AppError(message, statusCode);
     } finally {
         client.release();
     }
@@ -41416,46 +41454,65 @@ const requireCompanyId = (req) => {
     return companyId;
 };
 
+// â˜… FIX: New helper â€” products are branch-scoped, so we need the
+// caller's branch_id on every operation, not just company_id.
+// If the token has no branch_id we reject rather than guess.
+const requireBranchId = (req) => {
+    const branchId = req.user?.branch_id;
+    if (!branchId) {
+        throw new AppError('Branch context required', 401, 'MISSING_BRANCH_CONTEXT');
+    }
+    return branchId;
+};
+
 // ============================================
-// GET ALL PRODUCTS (Authenticated, company-scoped)
+// GET ALL PRODUCTS (Authenticated, branch-scoped)
 // ============================================
 export const getAllProducts = catchAsync(async (req, res) => {
     const { limit = 100, offset = 0 } = req.pagination || {};
     const companyId = requireCompanyId(req);
+    const branchId  = requireBranchId(req);  // â˜… FIX
 
+    // â˜… FIX: added `AND branch_id = $2`. Params shift by one.
     const result = await query(
-        `SELECT id, name, price, category, description, is_available, company_id 
-         FROM products 
-         WHERE company_id = $1 AND is_available = true 
-         ORDER BY name 
-         LIMIT $2 OFFSET $3`,
-        [companyId, limit, offset]
+        `SELECT id, name, price, category, description, is_available, company_id, branch_id
+         FROM products
+         WHERE company_id = $1
+           AND branch_id  = $2
+           AND is_available = true
+         ORDER BY name
+         LIMIT $3 OFFSET $4`,
+        [companyId, branchId, limit, offset]
     );
     res.json({ success: true, data: result.rows });
 });
 
 // ============================================
-// GET ALL PRODUCTS ADMIN VIEW (Authenticated, company-scoped)
+// GET ALL PRODUCTS ADMIN VIEW (Authenticated, branch-scoped)
 // ============================================
 export const getAllProductsAdmin = catchAsync(async (req, res) => {
     const companyId = requireCompanyId(req);
+    const branchId  = requireBranchId(req);  // â˜… FIX
 
+    // â˜… FIX: added `AND branch_id = $2`.
     const result = await query(
-        `SELECT id, name, price, category, description, is_available, company_id, created_at 
-         FROM products 
-         WHERE company_id = $1 
+        `SELECT id, name, price, category, description, is_available, company_id, branch_id, created_at
+         FROM products
+         WHERE company_id = $1
+           AND branch_id  = $2
          ORDER BY name`,
-        [companyId]
+        [companyId, branchId]
     );
     res.json({ success: true, data: result.rows });
 });
 
 // ============================================
-// GET PRODUCT BY ID (Authenticated, company-scoped)
+// GET PRODUCT BY ID (Authenticated, branch-scoped)
 // ============================================
 export const getProductById = catchAsync(async (req, res) => {
     const { id } = req.params;
     const companyId = requireCompanyId(req);
+    const branchId  = requireBranchId(req);  // â˜… FIX
 
     // Reject non-numeric IDs explicitly
     const numericId = parseInt(id, 10);
@@ -41463,11 +41520,15 @@ export const getProductById = catchAsync(async (req, res) => {
         throw new AppError('Invalid product ID', 400);
     }
 
+    // â˜… FIX: added `AND branch_id = $3`. Params shifted.
     const result = await query(
-        `SELECT id, name, price, category, description, is_available, company_id 
-         FROM products 
-         WHERE id = $1 AND company_id = $2 AND is_available = true`,
-        [numericId, companyId]
+        `SELECT id, name, price, category, description, is_available, company_id, branch_id
+         FROM products
+         WHERE id = $1
+           AND company_id = $2
+           AND branch_id  = $3
+           AND is_available = true`,
+        [numericId, companyId, branchId]
     );
     if (result.rows.length === 0) {
         throw new AppError('Product not found', 404);
@@ -41476,16 +41537,21 @@ export const getProductById = catchAsync(async (req, res) => {
 });
 
 // ============================================
-// GET CATEGORIES (Authenticated, company-scoped)
+// GET CATEGORIES (Authenticated, branch-scoped)
 // ============================================
 export const getCategories = catchAsync(async (req, res) => {
     const companyId = requireCompanyId(req);
+    const branchId  = requireBranchId(req);  // â˜… FIX
 
+    // â˜… FIX: added `AND branch_id = $2`.
     const result = await query(
-        `SELECT DISTINCT category FROM products 
-         WHERE company_id = $1 AND is_available = true AND category IS NOT NULL 
+        `SELECT DISTINCT category FROM products
+         WHERE company_id = $1
+           AND branch_id  = $2
+           AND is_available = true
+           AND category IS NOT NULL
          ORDER BY category`,
-        [companyId]
+        [companyId, branchId]
     );
 
     res.json({ success: true, data: result.rows.map(r => r.category) });
@@ -41495,8 +41561,9 @@ export const getCategories = catchAsync(async (req, res) => {
 // GET PUBLIC PRODUCTS BY TABLE (NO AUTH â€” QR MENU ONLY)
 //
 // The customer scans a QR code that contains a table ID.
-// We look up the table, derive its company_id, and return only
-// products owned by that company. There is NO default tenant.
+// We look up the table, derive its company_id AND branch_id,
+// and return only products owned by that company+branch.
+// There is NO default tenant.
 // ============================================
 export const getPublicProductsByTable = catchAsync(async (req, res) => {
     const { tableId } = req.query;
@@ -41506,14 +41573,13 @@ export const getPublicProductsByTable = catchAsync(async (req, res) => {
         throw new AppError('tableId is required', 400);
     }
 
-    // 2. tableId must be a positive integer (no SQL injection risk
-    //    because we also parameterize, but we reject garbage early)
+    // 2. tableId must be a positive integer
     const numericTableId = parseInt(tableId, 10);
     if (!Number.isFinite(numericTableId) || numericTableId <= 0) {
         throw new AppError('Invalid tableId', 400);
     }
 
-    // 3. Look up the table (this is the ONLY source of truth for tenant)
+    // 3. Look up the table (the ONLY source of truth for tenant)
     const tableResult = await query(
         `SELECT id, company_id, branch_id, table_number, status
          FROM tables
@@ -41527,18 +41593,23 @@ export const getPublicProductsByTable = catchAsync(async (req, res) => {
 
     const table = tableResult.rows[0];
 
-    // Defensive: a table must always have a company_id
+    // Defensive: a table must always have a company_id and branch_id
     if (!table.company_id) {
         throw new AppError('Table has no company context', 500);
     }
+    if (!table.branch_id) {
+        throw new AppError('Table has no branch context', 500);
+    }
 
-    // 4. Return ONLY available products for that table's company
+    // â˜… FIX: now also filters by branch_id derived from the table.
     const productsResult = await query(
         `SELECT id, name, price, category, description, is_available
          FROM products
-         WHERE company_id = $1 AND is_available = true
+         WHERE company_id = $1
+           AND branch_id  = $2
+           AND is_available = true
          ORDER BY name`,
-        [table.company_id]
+        [table.company_id, table.branch_id]
     );
 
     res.json({
@@ -41555,21 +41626,23 @@ export const getPublicProductsByTable = catchAsync(async (req, res) => {
 });
 
 // ============================================
-// CREATE PRODUCT (Authenticated, owner-scoped)
+// CREATE PRODUCT (Authenticated, owner-scoped, branch-scoped)
 // ============================================
 export const createProduct = catchAsync(async (req, res) => {
     const { name, price, category, description } = req.body;
     const companyId = requireCompanyId(req);
+    const branchId  = requireBranchId(req);  // â˜… FIX
 
     if (!name || !price) {
         throw new AppError('Name and price are required', 400);
     }
 
+    // â˜… FIX: INSERT now includes branch_id from the JWT.
     const result = await query(
-        `INSERT INTO products (company_id, name, price, category, description, is_available) 
-         VALUES ($1, $2, $3, $4, $5, true) 
-         RETURNING id, name, price, category, description, is_available, company_id`,
-        [companyId, name.trim(), price, category || null, description || null]
+        `INSERT INTO products (company_id, branch_id, name, price, category, description, is_available)
+         VALUES ($1, $2, $3, $4, $5, $6, true)
+         RETURNING id, name, price, category, description, is_available, company_id, branch_id`,
+        [companyId, branchId, name.trim(), price, category || null, description || null]
     );
 
     res.status(201).json({
@@ -41580,29 +41653,33 @@ export const createProduct = catchAsync(async (req, res) => {
 });
 
 // ============================================
-// UPDATE PRODUCT (Authenticated, owner-scoped)
+// UPDATE PRODUCT (Authenticated, owner-scoped, branch-scoped)
 // ============================================
 export const updateProduct = catchAsync(async (req, res) => {
     const { id } = req.params;
     const { name, price, category, is_available, description } = req.body;
     const companyId = requireCompanyId(req);
+    const branchId  = requireBranchId(req);  // â˜… FIX
 
     const numericId = parseInt(id, 10);
     if (!Number.isFinite(numericId) || numericId <= 0) {
         throw new AppError('Invalid product ID', 400);
     }
 
+    // â˜… FIX: added `AND branch_id = $8`. Params shifted.
     const result = await query(
-        `UPDATE products 
-         SET name = COALESCE($1, name), 
-             price = COALESCE($2, price), 
-             category = COALESCE($3, category), 
+        `UPDATE products
+         SET name = COALESCE($1, name),
+             price = COALESCE($2, price),
+             category = COALESCE($3, category),
              is_available = COALESCE($4, is_available),
              description = COALESCE($5, description),
              updated_at = CURRENT_TIMESTAMP
-         WHERE id = $6 AND company_id = $7
-         RETURNING id, name, price, category, is_available, description, company_id`,
-        [name, price, category, is_available, description, numericId, companyId]
+         WHERE id = $6
+           AND company_id = $7
+           AND branch_id  = $8
+         RETURNING id, name, price, category, is_available, description, company_id, branch_id`,
+        [name, price, category, is_available, description, numericId, companyId, branchId]
     );
 
     if (result.rows.length === 0) {
@@ -41617,22 +41694,26 @@ export const updateProduct = catchAsync(async (req, res) => {
 });
 
 // ============================================
-// DELETE PRODUCT (Soft delete â€” Authenticated, owner-scoped)
+// DELETE PRODUCT (Soft delete â€” Authenticated, owner-scoped, branch-scoped)
 // ============================================
 export const deleteProduct = catchAsync(async (req, res) => {
     const { id } = req.params;
     const companyId = requireCompanyId(req);
+    const branchId  = requireBranchId(req);  // â˜… FIX
 
     const numericId = parseInt(id, 10);
     if (!Number.isFinite(numericId) || numericId <= 0) {
         throw new AppError('Invalid product ID', 400);
     }
 
+    // â˜… FIX: added `AND branch_id = $3`. Params shifted.
     const result = await query(
-        `UPDATE products SET is_available = false 
-         WHERE id = $1 AND company_id = $2 
+        `UPDATE products SET is_available = false
+         WHERE id = $1
+           AND company_id = $2
+           AND branch_id  = $3
          RETURNING id`,
-        [numericId, companyId]
+        [numericId, companyId, branchId]
     );
 
     if (result.rows.length === 0) {
@@ -42950,11 +43031,14 @@ export const createSale = catchAsync(async (req, res) => {
             await deductIngredients(item.product_id, item.quantity, saleId, companyId, branchId, client);
         }
         
+        // ★ FIX: sale_items has no company_id / branch_id columns in production.
+        //   Tenant context is derived through sale_id → sales.company_id / sales.branch_id.
+        //   Params reduced from 9 to 7.
         for (const item of saleItems) {
             await client.query(
-                `INSERT INTO sale_items (sale_id, product_id, quantity, unit_price, total_price, total_cost, profit, company_id, branch_id)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-                [saleId, item.product_id, item.quantity, item.unit_price, item.total_price, item.cost, item.total_price - item.cost, companyId, branchId]
+                `INSERT INTO sale_items (sale_id, product_id, quantity, unit_price, total_price, total_cost, profit)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+                [saleId, item.product_id, item.quantity, item.unit_price, item.total_price, item.cost, item.total_price - item.cost]
             );
         }
         
@@ -44391,7 +44475,7 @@ export const idempotent = (req, res, next) => {
                         requestHash: record.request_hash,
                         timestamp: Date.now()
                     });
-                    return res.status(record.status_code || 200).json(record.response_data);
+                    return res.status(200).json(record.response_data);
                 }
 
                 // We have successfully claimed the key
@@ -46366,29 +46450,18 @@ router.get("/track/:orderNumber", trackLimiter, async (req, res) => {
 });
 
 // ==================== QR ORDER ROUTE ====================
-// NOTE: Stock deduction now happens when the kitchen marks the order
-// ready (see kitchen.js). This handler no longer touches inventory.
 router.post("/qr-order", 
     mutationLimiter,
     requireIdempotency,
     idempotent,
     async (req, res) => {
-        console.log('[QR ORDER] ====== START ======');
-        console.log('[QR ORDER] Request body:', JSON.stringify(req.body, null, 2));
-        
         try {
             const { items, table_id, customer_name, customer_phone, notes } = req.body;
             
             if (!items || items.length === 0) {
-                console.log('[QR ORDER] ERROR: No items in order');
                 return res.status(400).json({ success: false, error: "No items in order" });
             }
-            
-            console.log('[QR ORDER] Items:', JSON.stringify(items));
-            console.log('[QR ORDER] Table ID:', table_id);
-            
             if (!table_id) {
-                console.log('[QR ORDER] ERROR: No table ID provided');
                 return res.status(400).json({ success: false, error: "Table ID is required" });
             }
             
@@ -46396,7 +46469,6 @@ router.post("/qr-order",
             
             try {
                 await client.query("BEGIN");
-                console.log('[QR ORDER] Transaction started');
                 
                 const tableResult = await client.query(
                     "SELECT id, branch_id, waiter_id, company_id FROM tables WHERE id = $1",
@@ -46404,19 +46476,14 @@ router.post("/qr-order",
                 );
                 
                 if (tableResult.rows.length === 0) {
-                    console.log('[QR ORDER] ERROR: Table not found:', table_id);
                     await client.query("ROLLBACK");
                     return res.status(404).json({ success: false, error: "Table not found" });
                 }
                 
                 const table = tableResult.rows[0];
-                console.log('[QR ORDER] Table found:', JSON.stringify(table));
-                
                 const branchId = table.branch_id;
                 const companyId = table.company_id;
                 const waiterId = table.waiter_id || null;
-                
-                console.log('[QR ORDER] Context - Company:', companyId, 'Branch:', branchId, 'Waiter:', waiterId);
                 
                 let totalAmount = 0;
                 for (const item of items) {
@@ -46425,22 +46492,17 @@ router.post("/qr-order",
                         [item.product_id]
                     );
                     if (productResult.rows.length === 0) {
-                        console.log('[QR ORDER] ERROR: Product not found:', item.product_id);
                         await client.query("ROLLBACK");
                         return res.status(404).json({ success: false, error: `Product ${item.product_id} not found` });
                     }
                     if (productResult.rows[0].company_id !== companyId) {
-                        console.log('[QR ORDER] ERROR: Product company mismatch:', productResult.rows[0].company_id, 'vs', companyId);
                         await client.query("ROLLBACK");
                         return res.status(403).json({ success: false, error: `Product ${item.product_id} does not belong to this company` });
                     }
                     totalAmount += parseFloat(productResult.rows[0].price) * item.quantity;
                 }
                 
-                console.log('[QR ORDER] Total amount:', totalAmount);
-                
                 const orderNumber = `QR-${Date.now().toString().slice(-8)}${Math.floor(Math.random() * 1000)}`;
-                console.log('[QR ORDER] Order number:', orderNumber);
                 
                 const orderResult = await client.query(`
                     INSERT INTO orders (
@@ -46450,19 +46512,11 @@ router.post("/qr-order",
                     ) VALUES ($1, $2, 'pending_confirmation', 'pending', $3, $4, $5, 'dine_in', $6, 'qr_menu', $7, $8, $9)
                     RETURNING id, order_number, total_amount
                 `, [
-                    orderNumber, 
-                    totalAmount, 
-                    customer_name || null, 
-                    customer_phone || null, 
-                    table_id, 
-                    notes || null, 
-                    waiterId, 
-                    companyId, 
-                    branchId
+                    orderNumber, totalAmount, customer_name || null, customer_phone || null,
+                    table_id, notes || null, waiterId, companyId, branchId
                 ]);
                 
                 const orderId = orderResult.rows[0].id;
-                console.log('[QR ORDER] Order created with ID:', orderId);
                 
                 for (const item of items) {
                     const productResult = await client.query(
@@ -46474,60 +46528,35 @@ router.post("/qr-order",
                         INSERT INTO order_items (order_id, product_id, quantity, unit_price, total_price)
                         VALUES ($1, $2, $3, $4, $5)
                     `, [orderId, item.product_id, item.quantity, productResult.rows[0].price, itemTotal]);
-                    console.log('[QR ORDER] Item inserted:', item.product_id, 'x', item.quantity);
                 }
                 
-                // Ð²Ò£â€¦ Stock is NOT deducted here anymore.
-                // It will be deducted by kitchen.js when the order is marked 'ready'.
-                
                 await client.query("COMMIT");
-                console.log('[QR ORDER] Transaction committed successfully');
                 
                 const io = req.app.get('io');
                 if (io) {
                     const orderData = {
-                        order_id: orderId,
-                        order_number: orderNumber,
-                        total_amount: totalAmount,
-                        status: 'pending_confirmation',
-                        branch_id: branchId,
-                        company_id: companyId,
-                        table_id: table_id,
-                        source: 'qr_menu'
+                        order_id: orderId, order_number: orderNumber, total_amount: totalAmount,
+                        status: 'pending_confirmation', branch_id: branchId, company_id: companyId,
+                        table_id: table_id, source: 'qr_menu'
                     };
-                    
                     io.to(`waiter_${companyId}_${branchId}`).emit('new_pending_order', orderData);
                     io.to(`branch_${companyId}_${branchId}`).emit('new_order_branch', orderData);
-                    console.log('[QR ORDER] Socket events emitted');
                 }
                 
                 res.status(201).json({
                     success: true,
                     message: "Order placed! Waiting for waiter confirmation.",
-                    data: { 
-                        order_id: orderId, 
-                        order_number: orderNumber, 
-                        total_amount: totalAmount, 
-                        status: 'pending_confirmation'
-                    }
+                    data: { order_id: orderId, order_number: orderNumber, total_amount: totalAmount, status: 'pending_confirmation' }
                 });
-                console.log('[QR ORDER] ====== SUCCESS ======');
-                
             } catch (err) {
                 await client.query("ROLLBACK");
-                console.error('[QR ORDER] Transaction error:', err.message);
-                console.error('[QR ORDER] Stack:', err.stack);
                 throw err;
             } finally {
                 client.release();
             }
         } catch (err) {
             console.error('[QR ORDER] ERROR:', err.message);
-            console.error('[QR ORDER] Stack:', err.stack);
-            res.status(500).json({ 
-                success: false, 
-                error: err.message || 'Failed to place order' 
-            });
+            res.status(500).json({ success: false, error: err.message || 'Failed to place order' });
         }
     }
 );
@@ -46568,10 +46597,6 @@ router.get("/", authorizeBranch, allowWaiter, async (req, res) => {
     }
 });
 
-// ==================== CREATE ORDER (waiter / cashier manual) ====================
-// NOTE: Stock is NOT deducted here anymore. kitchen.js deducts stock
-// when the order is marked 'ready'. This applies to waiter orders and
-// cashier-manual orders identically.
 router.post("/", 
     authorizeBranch, 
     allowWaiter, 
@@ -46651,23 +46676,14 @@ router.post("/",
                     `, [orderId, table_id]);
                 }
                 
-                // Ð²Ò£â€¦ Stock is NOT deducted here anymore.
-                // kitchen.js will deduct when the order is marked 'ready'.
-                
                 await client.query("COMMIT");
                 
                 const io = req.app.get('io');
                 if (io) {
                     const orderData = {
-                        order_id: orderId,
-                        order_number: orderNumber,
-                        total_amount: totalAmount,
-                        status: 'pending',
-                        branch_id: branchId,
-                        company_id: companyId,
-                        created_by: userId
+                        order_id: orderId, order_number: orderNumber, total_amount: totalAmount,
+                        status: 'pending', branch_id: branchId, company_id: companyId, created_by: userId
                     };
-                    
                     io.to(`kitchen_${companyId}_${branchId}`).emit('new_order', orderData);
                     io.to(`branch_${companyId}_${branchId}`).emit('new_order_branch', orderData);
                 }
@@ -46675,12 +46691,7 @@ router.post("/",
                 res.status(201).json({
                     success: true,
                     message: "Order created and sent to kitchen",
-                    data: { 
-                        order_id: orderId, 
-                        order_number: orderNumber, 
-                        total_amount: totalAmount, 
-                        status: 'pending'
-                    }
+                    data: { order_id: orderId, order_number: orderNumber, total_amount: totalAmount, status: 'pending' }
                 });
             } catch (err) {
                 await client.query("ROLLBACK");
@@ -46761,7 +46772,6 @@ router.put("/confirm/:orderId", authorizeBranch, allowWaiter, async (req, res) =
     }
 });
 
-// ==================== READY ORDERS (waiter-confirmed pickup only) ====================
 router.get("/ready", protect, async (req, res) => {
     try {
         const branchId = req.user?.branch_id;
@@ -46773,14 +46783,8 @@ router.get("/ready", protect, async (req, res) => {
 
         const result = await pool.query(`
             SELECT 
-                o.id, 
-                o.order_number, 
-                o.total_amount, 
-                o.customer_name, 
-                o.table_id,
-                o.created_at,
-                o.status,
-                o.payment_status,
+                o.id, o.order_number, o.total_amount, o.customer_name, o.table_id,
+                o.created_at, o.status, o.payment_status,
                 ko.status as kitchen_status,
                 t.table_number
             FROM orders o
@@ -46801,7 +46805,6 @@ router.get("/ready", protect, async (req, res) => {
     }
 });
 
-// ==================== ADD ITEMS TO EXISTING ORDER ====================
 router.post("/:orderId/add-items",
     authorizeBranch,
     allowWaiter,
@@ -46888,13 +46891,10 @@ router.post("/:orderId/add-items",
             const io = req.app.get('io');
             if (io) {
                 io.to(`kitchen_${companyId}_${branchId}`).emit('new_order', {
-                    order_id: parseInt(orderId),
-                    order_number: order.order_number,
-                    status: 'pending'
+                    order_id: parseInt(orderId), order_number: order.order_number, status: 'pending'
                 });
                 io.to(`branch_${companyId}_${branchId}`).emit('order_status_updated', {
-                    order_id: parseInt(orderId),
-                    status: 'pending'
+                    order_id: parseInt(orderId), status: 'pending'
                 });
             }
 
@@ -46915,7 +46915,6 @@ router.post("/:orderId/add-items",
     }
 );
 
-// ==================== WAITER CONFIRMS PICKUP FROM KITCHEN ====================
 router.post("/:orderId/confirm-pickup",
     authorizeBranch,
     allowWaiter,
@@ -46964,13 +46963,10 @@ router.post("/:orderId/confirm-pickup",
             const io = req.app.get('io');
             if (io) {
                 io.to(`cashier_${companyId}_${branchId}`).emit('order_ready_for_cashier', {
-                    order_id: parseInt(orderId),
-                    order_number: order.order_number,
-                    table_id: order.table_id
+                    order_id: parseInt(orderId), order_number: order.order_number, table_id: order.table_id
                 });
                 io.to(`branch_${companyId}_${branchId}`).emit('order_status_updated', {
-                    order_id: parseInt(orderId),
-                    status: 'ready'
+                    order_id: parseInt(orderId), status: 'ready'
                 });
             }
 
@@ -47053,16 +47049,9 @@ router.post("/:orderId/pay",
                 VALUES ($1, $2, $3, $4, $5, $6, 'completed', $7, $8, NOW(), $9, $10)
                 RETURNING id, sale_number, total_amount, total_cost, profit
             `, [
-                saleNumber, 
-                orderId, 
-                order.total_amount, 
-                totalCost, 
-                profit,
-                payment_method, 
-                branchId, 
-                companyId,
-                order.customer_name || null,
-                order.customer_phone || null
+                saleNumber, orderId, order.total_amount, totalCost, profit,
+                payment_method, branchId, companyId,
+                order.customer_name || null, order.customer_phone || null
             ]);
             
             const sale = saleResult.rows[0];
@@ -47074,6 +47063,8 @@ router.post("/:orderId/pay",
                 WHERE oi.order_id = $1
             `, [orderId]);
             
+            // â˜… FIX: sale_items has no company_id / branch_id columns in production.
+            //   Tenant context is derived through sale_id â†’ sales.company_id / sales.branch_id.
             for (const item of orderItems.rows) {
                 const itemCost = await calculateProductCost(item.product_id, item.quantity, client);
                 const itemProfit = item.total_price - itemCost;
@@ -47137,7 +47128,6 @@ router.post("/:orderId/pay",
     }
 );
 
-// ==================== MY ORDERS (waiter) ====================
 router.get("/my-orders", authorizeBranch, allowWaiter, async (req, res) => {
     const userId = req.user.id;
     const branchId = req.user.branch_id;
@@ -47149,11 +47139,7 @@ router.get("/my-orders", authorizeBranch, allowWaiter, async (req, res) => {
                    t.table_number,
                    COALESCE(
                        json_agg(
-                           json_build_object(
-                               'name', p.name,
-                               'quantity', oi.quantity,
-                               'price', oi.unit_price
-                           )
+                           json_build_object('name', p.name, 'quantity', oi.quantity, 'price', oi.unit_price)
                        ) FILTER (WHERE p.id IS NOT NULL), 
                        '[]'::json
                    ) as items
@@ -47175,7 +47161,6 @@ router.get("/my-orders", authorizeBranch, allowWaiter, async (req, res) => {
     }
 });
 
-// ==================== PENDING CONFIRMATION ====================
 router.get("/pending-confirmation", authorizeBranch, allowWaiter, async (req, res) => {
     const waiterId = req.user.id;
     const branchId = req.user.branch_id;
@@ -47187,11 +47172,7 @@ router.get("/pending-confirmation", authorizeBranch, allowWaiter, async (req, re
                    t.table_number,
                    COALESCE(
                        json_agg(
-                           json_build_object(
-                               'name', p.name,
-                               'quantity', oi.quantity,
-                               'price', oi.unit_price
-                           )
+                           json_build_object('name', p.name, 'quantity', oi.quantity, 'price', oi.unit_price)
                        ) FILTER (WHERE p.id IS NOT NULL), 
                        '[]'::json
                    ) as items
@@ -47267,15 +47248,12 @@ router.put("/:orderId/cancel", authorizeBranch, allowWaiter, async (req, res) =>
             if (anyOrder.rows.length === 0) {
                 throw new Error("Order not found");
             }
-            
             if (anyOrder.rows[0].payment_status === 'paid') {
                 throw new Error("Cannot cancel a paid order");
             }
-            
             if (anyOrder.rows[0].status === 'completed') {
                 throw new Error("Order already completed");
             }
-            
             throw new Error("Order not assigned to you");
         }
         
@@ -47285,8 +47263,6 @@ router.put("/:orderId/cancel", authorizeBranch, allowWaiter, async (req, res) =>
             throw new Error("Cannot cancel a paid order");
         }
 
-        // Ð²Ò£â€¦ Only restore stock if the order was actually deducted
-        // (i.e. it was marked 'ready' by the kitchen at some point).
         const deductionCheck = await client.query(
             `SELECT 1 FROM stock_transactions
              WHERE order_id = $1 AND transaction_type = 'order_deduction'
@@ -47298,16 +47274,10 @@ router.put("/:orderId/cancel", authorizeBranch, allowWaiter, async (req, res) =>
         if (wasDeducted) {
             const orderItemsResult = await client.query(`
                 SELECT 
-                    oi.product_id,
-                    oi.quantity,
-                    p.name as product_name,
-                    ri.ingredient_id,
-                    ri.quantity_required,
-                    ri.wastage_percentage,
-                    ri.cooking_loss_percentage,
-                    i.name as ingredient_name,
-                    i.unit,
-                    i.unit_cost,
+                    oi.product_id, oi.quantity, p.name as product_name,
+                    ri.ingredient_id, ri.quantity_required,
+                    ri.wastage_percentage, ri.cooking_loss_percentage,
+                    i.name as ingredient_name, i.unit, i.unit_cost,
                     i.quantity as current_stock
                 FROM order_items oi
                 JOIN products p ON oi.product_id = p.id
@@ -47368,37 +47338,23 @@ router.put("/:orderId/cancel", authorizeBranch, allowWaiter, async (req, res) =>
                     
                     await client.query(`
                         UPDATE ingredients 
-                        SET quantity = $1,
-                            updated_at = NOW()
-                        WHERE id = $2
-                          AND company_id = $3
-                          AND branch_id = $4
+                        SET quantity = $1, updated_at = NOW()
+                        WHERE id = $2 AND company_id = $3 AND branch_id = $4
                     `, [newQuantity, row.id, companyId, branchId]);
                     
                     await client.query(`
                         INSERT INTO stock_transactions (
-                            ingredient_id,
-                            order_id,
-                            expected_quantity,
-                            actual_quantity,
-                            wastage_amount,
-                            wastage_percentage,
-                            transaction_type,
-                            notes,
-                            company_id,
-                            branch_id
+                            ingredient_id, order_id,
+                            expected_quantity, actual_quantity,
+                            wastage_amount, wastage_percentage,
+                            transaction_type, notes,
+                            company_id, branch_id
                         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
                     `, [
-                        row.id,
-                        orderId,
-                        restoreQty,
-                        restoreQty,
-                        0,
-                        0,
+                        row.id, orderId, restoreQty, restoreQty, 0, 0,
                         'order_cancellation',
                         `Stock restored from cancelled order ${order.order_number}`,
-                        companyId,
-                        branchId
+                        companyId, branchId
                     ]);
                 }
             }
@@ -47406,25 +47362,21 @@ router.put("/:orderId/cancel", authorizeBranch, allowWaiter, async (req, res) =>
         
         await client.query(`
             UPDATE orders 
-            SET status = 'cancelled', 
-                updated_at = CURRENT_TIMESTAMP,
+            SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP,
                 cancellation_reason = $1
             WHERE id = $2
         `, [reason || 'Cancelled by waiter', orderId]);
         
         await client.query(`
             UPDATE kitchen_orders 
-            SET status = 'cancelled', 
-                updated_at = CURRENT_TIMESTAMP
+            SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP
             WHERE order_id = $1
         `, [orderId]);
         
         if (order.table_id) {
             await client.query(`
                 UPDATE tables 
-                SET status = 'available', 
-                    current_order_id = NULL,
-                    updated_at = CURRENT_TIMESTAMP
+                SET status = 'available', current_order_id = NULL, updated_at = CURRENT_TIMESTAMP
                 WHERE id = $1
             `, [order.table_id]);
         }
@@ -47434,10 +47386,7 @@ router.put("/:orderId/cancel", authorizeBranch, allowWaiter, async (req, res) =>
         res.json({ 
             success: true, 
             message: "Order cancelled successfully.",
-            data: { 
-                order_id: orderId,
-                stock_restored: wasDeducted
-            }
+            data: { order_id: orderId, stock_restored: wasDeducted }
         });
         
     } catch (error) {
@@ -47465,7 +47414,6 @@ router.put("/:orderId/cancel", authorizeBranch, allowWaiter, async (req, res) =>
     }
 });
 
-// ==================== GET ORDER BY ID (MUST BE LAST) ====================
 router.get("/:orderId", authorizeBranch, allowWaiter, async (req, res) => {
     const { orderId } = req.params;
     const branchId = req.user.branch_id;
@@ -47493,7 +47441,7 @@ router.get("/:orderId", authorizeBranch, allowWaiter, async (req, res) => {
         
         res.json({ 
             success: true, 
-            data: { ...result.rows[0], items: items.rows } 
+            data: { ...result.rows[0], items: items.rows }
         });
     } catch (err) {
         console.error("Get order error:", err);
@@ -47610,6 +47558,8 @@ router.get("/trend", authorizeBranch, getMonthlyTrend);
 
 export default router;
 === FILE: C:\Users\dell\Desktop\restaurant\server\src\routes\recipes.js ===
+// server/src/routes/recipes.js
+
 import express from "express";
 import {
     getAllRecipes,
@@ -47624,7 +47574,8 @@ import {
     getLowStockIngredients,
     getProductsWithoutRecipes,
     getRecipeCount,
-    calculateOrderWastage
+    calculateOrderWastage,
+    getProductCost                // ★ FIX: was imported in controller but never wired to a route
 } from "../controllers/recipeController.js";
 import { protect, allowManager, allowOwner } from "../middleware/auth.js";
 import { authorizeCompany, authorizeBranch, requireCompanyContext } from "../middleware/authorization.js";
@@ -47639,6 +47590,13 @@ router.use(requireCompanyContext);
 // RECIPE MANAGEMENT (Company-level)
 // ============================================================
 router.get("/", authorizeCompany, allowManager, getAllRecipes);
+
+// ★ FIX: new route — expose the existing getProductCost controller.
+//   Path is registered BEFORE the generic `/product/:productId` block
+//   would conflict, but since the two paths do not overlap, ordering
+//   here is not critical. Placed here for readability.
+router.get("/cost/:productId", authorizeCompany, allowManager, getProductCost);
+
 router.get("/product/:productId", authorizeCompany, allowManager, getRecipeByProduct);
 router.post("/product/:productId", authorizeCompany, allowManager, createOrUpdateRecipe);
 router.delete("/:id", authorizeCompany, allowOwner, deleteRecipe);

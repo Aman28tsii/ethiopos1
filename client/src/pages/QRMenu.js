@@ -282,6 +282,18 @@ const QRMenu = () => {
       const payload = response.data.data || {};
       const productsData = payload.products || [];
 
+      // If the server returned the tenant's branding, merge it into
+      // restaurantInfo so the QR page shows the correct restaurant name.
+      // Existing fields (address, phone, hours) are preserved.
+      if (payload.company && payload.company.name) {
+        setRestaurantInfo(function(prev) {
+          return Object.assign({}, prev, {
+            name: payload.company.name,
+            logo_url: payload.company.logo_url || null
+          });
+        });
+      }
+
       if (productsData.length === 0) {
         setError('No menu items are available right now.');
         setProducts([]);

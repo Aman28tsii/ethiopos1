@@ -176,9 +176,23 @@ export const getPublicProductsByTable = catchAsync(async (req, res) => {
         [table.company_id, table.branch_id]
     );
 
+    // Look up the company name + logo for QR menu branding.
+    // Tenant is derived from the table row above, never from the client.
+    const companyResult = await query(
+        `SELECT id, name, logo_url
+         FROM companies
+         WHERE id = $1`,
+        [table.company_id]
+    );
+
+    const company = companyResult.rows[0] || null;
+
     res.json({
         success: true,
         data: {
+            company: company
+                ? { id: company.id, name: company.name, logo_url: company.logo_url }
+                : null,
             table: {
                 id: table.id,
                 table_number: table.table_number,

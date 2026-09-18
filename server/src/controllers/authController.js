@@ -35,7 +35,13 @@ export const login = catchAsync(async (req, res) => {
   }
   
   const result = await query(
-    `SELECT id, name, email, password, role, status, is_active, company_id, branch_id FROM users WHERE email = $1`,
+    `SELECT u.id, u.name, u.email, u.password, u.role, u.status, u.is_active,
+            u.company_id, u.branch_id,
+            c.name     AS company_name,
+            c.logo_url AS company_logo_url
+       FROM users u
+       LEFT JOIN companies c ON c.id = u.company_id
+      WHERE u.email = $1`,
     [email.toLowerCase().trim()]
   );
   
@@ -93,7 +99,9 @@ export const login = catchAsync(async (req, res) => {
       status: user.status,
       company_id: user.company_id,
       branch_id: user.branch_id
-    }
+    },
+    company_name:     user.company_name     || null,
+    company_logo_url: user.company_logo_url || null
   });
 });
 
@@ -250,11 +258,23 @@ export const getAllUsers = catchAsync(async (req, res) => {
 // ============================================================
 export const getCurrentUser = catchAsync(async (req, res) => {
   const result = await query(
-    `SELECT id, name, email, role, phone, status, created_at, company_id, branch_id FROM users WHERE id = $1`,
+    `SELECT u.id, u.name, u.email, u.role, u.phone, u.status, u.created_at,
+            u.company_id, u.branch_id,
+            c.name     AS company_name,
+            c.logo_url AS company_logo_url
+       FROM users u
+       LEFT JOIN companies c ON c.id = u.company_id
+      WHERE u.id = $1`,
     [req.user.id]
   );
   
-  res.json({ success: true, user: result.rows[0] });
+  const row = result.rows[0] || null;
+  res.json({
+    success: true,
+    user: row,
+    company_name:     row ? (row.company_name     || null) : null,
+    company_logo_url: row ? (row.company_logo_url || null) : null
+  });
 });
 
 // ============================================================
@@ -544,8 +564,13 @@ export const switchBranch = catchAsync(async (req, res) => {
     );
     
     const userResult = await query(
-        `SELECT id, name, email, role, phone, status, is_active, company_id, branch_id 
-         FROM users WHERE id = $1`,
+        `SELECT u.id, u.name, u.email, u.role, u.phone, u.status, u.is_active,
+                u.company_id, u.branch_id,
+                c.name     AS company_name,
+                c.logo_url AS company_logo_url
+           FROM users u
+           LEFT JOIN companies c ON c.id = u.company_id
+          WHERE u.id = $1`,
         [userId]
     );
     
@@ -564,6 +589,8 @@ export const switchBranch = catchAsync(async (req, res) => {
             company_id: updatedUser.company_id,
             branch_id: updatedUser.branch_id
         },
+        company_name:     updatedUser.company_name     || null,
+        company_logo_url: updatedUser.company_logo_url || null,
         branch: {
             id: branchCheck.rows[0].id,
             name: branchCheck.rows[0].name

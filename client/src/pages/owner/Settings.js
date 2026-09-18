@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Save, Building, Phone, Mail, Clock, Percent, Printer, Loader2, Globe, Moon, Sun, CheckCircle } from 'lucide-react';
+import { Save, Building, Phone, Mail, Clock, Percent, Printer, Loader2, Globe, Moon, Sun, CheckCircle, Image as ImageIcon } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useTheme } from '../../context/ThemeContext';
+import API from '../../api/axios';
 
 const Settings = () => {
   const { t } = useLanguage();
@@ -15,7 +16,8 @@ const Settings = () => {
     email: 'info@ethiopos.com',
     taxRate: 15,
     workingHours: '9:00 AM - 10:00 PM',
-    receiptFooter: 'Thank you for dining with us!'
+    receiptFooter: 'Thank you for dining with us!',
+    logoUrl: ''
   });
 
   const handleChange = (e) => {
@@ -27,13 +29,31 @@ const Settings = () => {
     e.preventDefault();
     setLoading(true);
     setSaved(false);
-    
-    setTimeout(() => {
-      localStorage.setItem('restaurantSettings', JSON.stringify(settings));
+
+    // Save local restaurant settings (unchanged behavior).
+    localStorage.setItem('restaurantSettings', JSON.stringify(settings));
+
+    // Also persist the logo to the company record so the sidebar,
+    // QR menu and any other tenant surface picks it up.
+    try {
+      const user = JSON.parse(localStorage.getItem('user') || '{}');
+      const companyId = user?.company_id;
+      if (companyId) {
+        await API.put(`/companies/${companyId}/branding`, {
+          logo_url: settings.logoUrl && settings.logoUrl.trim() ? settings.logoUrl.trim() : null
+        });
+        // Update the cached user so the sidebar reflects the change
+        // without requiring a re-login.
+        const refreshed = { ...user, company_logo_url: settings.logoUrl || null };
+        localStorage.setItem('user', JSON.stringify(refreshed));
+      }
+    } catch (err) {
+      console.error('Branding update error:', err);
+    } finally {
       setLoading(false);
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
-    }, 500);
+    }
   };
 
   useEffect(() => {
@@ -122,6 +142,22 @@ const Settings = () => {
                   onChange={handleChange}
                   className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-50 dark:bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-gray-900 dark:text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
+              </div>
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-600 dark:text-gray-600 dark:text-gray-300 mb-1 flex items-center gap-2">
+                  <ImageIcon size={14} /> Restaurant Logo URL
+                </label>
+                <input
+                  type="text"
+                  name="logoUrl"
+                  value={settings.logoUrl}
+                  onChange={handleChange}
+                  placeholder="https://example.com/logo.png"
+                  className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-50 dark:bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-gray-900 dark:text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  Paste a public image URL. Leave empty to show your restaurant name only.
+                </p>
               </div>
             </div>
           </div>
