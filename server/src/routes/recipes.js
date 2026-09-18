@@ -1,4 +1,6 @@
-﻿import express from "express";
+﻿// server/src/routes/recipes.js
+
+import express from "express";
 import {
     getAllRecipes,
     getRecipeByProduct,
@@ -12,7 +14,8 @@ import {
     getLowStockIngredients,
     getProductsWithoutRecipes,
     getRecipeCount,
-    calculateOrderWastage
+    calculateOrderWastage,
+    getProductCost                // ★ FIX: was imported in controller but never wired to a route
 } from "../controllers/recipeController.js";
 import { protect, allowManager, allowOwner } from "../middleware/auth.js";
 import { authorizeCompany, authorizeBranch, requireCompanyContext } from "../middleware/authorization.js";
@@ -27,6 +30,13 @@ router.use(requireCompanyContext);
 // RECIPE MANAGEMENT (Company-level)
 // ============================================================
 router.get("/", authorizeCompany, allowManager, getAllRecipes);
+
+// ★ FIX: new route — expose the existing getProductCost controller.
+//   Path is registered BEFORE the generic `/product/:productId` block
+//   would conflict, but since the two paths do not overlap, ordering
+//   here is not critical. Placed here for readability.
+router.get("/cost/:productId", authorizeCompany, allowManager, getProductCost);
+
 router.get("/product/:productId", authorizeCompany, allowManager, getRecipeByProduct);
 router.post("/product/:productId", authorizeCompany, allowManager, createOrUpdateRecipe);
 router.delete("/:id", authorizeCompany, allowOwner, deleteRecipe);
