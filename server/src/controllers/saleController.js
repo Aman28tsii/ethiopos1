@@ -193,11 +193,14 @@ export const createSale = catchAsync(async (req, res) => {
             await deductIngredients(item.product_id, item.quantity, saleId, companyId, branchId, client);
         }
         
+        // ★ FIX: sale_items has no company_id / branch_id columns in production.
+        //   Tenant context is derived through sale_id → sales.company_id / sales.branch_id.
+        //   Params reduced from 9 to 7.
         for (const item of saleItems) {
             await client.query(
-                `INSERT INTO sale_items (sale_id, product_id, quantity, unit_price, total_price, total_cost, profit, company_id, branch_id)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-                [saleId, item.product_id, item.quantity, item.unit_price, item.total_price, item.cost, item.total_price - item.cost, companyId, branchId]
+                `INSERT INTO sale_items (sale_id, product_id, quantity, unit_price, total_price, total_cost, profit)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+                [saleId, item.product_id, item.quantity, item.unit_price, item.total_price, item.cost, item.total_price - item.cost]
             );
         }
         
