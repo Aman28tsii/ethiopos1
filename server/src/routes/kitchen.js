@@ -12,6 +12,21 @@ router.use(protect);
 router.use(requireCompanyContext);
 
 // ============================================================
+// KITCHEN ORDER STATE MACHINE
+//
+// Legal forward transitions only. Any move not listed here is
+// rejected with 409. This closes the "ready → pending" and
+// similar reverse-transition gaps found during the audit.
+// ============================================================
+const ALLOWED_TRANSITIONS = {
+    'pending':    ['preparing', 'cancelled'],
+    'preparing':  ['ready', 'cancelled'],
+    'ready':      ['completed', 'cancelled'],
+    'completed':  [],
+    'cancelled':  []
+};
+
+// ============================================================
 // GET KITCHEN ORDERS
 // ============================================================
 router.get("/orders", authorizeBranch, allowKitchen, async (req, res) => {
@@ -89,12 +104,23 @@ router.put("/orders/:orderId/status", authorizeBranch, allowKitchen, async (req,
         }
 
         const orderCheck = await pool.query(
-            `SELECT id FROM kitchen_orders WHERE order_id = $1`,
+            `SELECT id, status FROM kitchen_orders WHERE order_id = $1 FOR UPDATE`,
             [orderIdInt]
         );
         
         if (orderCheck.rows.length === 0) {
             return res.status(404).json({ success: false, error: "Order not found in kitchen" });
+        }
+
+        // Enforce the state machine: only legal forward transitions.
+        const currentStatus = orderCheck.rows[0].status;
+        const allowed = ALLOWED_TRANSITIONS[currentStatus] || [];
+
+        if (!allowed.includes(status)) {
+            return res.status(409).json({
+                success: false,
+                error: `Invalid transition: ${currentStatus} → ${status}`
+            });
         }
 
         await pool.query(

@@ -79,8 +79,8 @@ export const getProductById = catchAsync(async (req, res) => {
     const branchId  = requireBranchId(req);  // ★ FIX
 
     // Reject non-numeric IDs explicitly
-    const numericId = parseInt(id, 10);
-    if (!Number.isFinite(numericId) || numericId <= 0) {
+      const numericId = parseInt(id, 10);
+    if (!Number.isFinite(numericId) || numericId <= 0 || numericId > 2147483647) {
         throw new AppError('Invalid product ID', 400);
     }
 
@@ -239,8 +239,8 @@ export const updateProduct = catchAsync(async (req, res) => {
     const companyId = requireCompanyId(req);
     const branchId  = requireBranchId(req);  // ★ FIX
 
-    const numericId = parseInt(id, 10);
-    if (!Number.isFinite(numericId) || numericId <= 0) {
+      const numericId = parseInt(id, 10);
+    if (!Number.isFinite(numericId) || numericId <= 0 || numericId > 2147483647) {
         throw new AppError('Invalid product ID', 400);
     }
 
@@ -279,11 +279,10 @@ export const deleteProduct = catchAsync(async (req, res) => {
     const companyId = requireCompanyId(req);
     const branchId  = requireBranchId(req);  // ★ FIX
 
-    const numericId = parseInt(id, 10);
-    if (!Number.isFinite(numericId) || numericId <= 0) {
+       const numericId = parseInt(id, 10);
+    if (!Number.isFinite(numericId) || numericId <= 0 || numericId > 2147483647) {
         throw new AppError('Invalid product ID', 400);
     }
-
     // ★ FIX: added `AND branch_id = $3`. Params shifted.
     const result = await query(
         `UPDATE products SET is_available = false

@@ -769,6 +769,73 @@ const BranchSelector = () => {
 };
 
 export default BranchSelector;
+=== FILE: C:\Users\dell\Desktop\restaurant\client\src\components\Branding.js ===
+// client/src/components/Branding.js
+//
+// Shared branding component. Renders the tenant's logo + name.
+//
+// Fallback chain (in order):
+//   1. If company_logo_url is present AND the image loads â†’ show logo + name
+//   2. If logo missing or fails to load â†’ show name only
+//   3. If name also missing â†’ show "EthioPOS"
+//
+// The parent passes `user` (from app state). We also accept an optional
+// `companyName` / `companyLogoUrl` pair so the QR menu and any other
+// surface can reuse this without requiring the full user object.
+
+import React, { useState } from 'react';
+
+const DEFAULT_NAME = 'EthioPOS';
+
+const Branding = ({
+  user,
+  companyName,
+  companyLogoUrl,
+  size = 32,
+  showName = true,
+  className = '',
+  nameClassName = 'text-xl font-bold text-gray-900 dark:text-white',
+  logoClassName = 'flex-shrink-0 rounded-md object-contain bg-white dark:bg-gray-800'
+}) => {
+  // Prefer explicit props, fall back to the user object.
+  const rawName =
+    (companyName !== undefined && companyName !== null && companyName !== '')
+      ? companyName
+      : (user?.company_name || user?.companyName || '');
+
+  const rawLogo =
+    (companyLogoUrl !== undefined && companyLogoUrl !== null && companyLogoUrl !== '')
+      ? companyLogoUrl
+      : (user?.company_logo_url || user?.companyLogoUrl || '');
+
+  const displayName = rawName && String(rawName).trim().length > 0
+    ? String(rawName).trim()
+    : DEFAULT_NAME;
+
+  const [logoFailed, setLogoFailed] = useState(false);
+  const hasLogo = rawLogo && String(rawLogo).trim().length > 0 && !logoFailed;
+
+  return (
+    <div className={`flex items-center gap-3 ${className}`}>
+      {hasLogo ? (
+        <img
+          src={rawLogo}
+          alt={displayName}
+          width={size}
+          height={size}
+          className={logoClassName}
+          style={{ width: size, height: size }}
+          onError={() => setLogoFailed(true)}
+        />
+      ) : null}
+      {showName ? (
+        <h1 className={nameClassName}>{displayName}</h1>
+      ) : null}
+    </div>
+  );
+};
+
+export default Branding;
 === FILE: C:\Users\dell\Desktop\restaurant\client\src\components\Charts.js ===
 import React from 'react';
 import {
@@ -2233,6 +2300,7 @@ import {
   Utensils, Building2  // ADDED Building2
 } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
+import Branding from './Branding';
 
 const Sidebar = ({ user, onLogout }) => {
   const { t } = useLanguage();
@@ -2354,10 +2422,17 @@ const Sidebar = ({ user, onLogout }) => {
       >
         <div className={`p-6 border-b border-gray-200 dark:border-gray-800 ${isCollapsed && !isMobile ? 'px-4' : ''}`}>
           <div className={`flex items-center ${isCollapsed && !isMobile ? 'justify-center' : 'gap-3'}`}>
-            <Store className="text-blue-600 dark:text-blue-500 flex-shrink-0" size={32} />
+            {isCollapsed && !isMobile ? (
+              <Store className="text-blue-600 dark:text-blue-500 flex-shrink-0" size={32} />
+            ) : (
+              <Branding
+                user={user}
+                size={32}
+                nameClassName="text-xl font-bold text-gray-900 dark:text-white"
+              />
+            )}
             {(!isCollapsed || isMobile) && (
               <div>
-                <h1 className="text-xl font-bold text-gray-900 dark:text-white">EthioPOS</h1>
                 <p className="text-xs text-gray-500 dark:text-gray-400 capitalize">{t(userRole)}</p>
               </div>
             )}
@@ -8921,9 +8996,10 @@ const PrintQRCodes = () => {
 export default PrintQRCodes;
 === FILE: C:\Users\dell\Desktop\restaurant\client\src\pages\owner\Settings.js ===
 import React, { useState, useEffect } from 'react';
-import { Save, Building, Phone, Mail, Clock, Percent, Printer, Loader2, Globe, Moon, Sun, CheckCircle } from 'lucide-react';
+import { Save, Building, Phone, Mail, Clock, Percent, Printer, Loader2, Globe, Moon, Sun, CheckCircle, Image as ImageIcon } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useTheme } from '../../context/ThemeContext';
+import API from '../../api/axios';
 
 const Settings = () => {
   const { t } = useLanguage();
@@ -8937,7 +9013,8 @@ const Settings = () => {
     email: 'info@ethiopos.com',
     taxRate: 15,
     workingHours: '9:00 AM - 10:00 PM',
-    receiptFooter: 'Thank you for dining with us!'
+    receiptFooter: 'Thank you for dining with us!',
+    logoUrl: ''
   });
 
   const handleChange = (e) => {
@@ -8949,13 +9026,48 @@ const Settings = () => {
     e.preventDefault();
     setLoading(true);
     setSaved(false);
-    
-    setTimeout(() => {
-      localStorage.setItem('restaurantSettings', JSON.stringify(settings));
+
+    // Save local restaurant settings (unchanged behavior).
+    localStorage.setItem('restaurantSettings', JSON.stringify(settings));
+
+    // Persist the logo AND the name to the company record so the sidebar,
+    // QR menu, browser tab and any other tenant surface pick them up.
+    try {
+      const user = JSON.parse(localStorage.getItem('user') || '{}');
+      const companyId = user?.company_id;
+      if (companyId) {
+        const trimmedName = (settings.restaurantName || '').trim();
+        const payload = {
+          logo_url: settings.logoUrl && settings.logoUrl.trim() ? settings.logoUrl.trim() : null
+        };
+        if (trimmedName.length >= 2) {
+          payload.name = trimmedName;
+        }
+
+        const resp = await API.put(`/companies/${companyId}/branding`, payload);
+        const updatedCompany = resp?.data?.data?.company;
+
+        // Update cached user so sidebar + title reflect the change
+        // without requiring a re-login.
+        const refreshed = {
+          ...user,
+          company_name: updatedCompany?.name ?? user.company_name,
+          company_logo_url: updatedCompany?.logo_url ?? (settings.logoUrl || null)
+        };
+        localStorage.setItem('user', JSON.stringify(refreshed));
+
+        // Also update the top-level title immediately.
+        if (refreshed.company_name) {
+          document.title = refreshed.company_name;
+        }
+      }
+    } catch (err) {
+      console.error('Branding update error:', err);
+    } finally {
       setLoading(false);
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
-    }, 500);
+    }
   };
 
   useEffect(() => {
@@ -9010,6 +9122,9 @@ const Settings = () => {
                   onChange={handleChange}
                   className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-50 dark:bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-gray-900 dark:text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  This is the name shown in the sidebar, QR menu and browser tab.
+                </p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-600 dark:text-gray-600 dark:text-gray-300 mb-1">{t('address')}</label>
@@ -9044,6 +9159,22 @@ const Settings = () => {
                   onChange={handleChange}
                   className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-50 dark:bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-gray-900 dark:text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
+              </div>
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-600 dark:text-gray-600 dark:text-gray-300 mb-1 flex items-center gap-2">
+                  <ImageIcon size={14} /> Restaurant Logo URL
+                </label>
+                <input
+                  type="text"
+                  name="logoUrl"
+                  value={settings.logoUrl}
+                  onChange={handleChange}
+                  placeholder="https://example.com/logo.png"
+                  className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-50 dark:bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-gray-900 dark:text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  Paste a public image URL. Leave empty to show your restaurant name only.
+                </p>
               </div>
             </div>
           </div>
@@ -15237,6 +15368,18 @@ const QRMenu = () => {
       const payload = response.data.data || {};
       const productsData = payload.products || [];
 
+      // If the server returned the tenant's branding, merge it into
+      // restaurantInfo so the QR page shows the correct restaurant name.
+      // Existing fields (address, phone, hours) are preserved.
+      if (payload.company && payload.company.name) {
+        setRestaurantInfo(function(prev) {
+          return Object.assign({}, prev, {
+            name: payload.company.name,
+            logo_url: payload.company.logo_url || null
+          });
+        });
+      }
+
       if (productsData.length === 0) {
         setError('No menu items are available right now.');
         setProducts([]);
@@ -19526,11 +19669,24 @@ function App() {
     }
   }, [isAuthenticated]);
 
+  // Keep the browser tab title in sync with the tenant's name.
+  useEffect(() => {
+    const name = (user && (user.company_name || user.companyName)) || 'EthioPOS';
+    document.title = String(name);
+  }, [user]);
+
   const handleLogin = useCallback((userData, token) => {
+    const enriched = { ...userData };
+    if (enriched.company_name === undefined && enriched.companyName !== undefined) {
+      enriched.company_name = enriched.companyName;
+    }
+    if (enriched.company_logo_url === undefined && enriched.companyLogoUrl !== undefined) {
+      enriched.company_logo_url = enriched.companyLogoUrl;
+    }
     localStorage.setItem('token', token);
-    localStorage.setItem('user', JSON.stringify(userData));
+    localStorage.setItem('user', JSON.stringify(enriched));
     setIsAuthenticated(true);
-    setUser(userData);
+    setUser(enriched);
   }, []);
 
   const handleLogout = useCallback(() => {
@@ -39260,7 +39416,13 @@ export const login = catchAsync(async (req, res) => {
   }
   
   const result = await query(
-    `SELECT id, name, email, password, role, status, is_active, company_id, branch_id FROM users WHERE email = $1`,
+    `SELECT u.id, u.name, u.email, u.password, u.role, u.status, u.is_active,
+            u.company_id, u.branch_id,
+            c.name     AS company_name,
+            c.logo_url AS company_logo_url
+       FROM users u
+       LEFT JOIN companies c ON c.id = u.company_id
+      WHERE u.email = $1`,
     [email.toLowerCase().trim()]
   );
   
@@ -39318,7 +39480,9 @@ export const login = catchAsync(async (req, res) => {
       status: user.status,
       company_id: user.company_id,
       branch_id: user.branch_id
-    }
+    },
+    company_name:     user.company_name     || null,
+    company_logo_url: user.company_logo_url || null
   });
 });
 
@@ -39475,11 +39639,23 @@ export const getAllUsers = catchAsync(async (req, res) => {
 // ============================================================
 export const getCurrentUser = catchAsync(async (req, res) => {
   const result = await query(
-    `SELECT id, name, email, role, phone, status, created_at, company_id, branch_id FROM users WHERE id = $1`,
+    `SELECT u.id, u.name, u.email, u.role, u.phone, u.status, u.created_at,
+            u.company_id, u.branch_id,
+            c.name     AS company_name,
+            c.logo_url AS company_logo_url
+       FROM users u
+       LEFT JOIN companies c ON c.id = u.company_id
+      WHERE u.id = $1`,
     [req.user.id]
   );
   
-  res.json({ success: true, user: result.rows[0] });
+  const row = result.rows[0] || null;
+  res.json({
+    success: true,
+    user: row,
+    company_name:     row ? (row.company_name     || null) : null,
+    company_logo_url: row ? (row.company_logo_url || null) : null
+  });
 });
 
 // ============================================================
@@ -39769,8 +39945,13 @@ export const switchBranch = catchAsync(async (req, res) => {
     );
     
     const userResult = await query(
-        `SELECT id, name, email, role, phone, status, is_active, company_id, branch_id 
-         FROM users WHERE id = $1`,
+        `SELECT u.id, u.name, u.email, u.role, u.phone, u.status, u.is_active,
+                u.company_id, u.branch_id,
+                c.name     AS company_name,
+                c.logo_url AS company_logo_url
+           FROM users u
+           LEFT JOIN companies c ON c.id = u.company_id
+          WHERE u.id = $1`,
         [userId]
     );
     
@@ -39789,6 +39970,8 @@ export const switchBranch = catchAsync(async (req, res) => {
             company_id: updatedUser.company_id,
             branch_id: updatedUser.branch_id
         },
+        company_name:     updatedUser.company_name     || null,
+        company_logo_url: updatedUser.company_logo_url || null,
         branch: {
             id: branchCheck.rows[0].id,
             name: branchCheck.rows[0].name
@@ -39984,7 +40167,7 @@ export const getCompanyInfo = catchAsync(async (req, res) => {
     }
 
     const companyResult = await query(
-        'SELECT id, name, created_at, updated_at FROM companies WHERE id = $1',
+        'SELECT id, name, logo_url, created_at, updated_at FROM companies WHERE id = $1',
         [companyId]
     );
 
@@ -40038,6 +40221,103 @@ export const listCompanies = catchAsync(async (req, res) => {
     res.json({
         success: true,
         data: result.rows
+    });
+});
+
+// ============================================================
+// UPDATE COMPANY BRANDING (Owner only, tenant-scoped)
+// Accepts { name?, logo_url? }. Either or both may be provided.
+// Company is validated against req.user.company_id; a caller
+// can never modify another tenant's branding.
+// ============================================================
+export const updateCompanyBranding = catchAsync(async (req, res) => {
+    const { id } = req.params;
+    const numericId = parseInt(id, 10);
+
+    if (!Number.isFinite(numericId) || numericId <= 0) {
+        throw new AppError('Invalid company ID', 400);
+    }
+
+    if (numericId !== req.user?.company_id) {
+        throw new AppError('Company not found', 404);
+    }
+
+    const body = req.body || {};
+
+    // ---- Validate name (optional) ----
+    let normalizedName = null;
+    let nameProvided = false;
+    if (body.name !== undefined && body.name !== null) {
+        nameProvided = true;
+        if (typeof body.name !== 'string') {
+            throw new AppError('name must be a string', 400);
+        }
+        const trimmed = body.name.trim();
+        if (trimmed.length < 2) {
+            throw new AppError('Company name must be at least 2 characters', 400);
+        }
+        if (trimmed.length > 200) {
+            throw new AppError('Company name is too long', 400);
+        }
+        normalizedName = trimmed;
+    }
+
+    // ---- Validate logo_url (optional) ----
+    let normalizedLogoUrl = null;
+    let logoProvided = false;
+    if (body.logo_url !== undefined) {
+        logoProvided = true;
+        if (body.logo_url !== null && typeof body.logo_url !== 'string') {
+            throw new AppError('logo_url must be a string or null', 400);
+        }
+        if (typeof body.logo_url === 'string') {
+            const trimmed = body.logo_url.trim();
+            if (trimmed.length > 0) {
+                if (trimmed.length > 2048) {
+                    throw new AppError('logo_url is too long', 400);
+                }
+                normalizedLogoUrl = trimmed;
+            }
+        }
+    }
+
+    if (!nameProvided && !logoProvided) {
+        throw new AppError('Nothing to update. Provide name and/or logo_url.', 400);
+    }
+
+    // ---- Build dynamic UPDATE ----
+    const setParts = [];
+    const params = [];
+    let idx = 1;
+
+    if (nameProvided) {
+        setParts.push(`name = $${idx++}`);
+        params.push(normalizedName);
+    }
+    if (logoProvided) {
+        setParts.push(`logo_url = $${idx++}`);
+        params.push(normalizedLogoUrl);
+    }
+    setParts.push(`updated_at = CURRENT_TIMESTAMP`);
+    params.push(numericId);
+
+    const sql = `UPDATE companies
+                    SET ${setParts.join(', ')}
+                  WHERE id = $${idx}
+                  RETURNING id, name, logo_url, updated_at`;
+
+    const result = await query(sql, params);
+
+    if (result.rows.length === 0) {
+        throw new AppError('Company not found', 404);
+    }
+
+    res.json({
+        success: true,
+        message: 'Branding updated successfully',
+        data: {
+            company: result.rows[0]
+        }
     });
 });
 === FILE: C:\Users\dell\Desktop\restaurant\server\src\controllers\dashboardController.js ===
@@ -41612,9 +41892,23 @@ export const getPublicProductsByTable = catchAsync(async (req, res) => {
         [table.company_id, table.branch_id]
     );
 
+    // Look up the company name + logo for QR menu branding.
+    // Tenant is derived from the table row above, never from the client.
+    const companyResult = await query(
+        `SELECT id, name, logo_url
+         FROM companies
+         WHERE id = $1`,
+        [table.company_id]
+    );
+
+    const company = companyResult.rows[0] || null;
+
     res.json({
         success: true,
         data: {
+            company: company
+                ? { id: company.id, name: company.name, logo_url: company.logo_url }
+                : null,
             table: {
                 id: table.id,
                 table_number: table.table_number,
@@ -45451,7 +45745,8 @@ import express from 'express';
 import {
     onboardCompany,
     getCompanyInfo,
-    listCompanies
+    listCompanies,
+    updateCompanyBranding
 } from '../controllers/companyController.js';
 import { protect, allowOwner } from '../middleware/auth.js';
 import { authorizeCompany, requireCompanyContext } from '../middleware/authorization.js';
@@ -45479,6 +45774,10 @@ router.get('/:id', authorizeCompany, getCompanyInfo);
 
 // List all companies (admin/owner only)
 router.get('/', allowOwner, listCompanies);
+
+// Update company branding â€” owner only, tenant-scoped.
+// Reuses the same middleware as the routes above; no new middleware.
+router.put('/:id/branding', authorizeCompany, allowOwner, updateCompanyBranding);
 
 export default router;
 === FILE: C:\Users\dell\Desktop\restaurant\server\src\routes\customers.js ===
