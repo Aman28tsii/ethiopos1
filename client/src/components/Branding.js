@@ -5,7 +5,7 @@
 // Fallback chain (in order):
 //   1. If company_logo_url is present AND the image loads → show logo + name
 //   2. If logo missing or fails to load → show name only
-//   3. If name also missing → show "EthioPOS"
+//   3. If name also missing → show "ZenTech"
 //
 // The parent passes `user` (from app state). We also accept an optional
 // `companyName` / `companyLogoUrl` pair so the QR menu and any other
@@ -13,7 +13,7 @@
 
 import React, { useState } from 'react';
 
-const DEFAULT_NAME = 'EthioPOS';
+const DEFAULT_NAME = 'ZenTech';
 
 const Branding = ({
   user,

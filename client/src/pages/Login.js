@@ -74,14 +74,14 @@ const Login = ({ onLogin }) => {
       if (code === 'ACCOUNT_PENDING_APPROVAL' || code === 'COMPANY_PENDING') {
         setError(
           'Your registration is waiting for approval. ' +
-          'You will be able to use EthioPOS once your account is approved.'
+          'You will be able to use ZenTech once your account is approved.'
         );
       } else if (code === 'ACCOUNT_REJECTED') {
         setError(
-          'Your registration was rejected. Please contact the EthioPOS Service Provider.'
+          'Your registration was rejected. Please contact the ZenTech Service Provider.'
         );
       } else if (code === 'ACCOUNT_INACTIVE') {
-        setError('Your account is not active. Please contact the EthioPOS Service Provider.');
+        setError('Your account is not active. Please contact the ZenTech Service Provider.');
       } else {
         setError(msg || t('loginFailed'));
       }
@@ -97,7 +97,7 @@ const Login = ({ onLogin }) => {
           <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-blue-600 mb-4 shadow-xl">
             <Store className="text-gray-900 dark:text-gray-900 dark:text-white" size={40} />
           </div>
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-900 dark:text-gray-900 dark:text-white">EthioPOS</h1>
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-900 dark:text-gray-900 dark:text-white">ZenTech</h1>
           <p className="text-gray-600 dark:text-gray-500 dark:text-gray-500 dark:text-gray-400 mt-2">{t('restaurantManagementSystem')}</p>
         </div>
 
