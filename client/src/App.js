@@ -110,7 +110,7 @@ function App() {
 
   // Keep the browser tab title in sync with the tenant's name.
   useEffect(() => {
-    const name = (user && (user.company_name || user.companyName)) || 'EthioPOS';
+    const name = (user && (user.company_name || user.companyName)) || 'ZenTech';
     document.title = String(name);
   }, [user]);
 
