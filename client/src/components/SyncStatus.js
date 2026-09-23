@@ -82,7 +82,7 @@ const SyncStatus = () => {
             </button>
 
             {showDetails && (
-                <div className="absolute right-0 mt-2 w-72 bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 p-4 z-50">
+                <div className="absolute left-0 mt-2 w-72 bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 p-4 z-50">
                     <div className="flex justify-between items-center mb-3">
                         <h4 className="font-semibold text-gray-900 dark:text-white">Sync Status</h4>
                         <button
