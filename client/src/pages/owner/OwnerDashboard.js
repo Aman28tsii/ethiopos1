@@ -57,11 +57,11 @@ const OwnerDashboard = () => {
     <div className="space-y-6">
       {/* Branch indicator */}
       {selectedBranch && (
-        <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl px-4 py-2 flex items-center gap-2 text-blue-700 dark:text-blue-400 text-sm">
-          <span className="font-semibold">📍 Viewing:</span>
-          <span>{selectedBranch.name}</span>
-        </div>
-      )}
+  <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl px-4 py-2 flex flex-wrap items-center gap-2 text-blue-700 dark:text-blue-400 text-sm">
+    <span className="font-semibold">📍 Viewing:</span>
+    <span className="truncate max-w-full">{selectedBranch.name}</span>
+  </div>
+)}
 
       <div className="flex justify-between items-center flex-wrap gap-4">
         <div>

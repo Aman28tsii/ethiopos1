@@ -112,12 +112,14 @@ const Sidebar = ({ user, onLogout }) => {
 
   return (
     <>
-      <button
-        onClick={() => setIsMobileOpen(!isMobileOpen)}
-        className="fixed top-4 left-4 z-50 md:hidden bg-white dark:bg-gray-800 p-2 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 transition-colors duration-200"
-      >
-        {isMobileOpen ? <X size={24} className="text-gray-900 dark:text-white" /> : <Menu size={24} className="text-gray-900 dark:text-white" />}
-      </button>
+      {!isMobileOpen && (
+  <button
+    onClick={() => setIsMobileOpen(true)}
+    className="fixed top-4 left-4 z-50 md:hidden bg-white dark:bg-gray-800 p-2 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 transition-colors duration-200"
+  >
+    <Menu size={24} className="text-gray-900 dark:text-white" />
+  </button>
+)}
 
       <MobileOverlay />
 
