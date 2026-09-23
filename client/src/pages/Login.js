@@ -32,8 +32,12 @@ const Login = ({ onLogin }) => {
       });
 
       if (response.data.success) {
-        const user = response.data.user;
-        const token = response.data.token;
+  const user = {
+    ...response.data.user,
+    company_name:     response.data.company_name     ?? null,
+    company_logo_url: response.data.company_logo_url ?? null
+  };
+  const token = response.data.token;
 
         if (user.company_id) {
           localStorage.setItem('company_id', user.company_id);
