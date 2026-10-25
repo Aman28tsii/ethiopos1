@@ -3,7 +3,7 @@ import API from '../api/axios';
 import { 
   Receipt, Plus, Edit2, Trash2, Search, X, 
   Calendar, DollarSign, TrendingUp, TrendingDown,
-  PieChart, Loader2
+  PieChart, Loader2, Copy  // ★ Copy icon added
 } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 import { formatCurrency } from '../utils/formatting';
@@ -13,6 +13,7 @@ const Expenses = () => {
   const [expenses, setExpenses] = useState([]);
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [copying, setCopying] = useState(false);  // ★ NEW
   const [showModal, setShowModal] = useState(false);
   const [editingExpense, setEditingExpense] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -53,11 +54,44 @@ const Expenses = () => {
     }
   };
 
+  // ★ NEW: Copy last month's expenses
+  const handleCopyPreviousMonth = async () => {
+    const confirmed = window.confirm(
+      'Copy all expenses from LAST MONTH into THIS MONTH?\n\n' +
+      '• Items already present this month (same category + amount) will be skipped.\n' +
+      '• You can edit or delete any copied item afterward.\n\n' +
+      'Continue?'
+    );
+    if (!confirmed) return;
+
+    setCopying(true);
+    try {
+      const res = await API.post('/expenses/copy-from-previous-month');
+      const { copied_count, skipped_count } = res.data.data;
+
+      if (copied_count === 0) {
+        alert(`ℹ️ Nothing new to copy.\n\n${skipped_count} expense(s) from last month already exist this month.`);
+      } else {
+        let msg = `✅ Copied ${copied_count} expense(s) from last month.`;
+        if (skipped_count > 0) {
+          msg += `\n\n${skipped_count} expense(s) already existed this month and were skipped.`;
+        }
+        alert(msg);
+      }
+      fetchData();
+    } catch (err) {
+      const msg = err.response?.data?.error || 'Failed to copy expenses';
+      alert('❌ ' + msg);
+    } finally {
+      setCopying(false);
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
       if (editingExpense) {
-        await API.put(/expenses/, formData);
+        await API.put(`/expenses/${editingExpense.id}`, formData);
       } else {
         await API.post('/expenses', formData);
       }
@@ -72,7 +106,7 @@ const Expenses = () => {
   const handleDelete = async (id) => {
     if (window.confirm(t('deleteConfirm'))) {
       try {
-        await API.delete(/expenses/);
+        await API.delete(`/expenses/${id}`);
         fetchData();
       } catch (err) {
         alert(err.response?.data?.error || t('deleteFailed'));
@@ -106,18 +140,31 @@ const Expenses = () => {
 
   return (
     <div className="space-y-6">
+      {/* Header */}
       <div className="flex justify-between items-center flex-wrap gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{t('expenseTracking')}</h1>
           <p className="text-gray-500 dark:text-gray-400 mt-1">{t('trackBusinessOperationalCosts')}</p>
         </div>
-        <button
-          onClick={() => setShowModal(true)}
-          className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl font-semibold flex items-center gap-2 transition"
-        >
-          <Plus size={18} />
-          {t('addExpense')}
-        </button>
+        <div className="flex gap-3 flex-wrap">
+          {/* ★ NEW: Copy Last Month button */}
+          <button
+            onClick={handleCopyPreviousMonth}
+            disabled={copying}
+            className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-xl font-semibold flex items-center gap-2 transition disabled:opacity-50 disabled:cursor-not-allowed"
+            title="Copy all expenses from last month into this month"
+          >
+            {copying ? <Loader2 size={18} className="animate-spin" /> : <Copy size={18} />}
+            {copying ? 'Copying...' : 'Copy Last Month'}
+          </button>
+          <button
+            onClick={() => setShowModal(true)}
+            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl font-semibold flex items-center gap-2 transition"
+          >
+            <Plus size={18} />
+            {t('addExpense')}
+          </button>
+        </div>
       </div>
 
       <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700">
