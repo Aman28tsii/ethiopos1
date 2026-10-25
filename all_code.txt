@@ -3,7 +3,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <link rel="icon" href="%PUBLIC_URL%/favicon.ico" />
+   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>ðŸ </text></svg>" />
     <meta name="google" content="notranslate" />
     <!-- Updated viewport for better mobile responsiveness -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes, viewport-fit=cover" />
@@ -16,11 +16,11 @@
     
     <meta
       name="description"
-      content="EthioPOS - Complete Restaurant Management System for Ethiopian Restaurants"
+      content="ZenTech - Complete Restaurant Management System for Ethiopian Restaurants"
     />
     
     <!-- Open Graph / Social Media Meta Tags -->
-    <meta property="og:title" content="EthioPOS - Restaurant Management System" />
+    <meta property="og:title" content="ZenTech - Restaurant Management System" />
     <meta property="og:description" content="Complete Point of Sale system for Ethiopian restaurants with 5 role-based interfaces" />
     <meta property="og:type" content="website" />
     
@@ -32,7 +32,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
     
-    <title>EthioPOS - Ethiopian Restaurant POS System</title>
+    <title>ZenTech - Ethiopian Restaurant POS System</title>
     
     <style>
       body {
@@ -78,8 +78,8 @@
 </html>
 === FILE: C:\Users\dell\Desktop\restaurant\client\public\manifest.json ===
 {
-  "short_name": "EthioPOS",
-  "name": "EthioPOS - Ethiopian Restaurant POS System",
+  "short_name": "Zen Tech",
+  "name": "Zen Tech - Restaurant POS System",
   "description": "Complete Point of Sale system for Ethiopian restaurants",
   "icons": [
     {
@@ -730,7 +730,7 @@ const BranchSelector = () => {
 
             {/* Dropdown */}
             {isOpen && (
-                <div className="absolute right-0 mt-2 w-64 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl z-50 overflow-hidden min-w-[200px]">
+                <div className="absolute left-0 mt-2 w-64 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl z-50 overflow-hidden min-w-[200px]">
                     <div className="p-2 border-b border-gray-200 dark:border-gray-700">
                         <p className="text-xs text-gray-500 dark:text-gray-400 font-medium uppercase tracking-wider px-2">
                             Switch Branch
@@ -777,7 +777,7 @@ export default BranchSelector;
 // Fallback chain (in order):
 //   1. If company_logo_url is present AND the image loads â†’ show logo + name
 //   2. If logo missing or fails to load â†’ show name only
-//   3. If name also missing â†’ show "EthioPOS"
+//   3. If name also missing â†’ show "ZenTech"
 //
 // The parent passes `user` (from app state). We also accept an optional
 // `companyName` / `companyLogoUrl` pair so the QR menu and any other
@@ -785,7 +785,7 @@ export default BranchSelector;
 
 import React, { useState } from 'react';
 
-const DEFAULT_NAME = 'EthioPOS';
+const DEFAULT_NAME = 'ZenTech';
 
 const Branding = ({
   user,
@@ -2402,12 +2402,14 @@ const Sidebar = ({ user, onLogout }) => {
 
   return (
     <>
-      <button
-        onClick={() => setIsMobileOpen(!isMobileOpen)}
-        className="fixed top-4 left-4 z-50 md:hidden bg-white dark:bg-gray-800 p-2 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 transition-colors duration-200"
-      >
-        {isMobileOpen ? <X size={24} className="text-gray-900 dark:text-white" /> : <Menu size={24} className="text-gray-900 dark:text-white" />}
-      </button>
+      {!isMobileOpen && (
+  <button
+    onClick={() => setIsMobileOpen(true)}
+    className="fixed top-4 left-4 z-50 md:hidden bg-white dark:bg-gray-800 p-2 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 transition-colors duration-200"
+  >
+    <Menu size={24} className="text-gray-900 dark:text-white" />
+  </button>
+)}
 
       <MobileOverlay />
 
@@ -2867,7 +2869,7 @@ const SyncStatus = () => {
             </button>
 
             {showDetails && (
-                <div className="absolute right-0 mt-2 w-72 bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 p-4 z-50">
+                <div className="absolute left-0 mt-2 w-72 bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 p-4 z-50">
                     <div className="flex justify-between items-center mb-3">
                         <h4 className="font-semibold text-gray-900 dark:text-white">Sync Status</h4>
                         <button
@@ -2998,7 +3000,7 @@ const SyncStatusIndicator = () => {
             </button>
 
             {showDetails && (
-                <div className="absolute right-0 mt-2 w-72 bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 p-4 z-50">
+                <div className="absolute left-0 mt-2 w-72 bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 p-4 z-50">
                     <div className="flex justify-between items-center mb-3">
                         <h4 className="font-semibold text-gray-900 dark:text-white">Sync Status</h4>
                         <button
@@ -8778,11 +8780,11 @@ const OwnerDashboard = () => {
     <div className="space-y-6">
       {/* Branch indicator */}
       {selectedBranch && (
-        <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl px-4 py-2 flex items-center gap-2 text-blue-700 dark:text-blue-400 text-sm">
-          <span className="font-semibold">📍 Viewing:</span>
-          <span>{selectedBranch.name}</span>
-        </div>
-      )}
+  <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl px-4 py-2 flex flex-wrap items-center gap-2 text-blue-700 dark:text-blue-400 text-sm">
+    <span className="font-semibold">📍 Viewing:</span>
+    <span className="truncate max-w-full">{selectedBranch.name}</span>
+  </div>
+)}
 
       <div className="flex justify-between items-center flex-wrap gap-4">
         <div>
@@ -12479,7 +12481,7 @@ import API from '../api/axios';
 import { 
   Receipt, Plus, Edit2, Trash2, Search, X, 
   Calendar, DollarSign, TrendingUp, TrendingDown,
-  PieChart, Loader2
+  PieChart, Loader2, Copy  // ★ Copy icon added
 } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 import { formatCurrency } from '../utils/formatting';
@@ -12489,6 +12491,7 @@ const Expenses = () => {
   const [expenses, setExpenses] = useState([]);
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [copying, setCopying] = useState(false);  // ★ NEW
   const [showModal, setShowModal] = useState(false);
   const [editingExpense, setEditingExpense] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -12529,11 +12532,44 @@ const Expenses = () => {
     }
   };
 
+  // ★ NEW: Copy last month's expenses
+  const handleCopyPreviousMonth = async () => {
+    const confirmed = window.confirm(
+      'Copy all expenses from LAST MONTH into THIS MONTH?\n\n' +
+      '• Items already present this month (same category + amount) will be skipped.\n' +
+      '• You can edit or delete any copied item afterward.\n\n' +
+      'Continue?'
+    );
+    if (!confirmed) return;
+
+    setCopying(true);
+    try {
+      const res = await API.post('/expenses/copy-from-previous-month');
+      const { copied_count, skipped_count } = res.data.data;
+
+      if (copied_count === 0) {
+        alert(`ℹ️ Nothing new to copy.\n\n${skipped_count} expense(s) from last month already exist this month.`);
+      } else {
+        let msg = `✅ Copied ${copied_count} expense(s) from last month.`;
+        if (skipped_count > 0) {
+          msg += `\n\n${skipped_count} expense(s) already existed this month and were skipped.`;
+        }
+        alert(msg);
+      }
+      fetchData();
+    } catch (err) {
+      const msg = err.response?.data?.error || 'Failed to copy expenses';
+      alert('❌ ' + msg);
+    } finally {
+      setCopying(false);
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
       if (editingExpense) {
-        await API.put(/expenses/, formData);
+        await API.put(`/expenses/${editingExpense.id}`, formData);
       } else {
         await API.post('/expenses', formData);
       }
@@ -12548,7 +12584,7 @@ const Expenses = () => {
   const handleDelete = async (id) => {
     if (window.confirm(t('deleteConfirm'))) {
       try {
-        await API.delete(/expenses/);
+        await API.delete(`/expenses/${id}`);
         fetchData();
       } catch (err) {
         alert(err.response?.data?.error || t('deleteFailed'));
@@ -12582,18 +12618,31 @@ const Expenses = () => {
 
   return (
     <div className="space-y-6">
+      {/* Header */}
       <div className="flex justify-between items-center flex-wrap gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{t('expenseTracking')}</h1>
           <p className="text-gray-500 dark:text-gray-400 mt-1">{t('trackBusinessOperationalCosts')}</p>
         </div>
-        <button
-          onClick={() => setShowModal(true)}
-          className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl font-semibold flex items-center gap-2 transition"
-        >
-          <Plus size={18} />
-          {t('addExpense')}
-        </button>
+        <div className="flex gap-3 flex-wrap">
+          {/* ★ NEW: Copy Last Month button */}
+          <button
+            onClick={handleCopyPreviousMonth}
+            disabled={copying}
+            className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-xl font-semibold flex items-center gap-2 transition disabled:opacity-50 disabled:cursor-not-allowed"
+            title="Copy all expenses from last month into this month"
+          >
+            {copying ? <Loader2 size={18} className="animate-spin" /> : <Copy size={18} />}
+            {copying ? 'Copying...' : 'Copy Last Month'}
+          </button>
+          <button
+            onClick={() => setShowModal(true)}
+            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl font-semibold flex items-center gap-2 transition"
+          >
+            <Plus size={18} />
+            {t('addExpense')}
+          </button>
+        </div>
       </div>
 
       <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700">
@@ -12892,18 +12941,36 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import API from '../api/axios';
 import { 
     Package, Plus, Edit2, Trash2, AlertTriangle, Search, X, Loader2,
-    UtensilsCrossed
+    UtensilsCrossed, Wine, AlertCircle  // ★ Wine icon for bottle actions
 } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 import { useDebounce } from '../hooks/useDebounce';
 import RecipeManager from '../components/RecipeManager';
 
 // ============================================
+// HELPER: format bottle display for a row
+// ============================================
+const formatBottleDisplay = (ingredient) => {
+    const size = parseFloat(ingredient.bottle_size_ml);
+    const qty  = parseFloat(ingredient.quantity) || 0;
+
+    if (!size || size <= 0) return null; // not a bottle ingredient
+
+    const bottles = qty / size;
+    return {
+        bottles: bottles.toFixed(2),
+        ml: qty.toFixed(0),
+        size: size
+    };
+};
+
+// ============================================
 // INGREDIENT ROW COMPONENT
 // ============================================
-const IngredientRow = ({ ingredient, onEdit, onDelete, formatCurrency }) => {
+const IngredientRow = ({ ingredient, onEdit, onDelete, onMarkEmpty, onBrokenBottle, formatCurrency }) => {
     const { t } = useLanguage();
     const isLowStock = ingredient.quantity <= ingredient.min_stock;
+    const bottleInfo = formatBottleDisplay(ingredient);
     
     return (
         <tr className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition">
@@ -12917,11 +12984,45 @@ const IngredientRow = ({ ingredient, onEdit, onDelete, formatCurrency }) => {
                     <span className="text-xs text-gray-500 ml-1">({t('safetyStock')}: {ingredient.safety_stock})</span>
                 )}
             </td>
+            {/* ★ NEW: Bottle column */}
+            <td className="px-6 py-4 text-gray-600 dark:text-gray-300">
+                {bottleInfo ? (
+                    <div className="flex flex-col text-xs">
+                        <span className="font-semibold text-purple-600 dark:text-purple-400">
+                            {bottleInfo.bottles} bottles
+                        </span>
+                        <span className="text-gray-500">
+                            ({bottleInfo.ml} ml / {bottleInfo.size} ml)
+                        </span>
+                    </div>
+                ) : (
+                    <span className="text-gray-400">—</span>
+                )}
+            </td>
             <td className="px-6 py-4 text-gray-600 dark:text-gray-300">{ingredient.min_stock}</td>
             <td className="px-6 py-4 text-gray-600 dark:text-gray-300">{formatCurrency(ingredient.unit_cost)}</td>
             <td className="px-6 py-4 text-gray-600 dark:text-gray-300">{ingredient.category || '-'}</td>
             <td className="px-6 py-4">
                 <div className="flex gap-2">
+                    {/* ★ NEW: bottle action buttons (only if bottle ingredient) */}
+                    {bottleInfo && (
+                        <>
+                            <button
+                                onClick={() => onMarkEmpty(ingredient)}
+                                className="text-amber-600 dark:text-amber-400 hover:text-amber-700 transition"
+                                title="Mark bottle empty (reduce by 1 bottle)"
+                            >
+                                <Wine size={16} />
+                            </button>
+                            <button
+                                onClick={() => onBrokenBottle(ingredient)}
+                                className="text-orange-600 dark:text-orange-400 hover:text-orange-700 transition"
+                                title="Record broken bottle"
+                            >
+                                <AlertCircle size={16} />
+                            </button>
+                        </>
+                    )}
                     <button onClick={() => onEdit(ingredient, 'ingredient')} className="text-blue-600 dark:text-blue-400 hover:text-blue-700 transition">
                         <Edit2 size={16} />
                     </button>
@@ -13047,7 +13148,8 @@ const Inventory = () => {
         min_stock: 0,
         unit_cost: 0,
         category: '',
-        supplier: ''
+        supplier: '',
+        bottle_size_ml: ''  // ★ NEW
     });
     
     const [productForm, setProductForm] = useState({
@@ -13115,10 +13217,18 @@ const Inventory = () => {
         
         try {
             if (editType === 'ingredient') {
-                if (editingItem) {
-                    await API.put(`/ingredients/${editingItem.id}`, ingredientForm);
+                // ★ Clean payload: send bottle_size_ml only if it's a positive number
+                const payload = { ...ingredientForm };
+                if (payload.bottle_size_ml === '' || payload.bottle_size_ml === null) {
+                    payload.bottle_size_ml = null;
                 } else {
-                    await API.post('/ingredients', ingredientForm);
+                    payload.bottle_size_ml = parseInt(payload.bottle_size_ml, 10);
+                }
+
+                if (editingItem) {
+                    await API.put(`/ingredients/${editingItem.id}`, payload);
+                } else {
+                    await API.post('/ingredients', payload);
                 }
             } else {
                 if (editingItem) {
@@ -13152,6 +13262,61 @@ const Inventory = () => {
         }
     };
 
+    // ★ NEW: Mark bottle empty
+    const handleMarkEmpty = async (ingredient) => {
+        const size = parseFloat(ingredient.bottle_size_ml);
+        const qty  = parseFloat(ingredient.quantity) || 0;
+        const bottles = Math.floor(qty / size);
+
+        if (bottles < 1) {
+            alert('No whole bottles left to mark empty.');
+            return;
+        }
+
+        const confirmMsg =
+            `Mark 1 bottle of "${ingredient.name}" as empty?\n\n` +
+            `This will reduce stock by ${size} ml.\n` +
+            `Current: ${qty} ml (${(qty/size).toFixed(2)} bottles)\n` +
+            `After:   ${qty - size} ml (${((qty-size)/size).toFixed(2)} bottles)`;
+
+        if (!window.confirm(confirmMsg)) return;
+
+        try {
+            await API.post(`/ingredients/${ingredient.id}/mark-empty`);
+            fetchData();
+        } catch (err) {
+            alert(err.response?.data?.error || 'Failed to mark bottle empty');
+        }
+    };
+
+    // ★ NEW: Record broken bottle
+    const handleBrokenBottle = async (ingredient) => {
+        const size = parseFloat(ingredient.bottle_size_ml);
+        const qty  = parseFloat(ingredient.quantity) || 0;
+        const bottles = Math.floor(qty / size);
+
+        if (bottles < 1) {
+            alert('No whole bottles left to record as broken.');
+            return;
+        }
+
+        const reason = window.prompt(
+            `Record 1 bottle of "${ingredient.name}" as broken?\n\n` +
+            `This will reduce stock by ${size} ml.\n\n` +
+            `Optional reason (e.g., "dropped", "leaked"):`
+        );
+        if (reason === null) return; // cancelled
+
+        try {
+            await API.post(`/ingredients/${ingredient.id}/broken-bottle`, {
+                reason: reason || 'Broken bottle'
+            });
+            fetchData();
+        } catch (err) {
+            alert(err.response?.data?.error || 'Failed to record broken bottle');
+        }
+    };
+
     const handleEdit = (item, type) => {
         setEditType(type);
         if (type === 'ingredient') {
@@ -13162,7 +13327,8 @@ const Inventory = () => {
                 min_stock: item.min_stock,
                 unit_cost: item.unit_cost,
                 category: item.category || '',
-                supplier: item.supplier || ''
+                supplier: item.supplier || '',
+                bottle_size_ml: item.bottle_size_ml || ''  // ★ NEW
             });
         } else {
             setProductForm({
@@ -13188,7 +13354,8 @@ const Inventory = () => {
             min_stock: 0,
             unit_cost: 0,
             category: '',
-            supplier: ''
+            supplier: '',
+            bottle_size_ml: ''  // ★ NEW
         });
         setProductForm({
             name: '',
@@ -13316,6 +13483,8 @@ const Inventory = () => {
                                     <th className="px-6 py-3 text-gray-600 dark:text-gray-400 text-sm font-semibold">{t('name')}</th>
                                     <th className="px-6 py-3 text-gray-600 dark:text-gray-400 text-sm font-semibold">{t('unit')}</th>
                                     <th className="px-6 py-3 text-gray-600 dark:text-gray-400 text-sm font-semibold">{t('stock')}</th>
+                                    {/* ★ NEW: Bottle column */}
+                                    <th className="px-6 py-3 text-gray-600 dark:text-gray-400 text-sm font-semibold">Bottle</th>
                                     <th className="px-6 py-3 text-gray-600 dark:text-gray-400 text-sm font-semibold">{t('minStock')}</th>
                                     <th className="px-6 py-3 text-gray-600 dark:text-gray-400 text-sm font-semibold">{t('unitCost')}</th>
                                     <th className="px-6 py-3 text-gray-600 dark:text-gray-400 text-sm font-semibold">{t('category')}</th>
@@ -13329,6 +13498,8 @@ const Inventory = () => {
                                         ingredient={ing}
                                         onEdit={(item) => handleEdit(item, 'ingredient')}
                                         onDelete={handleDelete}
+                                        onMarkEmpty={handleMarkEmpty}      // ★ NEW
+                                        onBrokenBottle={handleBrokenBottle} // ★ NEW
                                         formatCurrency={formatCurrency}
                                     />
                                 ))}
@@ -13488,6 +13659,26 @@ const Inventory = () => {
                                             />
                                         </div>
                                     </div>
+                                    {/* ★ NEW: Bottle size field */}
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 flex items-center gap-1">
+                                            <Wine size={14} />
+                                            Bottle Size (ml)
+                                            <span className="text-xs text-gray-500 font-normal">— optional, for bar items</span>
+                                        </label>
+                                        <input
+                                            type="number"
+                                            step="1"
+                                            min="0"
+                                            placeholder="e.g., 750 for whisky, 330 for beer"
+                                            value={ingredientForm.bottle_size_ml}
+                                            onChange={(e) => setIngredientForm({ ...ingredientForm, bottle_size_ml: e.target.value })}
+                                            className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                        />
+                                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                            Leave empty for normal ingredients. Set to bottle volume in ml to track bottles remaining.
+                                        </p>
+                                    </div>
                                 </>
                             ) : (
                                 // PRODUCT FORM
@@ -13612,8 +13803,12 @@ const Login = ({ onLogin }) => {
       });
 
       if (response.data.success) {
-        const user = response.data.user;
-        const token = response.data.token;
+  const user = {
+    ...response.data.user,
+    company_name:     response.data.company_name     ?? null,
+    company_logo_url: response.data.company_logo_url ?? null
+  };
+  const token = response.data.token;
 
         if (user.company_id) {
           localStorage.setItem('company_id', user.company_id);
@@ -13654,14 +13849,14 @@ const Login = ({ onLogin }) => {
       if (code === 'ACCOUNT_PENDING_APPROVAL' || code === 'COMPANY_PENDING') {
         setError(
           'Your registration is waiting for approval. ' +
-          'You will be able to use EthioPOS once your account is approved.'
+          'You will be able to use ZenTech once your account is approved.'
         );
       } else if (code === 'ACCOUNT_REJECTED') {
         setError(
-          'Your registration was rejected. Please contact the EthioPOS Service Provider.'
+          'Your registration was rejected. Please contact the ZenTech Service Provider.'
         );
       } else if (code === 'ACCOUNT_INACTIVE') {
-        setError('Your account is not active. Please contact the EthioPOS Service Provider.');
+        setError('Your account is not active. Please contact the ZenTech Service Provider.');
       } else {
         setError(msg || t('loginFailed'));
       }
@@ -13677,7 +13872,7 @@ const Login = ({ onLogin }) => {
           <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-blue-600 mb-4 shadow-xl">
             <Store className="text-gray-900 dark:text-gray-900 dark:text-white" size={40} />
           </div>
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-900 dark:text-gray-900 dark:text-white">EthioPOS</h1>
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-900 dark:text-gray-900 dark:text-white">ZenTech</h1>
           <p className="text-gray-600 dark:text-gray-500 dark:text-gray-500 dark:text-gray-400 mt-2">{t('restaurantManagementSystem')}</p>
         </div>
 
@@ -16793,7 +16988,7 @@ const Signup = () => {
           <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-blue-600 mb-4 shadow-xl">
             <Store className="text-gray-900 dark:text-gray-900 dark:text-white" size={40} />
           </div>
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-900 dark:text-white">EthioPOS</h1>
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-900 dark:text-white">ZenTech</h1>
           <p className="text-gray-500 dark:text-gray-500 dark:text-gray-400 mt-2">Create your account</p>
         </div>
 
@@ -19671,7 +19866,7 @@ function App() {
 
   // Keep the browser tab title in sync with the tenant's name.
   useEffect(() => {
-    const name = (user && (user.company_name || user.companyName)) || 'EthioPOS';
+    const name = (user && (user.company_name || user.companyName)) || 'ZenTech';
     document.title = String(name);
   }, [user]);
 
@@ -39378,6 +39573,78 @@ export const testConnection = async () => {
 };
 
 export { pool };
+=== FILE: C:\Users\dell\Desktop\restaurant\server\src\config\runMigrations.js ===
+// server/src/config/runMigrations.js
+//
+// Simple migration runner. Reads every .sql file from
+// server/src/config/migrations/ in lexical order and executes it
+// exactly once per server process. Failures are logged but do NOT
+// crash the server (the migration is designed to be idempotent via
+// "IF NOT EXISTS").
+//
+// Migrations must be named like:
+//   2026-10-24-add-bottle-size.sql
+//   2026-10-25-add-happy-hour.sql
+//
+// They will run in that order.
+
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { query } from './database.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const MIGRATIONS_DIR = path.join(__dirname, 'migrations');
+
+let hasRun = false;
+
+export const runMigrations = async () => {
+    if (hasRun) {
+        console.log('[MIGRATIONS] Already ran this process â€” skipping');
+        return;
+    }
+    hasRun = true;
+
+    if (!fs.existsSync(MIGRATIONS_DIR)) {
+        console.log('[MIGRATIONS] No migrations directory found â€” skipping');
+        return;
+    }
+
+    const files = fs
+        .readdirSync(MIGRATIONS_DIR)
+        .filter(f => f.endsWith('.sql'))
+        .sort();
+
+    if (files.length === 0) {
+        console.log('[MIGRATIONS] No .sql files to run');
+        return;
+    }
+
+    console.log(`[MIGRATIONS] Found ${files.length} migration file(s)`);
+
+    for (const file of files) {
+        const fullPath = path.join(MIGRATIONS_DIR, file);
+        try {
+            const sql = fs.readFileSync(fullPath, 'utf8').trim();
+            if (!sql) {
+                console.log(`[MIGRATIONS] Skipping empty file: ${file}`);
+                continue;
+            }
+            console.log(`[MIGRATIONS] Running: ${file}`);
+            await query(sql);
+            console.log(`[MIGRATIONS] âœ… ${file} â€” done`);
+        } catch (err) {
+            console.error(`[MIGRATIONS] âŒ ${file} â€” FAILED: ${err.message}`);
+            // Do NOT throw â€” server should still start. Migration is idempotent.
+        }
+    }
+
+    console.log('[MIGRATIONS] Complete');
+};
+
+export default runMigrations;
 === FILE: C:\Users\dell\Desktop\restaurant\server\src\controllers\authController.js ===
 // server/src/controllers/authController.js
 
@@ -40800,7 +41067,7 @@ export const deleteExpense = catchAsync(async (req, res) => {
 });
 
 // ============================================================
-// GET EXPENSE SUMMARY (Branch-isolated) - âœ… FIXED
+// GET EXPENSE SUMMARY (Branch-isolated)
 // ============================================================
 export const getExpenseSummary = catchAsync(async (req, res) => {
     const { startDate, endDate } = req.query;
@@ -40871,6 +41138,123 @@ export const getExpenseCategories = catchAsync(async (req, res) => {
     );
     
     res.json({ success: true, data: result.rows.map(r => r.category) });
+});
+
+// ============================================================
+// COPY LAST MONTH'S EXPENSES  â˜… NEW
+//
+// Copies every expense from the previous calendar month into
+// the current month with today's date.
+//
+// Duplicate protection: if an expense with the same category
+// AND same amount already exists in the current month, it is
+// skipped. This prevents accidental double-clicks from creating
+// duplicate rows.
+//
+// Returns: { created[], skipped_count, copied_count }
+// ============================================================
+export const copyFromPreviousMonth = catchAsync(async (req, res) => {
+    if (!req.user?.company_id || !req.user?.branch_id) {
+        throw new AppError('Authentication required', 401);
+    }
+
+    const userId = req.user.id;
+    const companyId = req.user.company_id;
+    const branchId = req.user.branch_id;
+
+    const today = new Date();
+
+    // Date boundaries
+    const firstOfThisMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+    const lastOfThisMonth  = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+    const firstOfPrevMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+    const lastOfPrevMonth  = new Date(today.getFullYear(), today.getMonth(), 0);
+
+    const isoDate = (d) => d.toISOString().split('T')[0];
+    const todayIso = isoDate(today);
+
+    // ---- 1. Fetch previous month's expenses ----
+    const prev = await query(
+        `SELECT category, amount, description
+         FROM expenses
+         WHERE expense_date BETWEEN $1 AND $2
+           AND company_id = $3
+           AND branch_id  = $4
+         ORDER BY category ASC`,
+        [isoDate(firstOfPrevMonth), isoDate(lastOfPrevMonth), companyId, branchId]
+    );
+
+    if (prev.rows.length === 0) {
+        return res.status(404).json({
+            success: false,
+            error: 'No expenses found in the previous month to copy'
+        });
+    }
+
+    // ---- 2. Fetch this month's existing expenses for duplicate detection ----
+    const existing = await query(
+        `SELECT category, amount
+         FROM expenses
+         WHERE expense_date BETWEEN $1 AND $2
+           AND company_id = $3
+           AND branch_id  = $4`,
+        [isoDate(firstOfThisMonth), isoDate(lastOfThisMonth), companyId, branchId]
+    );
+
+    // Duplicate key: "<category>|<amount to 2dp>"
+    const existingKeys = new Set(
+        existing.rows.map(r => `${r.category}|${parseFloat(r.amount).toFixed(2)}`)
+    );
+
+    // ---- 3. Insert copies, skipping duplicates ----
+    const created = [];
+    const skipped = [];
+
+    for (const row of prev.rows) {
+        const key = `${row.category}|${parseFloat(row.amount).toFixed(2)}`;
+
+        if (existingKeys.has(key)) {
+            skipped.push({ category: row.category, amount: row.amount });
+            continue;
+        }
+
+        const description = row.description
+            ? `${row.description} (copied from last month)`
+            : 'Copied from last month';
+
+        const insert = await query(
+            `INSERT INTO expenses (company_id, branch_id, user_id, category, amount, description, expense_date)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)
+             RETURNING *`,
+            [companyId, branchId, userId, row.category, row.amount, description, todayIso]
+        );
+
+        created.push(insert.rows[0]);
+        existingKeys.add(key); // guard against duplicate rows in prev month
+    }
+
+    // ---- 4. Respond ----
+    const copiedCount = created.length;
+    const skippedCount = skipped.length;
+
+    let message;
+    if (copiedCount === 0) {
+        message = `Nothing to copy â€” all ${skippedCount} expense(s) from last month already exist this month.`;
+    } else if (skippedCount === 0) {
+        message = `Copied ${copiedCount} expense(s) from last month.`;
+    } else {
+        message = `Copied ${copiedCount} expense(s). Skipped ${skippedCount} that already existed this month.`;
+    }
+
+    res.status(201).json({
+        success: true,
+        message,
+        data: {
+            created,
+            copied_count: copiedCount,
+            skipped_count: skippedCount
+        }
+    });
 });
 === FILE: C:\Users\dell\Desktop\restaurant\server\src\controllers\ingredientController.js ===
 // server/src/controllers/ingredientController.js
@@ -41795,8 +42179,8 @@ export const getProductById = catchAsync(async (req, res) => {
     const branchId  = requireBranchId(req);  // â˜… FIX
 
     // Reject non-numeric IDs explicitly
-    const numericId = parseInt(id, 10);
-    if (!Number.isFinite(numericId) || numericId <= 0) {
+      const numericId = parseInt(id, 10);
+    if (!Number.isFinite(numericId) || numericId <= 0 || numericId > 2147483647) {
         throw new AppError('Invalid product ID', 400);
     }
 
@@ -41955,8 +42339,8 @@ export const updateProduct = catchAsync(async (req, res) => {
     const companyId = requireCompanyId(req);
     const branchId  = requireBranchId(req);  // â˜… FIX
 
-    const numericId = parseInt(id, 10);
-    if (!Number.isFinite(numericId) || numericId <= 0) {
+      const numericId = parseInt(id, 10);
+    if (!Number.isFinite(numericId) || numericId <= 0 || numericId > 2147483647) {
         throw new AppError('Invalid product ID', 400);
     }
 
@@ -41995,11 +42379,10 @@ export const deleteProduct = catchAsync(async (req, res) => {
     const companyId = requireCompanyId(req);
     const branchId  = requireBranchId(req);  // â˜… FIX
 
-    const numericId = parseInt(id, 10);
-    if (!Number.isFinite(numericId) || numericId <= 0) {
+       const numericId = parseInt(id, 10);
+    if (!Number.isFinite(numericId) || numericId <= 0 || numericId > 2147483647) {
         throw new AppError('Invalid product ID', 400);
     }
-
     // â˜… FIX: added `AND branch_id = $3`. Params shifted.
     const result = await query(
         `UPDATE products SET is_available = false
@@ -45979,7 +46362,8 @@ import {
   updateExpense,
   deleteExpense,
   getExpenseSummary,
-  getExpenseCategories
+  getExpenseCategories,
+  copyFromPreviousMonth  // ★ NEW
 } from "../controllers/expenseController.js";
 import { protect, allowOwner } from "../middleware/auth.js";
 import { authorizeCompany, authorizeBranch, requireCompanyContext } from "../middleware/authorization.js";
@@ -45997,6 +46381,10 @@ router.get("/", authorizeBranch, getAllExpenses);
 router.get("/summary", authorizeBranch, getExpenseSummary);
 router.get("/categories", authorizeBranch, getExpenseCategories);
 router.get("/:id", authorizeBranch, getExpenseById);
+
+// ★ NEW: copy last month's expenses into this month
+router.post("/copy-from-previous-month", authorizeBranch, copyFromPreviousMonth);
+
 router.post("/", authorizeBranch, createExpense);
 router.put("/:id", authorizeBranch, updateExpense);
 router.delete("/:id", authorizeBranch, deleteExpense);
@@ -46019,7 +46407,9 @@ import {
     getLowStock,
     getLowStockAlert,
     adjustStock,
-    getIngredientCategories
+    getIngredientCategories,
+    markBottleEmpty,        // ★ NEW
+    recordBrokenBottle      // ★ NEW
 } from '../controllers/ingredientController.js';
 
 const router = express.Router();
@@ -46062,6 +46452,27 @@ router.put('/:id/adjust-stock',
     adjustStock
 );
 
+// ============================================
+// BOTTLE MANAGEMENT (Day 1 — bar feature)
+// ============================================
+// These routes are only meaningful for ingredients that have
+// bottle_size_ml set. For normal ingredients they return 400.
+// Owner-only (same rule as other write operations).
+
+router.post('/:id/mark-empty',
+    authorizeBranch,
+    allowOwner,
+    mutationLimiter,
+    markBottleEmpty
+);
+
+router.post('/:id/broken-bottle',
+    authorizeBranch,
+    allowOwner,
+    mutationLimiter,
+    recordBrokenBottle
+);
+
 export default router;
 === FILE: C:\Users\dell\Desktop\restaurant\server\src\routes\kitchen.js ===
 // server/src/routes/kitchen.js
@@ -46076,6 +46487,21 @@ const router = express.Router();
 
 router.use(protect);
 router.use(requireCompanyContext);
+
+// ============================================================
+// KITCHEN ORDER STATE MACHINE
+//
+// Legal forward transitions only. Any move not listed here is
+// rejected with 409. This closes the "ready → pending" and
+// similar reverse-transition gaps found during the audit.
+// ============================================================
+const ALLOWED_TRANSITIONS = {
+    'pending':    ['preparing', 'cancelled'],
+    'preparing':  ['ready', 'cancelled'],
+    'ready':      ['completed', 'cancelled'],
+    'completed':  [],
+    'cancelled':  []
+};
 
 // ============================================================
 // GET KITCHEN ORDERS
@@ -46155,12 +46581,23 @@ router.put("/orders/:orderId/status", authorizeBranch, allowKitchen, async (req,
         }
 
         const orderCheck = await pool.query(
-            `SELECT id FROM kitchen_orders WHERE order_id = $1`,
+            `SELECT id, status FROM kitchen_orders WHERE order_id = $1 FOR UPDATE`,
             [orderIdInt]
         );
         
         if (orderCheck.rows.length === 0) {
             return res.status(404).json({ success: false, error: "Order not found in kitchen" });
+        }
+
+        // Enforce the state machine: only legal forward transitions.
+        const currentStatus = orderCheck.rows[0].status;
+        const allowed = ALLOWED_TRANSITIONS[currentStatus] || [];
+
+        if (!allowed.includes(status)) {
+            return res.status(409).json({
+                success: false,
+                error: `Invalid transition: ${currentStatus} → ${status}`
+            });
         }
 
         await pool.query(
@@ -48766,6 +49203,7 @@ import platformAdminRoutes from "./routes/platformAdmin.js";
 import { errorHandler, notFound } from "./middleware/errorHandler.js";
 import { ensureIdempotencyTable } from "./middleware/idempotency.js";
 import { ensureRateLimitTable } from "./middleware/rateLimiter.js";
+import { runMigrations } from "./config/runMigrations.js";
 import jwt from 'jsonwebtoken';
 
 // Get __dirname equivalent in ES modules
@@ -49085,6 +49523,7 @@ server.listen(PORT, async () => {
         console.log("✅ Database connected successfully");
         await ensureIdempotencyTable();
         await ensureRateLimitTable();
+         await runMigrations();
     } else {
         console.log("❌ Database connection failed");
     }
