@@ -28,6 +28,7 @@ import platformAdminRoutes from "./routes/platformAdmin.js";
 import { errorHandler, notFound } from "./middleware/errorHandler.js";
 import { ensureIdempotencyTable } from "./middleware/idempotency.js";
 import { ensureRateLimitTable } from "./middleware/rateLimiter.js";
+import { runMigrations } from "./config/runMigrations.js";
 import jwt from 'jsonwebtoken';
 
 // Get __dirname equivalent in ES modules
@@ -347,6 +348,7 @@ server.listen(PORT, async () => {
         console.log("✅ Database connected successfully");
         await ensureIdempotencyTable();
         await ensureRateLimitTable();
+         await runMigrations();
     } else {
         console.log("❌ Database connection failed");
     }

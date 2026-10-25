@@ -14,7 +14,9 @@ import {
     getLowStock,
     getLowStockAlert,
     adjustStock,
-    getIngredientCategories
+    getIngredientCategories,
+    markBottleEmpty,        // ★ NEW
+    recordBrokenBottle      // ★ NEW
 } from '../controllers/ingredientController.js';
 
 const router = express.Router();
@@ -55,6 +57,27 @@ router.put('/:id/adjust-stock',
     requireIdempotency, 
     idempotent, 
     adjustStock
+);
+
+// ============================================
+// BOTTLE MANAGEMENT (Day 1 — bar feature)
+// ============================================
+// These routes are only meaningful for ingredients that have
+// bottle_size_ml set. For normal ingredients they return 400.
+// Owner-only (same rule as other write operations).
+
+router.post('/:id/mark-empty',
+    authorizeBranch,
+    allowOwner,
+    mutationLimiter,
+    markBottleEmpty
+);
+
+router.post('/:id/broken-bottle',
+    authorizeBranch,
+    allowOwner,
+    mutationLimiter,
+    recordBrokenBottle
 );
 
 export default router;

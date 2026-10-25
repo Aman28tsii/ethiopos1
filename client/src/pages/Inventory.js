@@ -2,18 +2,36 @@
 import API from '../api/axios';
 import { 
     Package, Plus, Edit2, Trash2, AlertTriangle, Search, X, Loader2,
-    UtensilsCrossed
+    UtensilsCrossed, Wine, AlertCircle  // ★ Wine icon for bottle actions
 } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 import { useDebounce } from '../hooks/useDebounce';
 import RecipeManager from '../components/RecipeManager';
 
 // ============================================
+// HELPER: format bottle display for a row
+// ============================================
+const formatBottleDisplay = (ingredient) => {
+    const size = parseFloat(ingredient.bottle_size_ml);
+    const qty  = parseFloat(ingredient.quantity) || 0;
+
+    if (!size || size <= 0) return null; // not a bottle ingredient
+
+    const bottles = qty / size;
+    return {
+        bottles: bottles.toFixed(2),
+        ml: qty.toFixed(0),
+        size: size
+    };
+};
+
+// ============================================
 // INGREDIENT ROW COMPONENT
 // ============================================
-const IngredientRow = ({ ingredient, onEdit, onDelete, formatCurrency }) => {
+const IngredientRow = ({ ingredient, onEdit, onDelete, onMarkEmpty, onBrokenBottle, formatCurrency }) => {
     const { t } = useLanguage();
     const isLowStock = ingredient.quantity <= ingredient.min_stock;
+    const bottleInfo = formatBottleDisplay(ingredient);
     
     return (
         <tr className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition">
@@ -27,11 +45,45 @@ const IngredientRow = ({ ingredient, onEdit, onDelete, formatCurrency }) => {
                     <span className="text-xs text-gray-500 ml-1">({t('safetyStock')}: {ingredient.safety_stock})</span>
                 )}
             </td>
+            {/* ★ NEW: Bottle column */}
+            <td className="px-6 py-4 text-gray-600 dark:text-gray-300">
+                {bottleInfo ? (
+                    <div className="flex flex-col text-xs">
+                        <span className="font-semibold text-purple-600 dark:text-purple-400">
+                            {bottleInfo.bottles} bottles
+                        </span>
+                        <span className="text-gray-500">
+                            ({bottleInfo.ml} ml / {bottleInfo.size} ml)
+                        </span>
+                    </div>
+                ) : (
+                    <span className="text-gray-400">—</span>
+                )}
+            </td>
             <td className="px-6 py-4 text-gray-600 dark:text-gray-300">{ingredient.min_stock}</td>
             <td className="px-6 py-4 text-gray-600 dark:text-gray-300">{formatCurrency(ingredient.unit_cost)}</td>
             <td className="px-6 py-4 text-gray-600 dark:text-gray-300">{ingredient.category || '-'}</td>
             <td className="px-6 py-4">
                 <div className="flex gap-2">
+                    {/* ★ NEW: bottle action buttons (only if bottle ingredient) */}
+                    {bottleInfo && (
+                        <>
+                            <button
+                                onClick={() => onMarkEmpty(ingredient)}
+                                className="text-amber-600 dark:text-amber-400 hover:text-amber-700 transition"
+                                title="Mark bottle empty (reduce by 1 bottle)"
+                            >
+                                <Wine size={16} />
+                            </button>
+                            <button
+                                onClick={() => onBrokenBottle(ingredient)}
+                                className="text-orange-600 dark:text-orange-400 hover:text-orange-700 transition"
+                                title="Record broken bottle"
+                            >
+                                <AlertCircle size={16} />
+                            </button>
+                        </>
+                    )}
                     <button onClick={() => onEdit(ingredient, 'ingredient')} className="text-blue-600 dark:text-blue-400 hover:text-blue-700 transition">
                         <Edit2 size={16} />
                     </button>
@@ -157,7 +209,8 @@ const Inventory = () => {
         min_stock: 0,
         unit_cost: 0,
         category: '',
-        supplier: ''
+        supplier: '',
+        bottle_size_ml: ''  // ★ NEW
     });
     
     const [productForm, setProductForm] = useState({
@@ -225,10 +278,18 @@ const Inventory = () => {
         
         try {
             if (editType === 'ingredient') {
-                if (editingItem) {
-                    await API.put(`/ingredients/${editingItem.id}`, ingredientForm);
+                // ★ Clean payload: send bottle_size_ml only if it's a positive number
+                const payload = { ...ingredientForm };
+                if (payload.bottle_size_ml === '' || payload.bottle_size_ml === null) {
+                    payload.bottle_size_ml = null;
                 } else {
-                    await API.post('/ingredients', ingredientForm);
+                    payload.bottle_size_ml = parseInt(payload.bottle_size_ml, 10);
+                }
+
+                if (editingItem) {
+                    await API.put(`/ingredients/${editingItem.id}`, payload);
+                } else {
+                    await API.post('/ingredients', payload);
                 }
             } else {
                 if (editingItem) {
@@ -262,6 +323,61 @@ const Inventory = () => {
         }
     };
 
+    // ★ NEW: Mark bottle empty
+    const handleMarkEmpty = async (ingredient) => {
+        const size = parseFloat(ingredient.bottle_size_ml);
+        const qty  = parseFloat(ingredient.quantity) || 0;
+        const bottles = Math.floor(qty / size);
+
+        if (bottles < 1) {
+            alert('No whole bottles left to mark empty.');
+            return;
+        }
+
+        const confirmMsg =
+            `Mark 1 bottle of "${ingredient.name}" as empty?\n\n` +
+            `This will reduce stock by ${size} ml.\n` +
+            `Current: ${qty} ml (${(qty/size).toFixed(2)} bottles)\n` +
+            `After:   ${qty - size} ml (${((qty-size)/size).toFixed(2)} bottles)`;
+
+        if (!window.confirm(confirmMsg)) return;
+
+        try {
+            await API.post(`/ingredients/${ingredient.id}/mark-empty`);
+            fetchData();
+        } catch (err) {
+            alert(err.response?.data?.error || 'Failed to mark bottle empty');
+        }
+    };
+
+    // ★ NEW: Record broken bottle
+    const handleBrokenBottle = async (ingredient) => {
+        const size = parseFloat(ingredient.bottle_size_ml);
+        const qty  = parseFloat(ingredient.quantity) || 0;
+        const bottles = Math.floor(qty / size);
+
+        if (bottles < 1) {
+            alert('No whole bottles left to record as broken.');
+            return;
+        }
+
+        const reason = window.prompt(
+            `Record 1 bottle of "${ingredient.name}" as broken?\n\n` +
+            `This will reduce stock by ${size} ml.\n\n` +
+            `Optional reason (e.g., "dropped", "leaked"):`
+        );
+        if (reason === null) return; // cancelled
+
+        try {
+            await API.post(`/ingredients/${ingredient.id}/broken-bottle`, {
+                reason: reason || 'Broken bottle'
+            });
+            fetchData();
+        } catch (err) {
+            alert(err.response?.data?.error || 'Failed to record broken bottle');
+        }
+    };
+
     const handleEdit = (item, type) => {
         setEditType(type);
         if (type === 'ingredient') {
@@ -272,7 +388,8 @@ const Inventory = () => {
                 min_stock: item.min_stock,
                 unit_cost: item.unit_cost,
                 category: item.category || '',
-                supplier: item.supplier || ''
+                supplier: item.supplier || '',
+                bottle_size_ml: item.bottle_size_ml || ''  // ★ NEW
             });
         } else {
             setProductForm({
@@ -298,7 +415,8 @@ const Inventory = () => {
             min_stock: 0,
             unit_cost: 0,
             category: '',
-            supplier: ''
+            supplier: '',
+            bottle_size_ml: ''  // ★ NEW
         });
         setProductForm({
             name: '',
@@ -426,6 +544,8 @@ const Inventory = () => {
                                     <th className="px-6 py-3 text-gray-600 dark:text-gray-400 text-sm font-semibold">{t('name')}</th>
                                     <th className="px-6 py-3 text-gray-600 dark:text-gray-400 text-sm font-semibold">{t('unit')}</th>
                                     <th className="px-6 py-3 text-gray-600 dark:text-gray-400 text-sm font-semibold">{t('stock')}</th>
+                                    {/* ★ NEW: Bottle column */}
+                                    <th className="px-6 py-3 text-gray-600 dark:text-gray-400 text-sm font-semibold">Bottle</th>
                                     <th className="px-6 py-3 text-gray-600 dark:text-gray-400 text-sm font-semibold">{t('minStock')}</th>
                                     <th className="px-6 py-3 text-gray-600 dark:text-gray-400 text-sm font-semibold">{t('unitCost')}</th>
                                     <th className="px-6 py-3 text-gray-600 dark:text-gray-400 text-sm font-semibold">{t('category')}</th>
@@ -439,6 +559,8 @@ const Inventory = () => {
                                         ingredient={ing}
                                         onEdit={(item) => handleEdit(item, 'ingredient')}
                                         onDelete={handleDelete}
+                                        onMarkEmpty={handleMarkEmpty}      // ★ NEW
+                                        onBrokenBottle={handleBrokenBottle} // ★ NEW
                                         formatCurrency={formatCurrency}
                                     />
                                 ))}
@@ -597,6 +719,26 @@ const Inventory = () => {
                                                 className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                                             />
                                         </div>
+                                    </div>
+                                    {/* ★ NEW: Bottle size field */}
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 flex items-center gap-1">
+                                            <Wine size={14} />
+                                            Bottle Size (ml)
+                                            <span className="text-xs text-gray-500 font-normal">— optional, for bar items</span>
+                                        </label>
+                                        <input
+                                            type="number"
+                                            step="1"
+                                            min="0"
+                                            placeholder="e.g., 750 for whisky, 330 for beer"
+                                            value={ingredientForm.bottle_size_ml}
+                                            onChange={(e) => setIngredientForm({ ...ingredientForm, bottle_size_ml: e.target.value })}
+                                            className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                        />
+                                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                            Leave empty for normal ingredients. Set to bottle volume in ml to track bottles remaining.
+                                        </p>
                                     </div>
                                 </>
                             ) : (
