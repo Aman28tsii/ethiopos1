@@ -920,6 +920,9 @@ router.put("/:orderId/cancel", authorizeBranch, allowWaiter, async (req, res) =>
             if (anyOrder.rows[0].status === 'completed') {
                 throw new Error("Order already completed");
             }
+            if (anyOrder.rows[0].status === 'cancelled') {        
+            throw new Error("Order already cancelled");         
+    }  
             throw new Error("Order not assigned to you");
         }
         
