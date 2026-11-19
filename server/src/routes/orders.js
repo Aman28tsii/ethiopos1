@@ -892,7 +892,7 @@ router.put("/:orderId/cancel", authorizeBranch, allowWaiter, async (req, res) =>
     try {
         await client.query("BEGIN");
         
-        const orderCheck = await client.query(`
+              const orderCheck = await client.query(`
             SELECT o.id, o.status, o.payment_status, o.table_id, o.order_number, 
                     o.company_id, o.branch_id, o.created_by, o.waiter_id
              FROM orders o
@@ -900,7 +900,8 @@ router.put("/:orderId/cancel", authorizeBranch, allowWaiter, async (req, res) =>
                AND o.waiter_id = $2 
                AND o.branch_id = $3 
                AND o.company_id = $4
-               AND o.status NOT IN ('completed', 'cancelled')`,
+               AND o.status NOT IN ('completed', 'cancelled')
+             FOR UPDATE`,
             [orderId, userId, branchId, companyId]
         );
         
