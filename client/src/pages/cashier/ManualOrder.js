@@ -82,6 +82,20 @@ const ManualOrder = () => {
     // Reused across retries of the same order, regenerated for a new order.
     const idempotencyKeyRef = useRef(generateIdempotencyKey());
 
+    // ✅ D2: stable client-generated order id, persists across refresh via
+    // sessionStorage so a retry of the same logical order is deduplicated.
+    const clientOrderIdRef = useRef(null);
+    if (clientOrderIdRef.current === null) {
+        const stored = sessionStorage.getItem('manual_order_client_id');
+        if (stored) {
+            clientOrderIdRef.current = stored;
+        } else {
+            const newId = generateIdempotencyKey(); // same UUID generator
+            sessionStorage.setItem('manual_order_client_id', newId);
+            clientOrderIdRef.current = newId;
+        }
+    }
+
     // ============================================
     // FETCH DATA
     // ============================================
@@ -197,10 +211,11 @@ const ManualOrder = () => {
                 payment_method: paymentMethod
             };
 
-            // ✅ Send Idempotency-Key header (required by backend)
+            // ✅ Send Idempotency-Key and stable client order id
             const response = await API.post('/orders', orderData, {
                 headers: {
-                    'Idempotency-Key': idempotencyKeyRef.current
+                    'Idempotency-Key': idempotencyKeyRef.current,
+                    'X-Client-Order-Id': clientOrderIdRef.current
                 }
             });
             
@@ -223,11 +238,32 @@ const ManualOrder = () => {
                 if (orderType === 'dine_in') {
                     setSelectedTableId('');
                 }
-                // ✅ Generate a NEW idempotency key for the next order
+                // ✅ Generate a NEW idempotency key AND client order id for the next order
                 idempotencyKeyRef.current = generateIdempotencyKey();
+                const newClientId = generateIdempotencyKey();
+                sessionStorage.setItem('manual_order_client_id', newClientId);
+                clientOrderIdRef.current = newClientId;
             }
         } catch (err) {
             console.error('Place order error:', err);
+            if (err.response?.status === 409 && err.response?.data?.existing_order) {
+                const existing = err.response.data.existing_order;
+                setOrderNumber(existing.order_number);
+                setCompletedTotal(parseFloat(existing.total_amount || 0));
+                setOrderComplete(true);
+                setCart([]);
+                setCustomerName('');
+                setCustomerPhone('');
+                setSpecialInstructions('');
+                if (orderType === 'dine_in') {
+                    setSelectedTableId('');
+                }
+                const newClientId = generateIdempotencyKey();
+                sessionStorage.setItem('manual_order_client_id', newClientId);
+                clientOrderIdRef.current = newClientId;
+                idempotencyKeyRef.current = generateIdempotencyKey();
+                return;
+            }
             setOrderError(err.response?.data?.error || 'Failed to place order');
             alert(err.response?.data?.error || 'Failed to place order');
         } finally {
@@ -249,8 +285,11 @@ const ManualOrder = () => {
         setSelectedTableId('');
         setSearchTerm('');
         setOrderError(null);
-        // ✅ Fresh key for the brand-new order
+        // ✅ Fresh idempotency key AND fresh client order id for the brand-new order
         idempotencyKeyRef.current = generateIdempotencyKey();
+        const newClientId = generateIdempotencyKey();
+        sessionStorage.setItem('manual_order_client_id', newClientId);
+        clientOrderIdRef.current = newClientId;
     };
 
     // ============================================

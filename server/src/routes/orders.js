@@ -11,6 +11,16 @@ import { AppError } from "../middleware/errorHandler.js";
 import { mutationLimiter, PostgresStore } from "../middleware/rateLimiter.js";
 
 const router = express.Router();
+const CLIENT_ORDER_ID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function extractClientOrderId(req) {
+    const raw = req.headers['x-client-order-id'] || (req.body && req.body.client_order_id) || null;
+    if (raw === null) return { present: false, value: null, valid: true };
+    const str = String(raw).trim();
+    if (!str) return { present: false, value: null, valid: true };
+    if (!CLIENT_ORDER_ID_REGEX.test(str)) return { present: true, value: str, valid: false };
+    return { present: true, value: str, valid: true };
+}
 
 const trackLimiter = rateLimit({
     windowMs: 60 * 1000,
@@ -168,19 +178,44 @@ router.post("/qr-order",
                 }
                 
                 const orderNumber = `QR-${Date.now().toString().slice(-8)}${Math.floor(Math.random() * 1000)}`;
-                
-                const orderResult = await client.query(`
-                    INSERT INTO orders (
-                        order_number, total_amount, status, payment_status, 
-                        customer_name, customer_phone, table_id, order_type, notes, 
-                        source, waiter_id, company_id, branch_id
-                    ) VALUES ($1, $2, 'pending_confirmation', 'pending', $3, $4, $5, 'dine_in', $6, 'qr_menu', $7, $8, $9)
-                    RETURNING id, order_number, total_amount
-                `, [
-                    orderNumber, totalAmount, customer_name || null, customer_phone || null,
-                    table_id, notes || null, waiterId, companyId, branchId
-                ]);
-                
+
+                const coid = extractClientOrderId(req);
+                if (coid.present && !coid.valid) {
+                    await client.query("ROLLBACK");
+                    return res.status(400).json({ success: false, error: "Invalid X-Client-Order-Id header (expected UUID)" });
+                }
+
+                let orderResult;
+                try {
+                    orderResult = await client.query(`
+                        INSERT INTO orders (
+                            order_number, total_amount, status, payment_status, 
+                            customer_name, customer_phone, table_id, order_type, notes, 
+                            source, waiter_id, company_id, branch_id, client_order_id
+                        ) VALUES ($1, $2, 'pending_confirmation', 'pending', $3, $4, $5, 'dine_in', $6, 'qr_menu', $7, $8, $9, $10)
+                        RETURNING id, order_number, total_amount
+                    `, [
+                        orderNumber, totalAmount, customer_name || null, customer_phone || null,
+                        table_id, notes || null, waiterId, companyId, branchId, coid.value
+                    ]);
+                } catch (insertErr) {
+                    if (insertErr.code === '23505' && insertErr.constraint === 'uniq_orders_client_order_id') {
+                        await client.query('ROLLBACK');
+                        const existing = await pool.query(
+                            `SELECT id, order_number, total_amount, status, created_at
+                             FROM orders WHERE client_order_id = $1`,
+                            [coid.value]
+                        );
+                        return res.status(409).json({
+                            success: false,
+                            error: "Duplicate order",
+                            code: "DUPLICATE_ORDER",
+                            existing_order: existing.rows[0] || null
+                        });
+                    }
+                    throw insertErr;
+                }
+
                 const orderId = orderResult.rows[0].id;
                 
                 for (const item of items) {
@@ -306,16 +341,41 @@ router.post("/",
                 }
                 
                 const orderNumber = generateOrderNumber();
-                
-                const orderResult = await client.query(`
-                    INSERT INTO orders (
-                        order_number, total_amount, created_by, status, payment_status, 
-                        customer_name, customer_phone, table_id, order_type, notes, source, waiter_id,
-                        company_id, branch_id
-                    ) VALUES ($1, $2, $3, 'pending', 'pending', $4, $5, $6, $7, $8, $9, $10, $11, $12)
-                    RETURNING id, order_number, total_amount
-                `, [orderNumber, totalAmount, userId, customer_name || null, customer_phone || null, table_id || null, order_type, notes || null, source, userId, companyId, branchId]);
-                
+
+                const coid = extractClientOrderId(req);
+                if (coid.present && !coid.valid) {
+                    await client.query("ROLLBACK");
+                    return res.status(400).json({ success: false, error: "Invalid X-Client-Order-Id header (expected UUID)" });
+                }
+
+                let orderResult;
+                try {
+                    orderResult = await client.query(`
+                        INSERT INTO orders (
+                            order_number, total_amount, created_by, status, payment_status, 
+                            customer_name, customer_phone, table_id, order_type, notes, source, waiter_id,
+                            company_id, branch_id, client_order_id
+                        ) VALUES ($1, $2, $3, 'pending', 'pending', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+                        RETURNING id, order_number, total_amount
+                    `, [orderNumber, totalAmount, userId, customer_name || null, customer_phone || null, table_id || null, order_type, notes || null, source, userId, companyId, branchId, coid.value]);
+                } catch (insertErr) {
+                    if (insertErr.code === '23505' && insertErr.constraint === 'uniq_orders_client_order_id') {
+                        await client.query('ROLLBACK');
+                        const existing = await pool.query(
+                            `SELECT id, order_number, total_amount, status, created_at
+                             FROM orders WHERE client_order_id = $1`,
+                            [coid.value]
+                        );
+                        return res.status(409).json({
+                            success: false,
+                            error: "Duplicate order",
+                            code: "DUPLICATE_ORDER",
+                            existing_order: existing.rows[0] || null
+                        });
+                    }
+                    throw insertErr;
+                }
+
                 const orderId = orderResult.rows[0].id;
                 
                 for (const item of items) {
@@ -728,8 +788,6 @@ router.post("/:orderId/pay",
                 WHERE oi.order_id = $1
             `, [orderId]);
             
-            // ★ FIX: sale_items has no company_id / branch_id columns in production.
-            //   Tenant context is derived through sale_id → sales.company_id / sales.branch_id.
             for (const item of orderItems.rows) {
                 const itemCost = await calculateProductCost(item.product_id, item.quantity, client);
                 const itemProfit = item.total_price - itemCost;
@@ -892,7 +950,7 @@ router.put("/:orderId/cancel", authorizeBranch, allowWaiter, async (req, res) =>
     try {
         await client.query("BEGIN");
         
-              const orderCheck = await client.query(`
+        const orderCheck = await client.query(`
             SELECT o.id, o.status, o.payment_status, o.table_id, o.order_number, 
                     o.company_id, o.branch_id, o.created_by, o.waiter_id
              FROM orders o
@@ -920,9 +978,9 @@ router.put("/:orderId/cancel", authorizeBranch, allowWaiter, async (req, res) =>
             if (anyOrder.rows[0].status === 'completed') {
                 throw new Error("Order already completed");
             }
-            if (anyOrder.rows[0].status === 'cancelled') {        
-            throw new Error("Order already cancelled");         
-    }  
+            if (anyOrder.rows[0].status === 'cancelled') {
+                throw new Error("Order already cancelled");
+            }
             throw new Error("Order not assigned to you");
         }
         
@@ -1069,6 +1127,9 @@ router.put("/:orderId/cancel", authorizeBranch, allowWaiter, async (req, res) =>
             return res.status(409).json({ success: false, error: error.message });
         }
         if (error.message === "Order already completed") {
+            return res.status(409).json({ success: false, error: error.message });
+        }
+        if (error.message === "Order already cancelled") {
             return res.status(409).json({ success: false, error: error.message });
         }
         if (error.message === "Order not assigned to you") {

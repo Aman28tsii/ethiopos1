@@ -47,6 +47,26 @@ const QRMenu = () => {
   const getOrderStorageKey = function() { return 'qr_order_table_' + tableId; };
   const getContinueOrderKey = function() { return 'continue_order_' + tableId; };
 
+  // D2: stable client order id per (table) logical order, survives refresh via sessionStorage
+  const getQrClientOrderId = function(tid) {
+    var key = 'qr_client_order_id_' + (tid || 'unknown');
+    var id = sessionStorage.getItem(key);
+    if (!id) {
+      id = (typeof crypto !== 'undefined' && crypto.randomUUID)
+        ? crypto.randomUUID()
+        : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+            var r = (Math.random() * 16) | 0;
+            return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+          });
+      sessionStorage.setItem(key, id);
+    }
+    return id;
+  };
+
+  const clearQrClientOrderId = function(tid) {
+    sessionStorage.removeItem('qr_client_order_id_' + (tid || 'unknown'));
+  };
+
   const getStatusText = function(status) {
     const statusMap = {
       'pending_confirmation': 'Waiting for Waiter',
@@ -367,7 +387,7 @@ const QRMenu = () => {
     setCart(function(prev) { return prev.filter(function(item) { return item.id !== productId; }); });
   };
 
-  // Place Order with Idempotency Key
+  // Place Order with Idempotency Key + stable client order id (D2)
   const placeOrder = async function() {
     if (cart.length === 0) {
       alert(t('pleaseAddItems'));
@@ -387,10 +407,12 @@ const QRMenu = () => {
       };
 
       const idempotencyKey = generateIdempotencyKey(orderData);
+      const clientOrderId = getQrClientOrderId(tableId);
 
       const response = await API.post('/orders/qr-order', orderData, {
         headers: {
-          'Idempotency-Key': idempotencyKey
+          'Idempotency-Key': idempotencyKey,
+          'X-Client-Order-Id': clientOrderId
         }
       });
       
@@ -409,11 +431,35 @@ const QRMenu = () => {
         setOrderPlaced(true);
         setCart([]);
         saveOrderToStorage(newOrder);
+        clearQrClientOrderId(tableId);
         startStatusPolling(data.order_number);
         setStatusMessage('Order placed! Waiting for confirmation.');
       }
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed to place order');
+      if (err.response && err.response.status === 409) {
+        var existing = err.response.data && err.response.data.existing_order;
+        if (existing) {
+          var dupOrder = {
+            order_id: existing.id,
+            order_number: existing.order_number,
+            total_amount: existing.total_amount,
+            status: existing.status,
+            placed_at: existing.created_at
+          };
+          setCurrentOrder(dupOrder);
+          setOrderNumber(existing.order_number);
+          setOrderStatus(existing.status);
+          setOrderPlaced(true);
+          setCart([]);
+          clearQrClientOrderId(tableId);
+          saveOrderToStorage(dupOrder);
+          startStatusPolling(existing.order_number);
+          setStatusMessage('Your order was already placed.');
+          setLoading(false);
+          return;
+        }
+      }
+      alert((err.response && err.response.data && err.response.data.error) || 'Failed to place order');
     } finally {
       setLoading(false);
     }

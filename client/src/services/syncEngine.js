@@ -159,12 +159,10 @@ const syncSingleOrder = async (order) => {
 
         console.log(`[SYNC] Processing order ${order.id}`);
 
-        // Send to server with idempotency key
-        const response = await API.post('/orders', order.payload, {
-            headers: {
-                'Idempotency-Key': order.idempotency_key
-            }
-        });
+              // Send to server with idempotency key and stable client order id
+        const headers = { 'Idempotency-Key': order.idempotency_key };
+        if (order.client_order_id) headers['X-Client-Order-Id'] = order.client_order_id;
+        const response = await API.post('/orders', order.payload, { headers });
 
         if (response.data.success) {
             await deleteOfflineOrder(order.id);

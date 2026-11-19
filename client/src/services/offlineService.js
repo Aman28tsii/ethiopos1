@@ -9,7 +9,7 @@ import {
     getOfflineOrder,
     getAllOfflineOrders
 } from './offlineDB';
-import { generateLocalOrderId, generateIdempotencyKey } from './orderService';
+import { generateLocalOrderId, generateIdempotencyKey, generateClientOrderId } from './orderService';
 
 // ============================================================
 // NETWORK STATUS CHECK
@@ -40,10 +40,11 @@ export const isFullyOnline = async () => {
 // OFFLINE ORDER CREATION
 // ============================================================
 
-export const createOrderOffline = async (orderData) => {
+export const createOrderOffline = async (orderData, clientOrderId = null) => {
     try {
         const localOrderId = generateLocalOrderId();
         const idempotencyKey = generateIdempotencyKey(orderData);
+        const effectiveClientOrderId = clientOrderId || generateClientOrderId();
         
         // Get user context
         const user = JSON.parse(localStorage.getItem('user') || '{}');
@@ -53,6 +54,7 @@ export const createOrderOffline = async (orderData) => {
             id: localOrderId,
             local_order_id: localOrderId,
             idempotency_key: idempotencyKey,
+            client_order_id: effectiveClientOrderId,
             company_id: user.company_id || 1,
             branch_id: parseInt(branchId),
             user_id: user.id,
@@ -98,6 +100,7 @@ export const createOrderOffline = async (orderData) => {
 
 export const createOrder = async (orderData) => {
     const online = await isFullyOnline();
+    const clientOrderId = generateClientOrderId();
     
     if (online) {
         try {
@@ -105,7 +108,8 @@ export const createOrder = async (orderData) => {
             
             const response = await API.post('/orders', orderData, {
                 headers: {
-                    'Idempotency-Key': idempotencyKey
+                    'Idempotency-Key': idempotencyKey,
+                    'X-Client-Order-Id': clientOrderId
                 }
             });
             
@@ -119,12 +123,21 @@ export const createOrder = async (orderData) => {
             }
             throw new Error(response.data.error || 'Order creation failed');
         } catch (error) {
+            if (error.response?.status === 409) {
+                return {
+                    success: true,
+                    data: error.response.data.existing_order || { order_number: 'DUPLICATE' },
+                    source: 'online',
+                    offline: false,
+                    duplicate: true
+                };
+            }
             console.warn('[ORDER] Online order failed:', error.message);
-            return await createOrderOffline(orderData);
+            return await createOrderOffline(orderData, clientOrderId);
         }
     }
     
-    return await createOrderOffline(orderData);
+    return await createOrderOffline(orderData, clientOrderId);
 };
 
 // ============================================================

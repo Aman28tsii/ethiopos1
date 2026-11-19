@@ -8,86 +8,11 @@ import {
     deleteOfflineOrder,
     getOfflineOrder
 } from './offlineDB';
-import { v4 as uuidv4 } from 'uuid';
 
 // ============================================================
-// IDEMPOTENCY KEY GENERATION
+// NETWORK STATUS
 // ============================================================
 
-// Store keys for the current session to prevent duplicates
-const usedIdempotencyKeys = new Map();
-
-/**
- * Generate a unique idempotency key for a request
- * @param {Object} payload - The request payload
- * @returns {string} Unique idempotency key
- */
-export const generateIdempotencyKey = (payload) => {
-    // Create a deterministic key based on payload content
-    // This ensures the same order gets the same key
-    const key = `idem_${Date.now()}_${uuidv4()}`;
-    
-    // Store the key with a hash of the payload to detect misuse
-    const payloadHash = JSON.stringify(payload);
-    usedIdempotencyKeys.set(key, {
-        payloadHash,
-        timestamp: Date.now()
-    });
-    
-    return key;
-};
-
-/**
- * Check if a key has been used with a different payload
- * @param {string} key - The idempotency key
- * @param {Object} payload - The current request payload
- * @returns {boolean} True if the key is being reused with different data
- */
-export const isKeyMisused = (key, payload) => {
-    const stored = usedIdempotencyKeys.get(key);
-    if (!stored) return false;
-    
-    const currentHash = JSON.stringify(payload);
-    return stored.payloadHash !== currentHash;
-};
-
-/**
- * Clean up old idempotency keys from memory
- * (Prevents memory leaks)
- */
-export const cleanupIdempotencyKeys = () => {
-    const now = Date.now();
-    const TTL = 24 * 60 * 60 * 1000; // 24 hours
-    for (const [key, value] of usedIdempotencyKeys) {
-        if (now - value.timestamp > TTL) {
-            usedIdempotencyKeys.delete(key);
-        }
-    }
-};
-
-// Run cleanup every hour
-setInterval(cleanupIdempotencyKeys, 60 * 60 * 1000);
-
-// ============================================================
-// LOCAL ORDER ID GENERATION
-// ============================================================
-
-/**
- * Generate a unique local order ID for offline orders
- * @returns {string} Local order ID
- */
-export const generateLocalOrderId = () => {
-    return `offline_${Date.now()}_${uuidv4().slice(0, 8)}`;
-};
-
-// ============================================================
-// NETWORK STATUS CHECK
-// ============================================================
-
-/**
- * Check if the device is online
- * @returns {boolean} True if online
- */
 export const isOnline = () => {
     return navigator.onLine;
 };
@@ -122,6 +47,59 @@ export const isFullyOnline = async () => {
 };
 
 // ============================================================
+// ID GENERATORS
+// ============================================================
+
+export const generateLocalOrderId = () => {
+    return 'offline_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+};
+
+export const generateClientOrderId = () => {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+        return crypto.randomUUID();
+    }
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+        const r = (Math.random() * 16) | 0;
+        return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+    });
+};
+
+// ============================================================
+// IDEMPOTENCY KEY MANAGEMENT
+// ============================================================
+
+const usedIdempotencyKeys = new Map();
+
+export const generateIdempotencyKey = (payload) => {
+    const payloadHash = JSON.stringify(payload);
+    const existing = Array.from(usedIdempotencyKeys.entries()).find(
+        ([, value]) => value.payloadHash === payloadHash
+    );
+    
+    if (existing) {
+        return existing[0];
+    }
+    
+    const key = 'idem_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+    usedIdempotencyKeys.set(key, {
+        payloadHash,
+        timestamp: Date.now()
+    });
+    return key;
+};
+
+export const cleanupIdempotencyKeys = () => {
+    const oneHourAgo = Date.now() - 60 * 60 * 1000;
+    for (const [key, value] of usedIdempotencyKeys) {
+        if (value.timestamp < oneHourAgo) {
+            usedIdempotencyKeys.delete(key);
+        }
+    }
+};
+
+setInterval(cleanupIdempotencyKeys, 60 * 60 * 1000);
+
+// ============================================================
 // ORDER CREATION (ONLINE + OFFLINE)
 // ============================================================
 
@@ -132,13 +110,14 @@ export const isFullyOnline = async () => {
  * @returns {Promise<Object>} Order creation result
  */
 export const createOrder = async (orderData, options = {}) => {
-    const { forceOffline = false, retryCount = 0 } = options;
+    const { forceOffline = false, retryCount = 0, clientOrderId = null } = options;
+    const effectiveClientOrderId = clientOrderId || generateClientOrderId();
     const online = await isFullyOnline();
     
     // If online and not forced offline, try server first
     if (online && !forceOffline) {
         try {
-            const result = await createOrderOnline(orderData);
+            const result = await createOrderOnline(orderData, effectiveClientOrderId);
             return {
                 success: true,
                 data: result.data,
@@ -153,7 +132,7 @@ export const createOrder = async (orderData, options = {}) => {
                 console.log('[ORDER] Duplicate detected, using cached result');
                 return {
                     success: true,
-                    data: error.response?.data?.data || { order_number: 'DUPLICATE' },
+                    data: error.response?.data?.existing_order || error.response?.data?.data || { order_number: 'DUPLICATE' },
                     source: 'online',
                     offline: false,
                     duplicate: true
@@ -165,18 +144,19 @@ export const createOrder = async (orderData, options = {}) => {
                 console.log(`[ORDER] Retrying online (${retryCount + 1}/3)...`);
                 return await createOrder(orderData, {
                     ...options,
-                    retryCount: retryCount + 1
+                    retryCount: retryCount + 1,
+                    clientOrderId: effectiveClientOrderId
                 });
             }
             
             // After retries, fallback to offline
             console.log('[ORDER] Online failed after retries, saving offline');
-            return await createOrderOffline(orderData);
+            return await createOrderOffline(orderData, effectiveClientOrderId);
         }
     }
     
     // If offline or forced offline, save locally
-    return await createOrderOffline(orderData);
+    return await createOrderOffline(orderData, effectiveClientOrderId);
 };
 
 // ============================================================
@@ -186,20 +166,19 @@ export const createOrder = async (orderData, options = {}) => {
 /**
  * Create an order on the server
  * @param {Object} orderData - The order data
+ * @param {string|null} clientOrderId - Stable UUID for this logical order
  * @returns {Promise<Object>} Server response
  */
-export const createOrderOnline = async (orderData) => {
+export const createOrderOnline = async (orderData, clientOrderId = null) => {
     // Generate idempotency key for this order
     const idempotencyKey = generateIdempotencyKey(orderData);
     
     console.log(`[ORDER] Creating order online with key: ${idempotencyKey}`);
     
     try {
-        const response = await API.post('/orders', orderData, {
-            headers: {
-                'Idempotency-Key': idempotencyKey
-            }
-        });
+        const headers = { 'Idempotency-Key': idempotencyKey };
+        if (clientOrderId) headers['X-Client-Order-Id'] = clientOrderId;
+        const response = await API.post('/orders', orderData, { headers });
         
         if (response.data.success) {
             console.log(`[ORDER] Order created online: ${response.data.data?.order_number}`);
@@ -223,12 +202,14 @@ export const createOrderOnline = async (orderData) => {
 /**
  * Create an order offline (saved to IndexedDB)
  * @param {Object} orderData - The order data
+ * @param {string|null} clientOrderId - Stable UUID for this logical order
  * @returns {Promise<Object>} Offline order result
  */
-export const createOrderOffline = async (orderData) => {
+export const createOrderOffline = async (orderData, clientOrderId = null) => {
     try {
         const localOrderId = generateLocalOrderId();
         const idempotencyKey = generateIdempotencyKey(orderData);
+        const effectiveClientOrderId = clientOrderId || generateClientOrderId();
         
         // Get user context
         const user = JSON.parse(localStorage.getItem('user') || '{}');
@@ -238,6 +219,7 @@ export const createOrderOffline = async (orderData) => {
             id: localOrderId,
             local_order_id: localOrderId,
             idempotency_key: idempotencyKey,
+            client_order_id: effectiveClientOrderId,
             company_id: user.company_id || 1,
             branch_id: parseInt(branchId),
             user_id: user.id,
@@ -571,6 +553,7 @@ export default {
     cancelOrder,
     generateIdempotencyKey,
     generateLocalOrderId,
+    generateClientOrderId,
     isOnline,
     isApiReachable,
     isFullyOnline,
