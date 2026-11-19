@@ -289,7 +289,7 @@ export const addItemsToOrder = async (orderId, items) => {
             const branchId = localStorage.getItem('ethiopos_selected_branch') || user.branch_id || 1;
             
             const offlineOperation = {
-                id: `add_items_${Date.now()}_${uuidv4().slice(0, 8)}`,
+                id: `add_items_${Date.now()}_${generateClientOrderId().slice(0, 8)}`,
                 operation: 'add_items',
                 order_id: orderId,
                 items: items,
