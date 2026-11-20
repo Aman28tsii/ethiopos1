@@ -615,7 +615,6 @@ router.post("/:orderId/add-items",
     async (req, res) => {
         const { orderId } = req.params;
         const { items } = req.body;
-        const userId = req.user.id;
         const companyId = req.user.company_id;
         const branchId = req.user.branch_id;
 
@@ -627,10 +626,14 @@ router.post("/:orderId/add-items",
         try {
             await client.query("BEGIN");
 
+            // Lock the order row so a concurrent cancel cannot restore stock
+            // while we add (and possibly deduct) items. Same first lock as the
+            // cancel handler, so the two serialize without a new deadlock edge.
             const orderCheck = await client.query(`
                 SELECT id, order_number, total_amount, payment_status, status, table_id
                 FROM orders
                 WHERE id = $1 AND company_id = $2 AND branch_id = $3
+                FOR UPDATE
             `, [orderId, companyId, branchId]);
 
             if (orderCheck.rows.length === 0) {
@@ -652,14 +655,12 @@ router.post("/:orderId/add-items",
                     `SELECT price, name, company_id FROM products WHERE id = $1`,
                     [item.product_id]
                 );
-
                 if (productResult.rows.length === 0) {
                     throw new Error(`Product ${item.product_id} not found`);
                 }
                 if (productResult.rows[0].company_id !== companyId) {
                     throw new Error(`Product ${item.product_id} does not belong to your company`);
                 }
-
                 const unitPrice = parseFloat(productResult.rows[0].price);
                 const itemTotal = unitPrice * item.quantity;
                 additionalAmount += itemTotal;
@@ -668,6 +669,21 @@ router.post("/:orderId/add-items",
                     INSERT INTO order_items (order_id, product_id, quantity, unit_price, total_price)
                     VALUES ($1, $2, $3, $4, $5)
                 `, [orderId, item.product_id, item.quantity, unitPrice, itemTotal]);
+            }
+
+            // D-A fix: if this order was already deducted (kitchen marked it
+            // ready once), the kitchen "ready" guard will skip re-deduction.
+            // Deduct ONLY the newly added items here, in the same transaction.
+            // If the order has never been deducted, leave it to the kitchen
+            // "ready" transition (existing behavior unchanged).
+            const dedCheck = await client.query(
+                `SELECT 1 FROM stock_transactions
+                 WHERE order_id = $1 AND transaction_type = 'order_deduction'
+                 LIMIT 1`,
+                [orderId]
+            );
+            if (dedCheck.rows.length > 0) {
+                await processOrderStockDeduction(orderId, items, client, companyId, branchId);
             }
 
             const newTotal = parseFloat(order.total_amount) + additionalAmount;
@@ -711,6 +727,9 @@ router.post("/:orderId/add-items",
         } catch (err) {
             await client.query("ROLLBACK");
             console.error("[ADD ITEMS] Error:", err.message);
+            if (err.message && /INSUFFICIENT_STOCK|STOCK_CONFLICT|Some ingredients not found|Company or branch context missing/.test(err.message)) {
+                return res.status(409).json({ success: false, error: err.message, code: 'STOCK_DEDUCTION_FAILED' });
+            }
             res.status(500).json({ success: false, error: err.message });
         } finally {
             client.release();
@@ -1124,57 +1143,31 @@ router.put("/:orderId/cancel", authorizeBranch, allowWaiter, async (req, res) =>
         );
         const wasDeducted = deductionCheck.rows.length > 0;
         
-        if (wasDeducted) {
-            const orderItemsResult = await client.query(`
-                SELECT 
-                    oi.product_id, oi.quantity, p.name as product_name,
-                    ri.ingredient_id, ri.quantity_required,
-                    ri.wastage_percentage, ri.cooking_loss_percentage,
-                    i.name as ingredient_name, i.unit, i.unit_cost,
-                    i.quantity as current_stock
-                FROM order_items oi
-                JOIN products p ON oi.product_id = p.id
-                LEFT JOIN recipes r ON p.id = r.product_id
-                LEFT JOIN recipe_ingredients ri ON r.id = ri.recipe_id
-                LEFT JOIN ingredients i ON ri.ingredient_id = i.id
-                WHERE oi.order_id = $1
+                if (wasDeducted) {
+            // D-B fix: restore exactly what the ledger says was deducted for
+            // this order, per ingredient, minus anything already restored by a
+            // prior cancellation. Do NOT recompute from recipes — that drifts
+            // with rounding, recipe edits, and items added after ready.
+            const ledgerResult = await client.query(`
+                SELECT ingredient_id,
+                       SUM(CASE WHEN transaction_type = 'order_deduction'
+                                THEN actual_quantity ELSE 0 END)
+                     - SUM(CASE WHEN transaction_type = 'order_cancellation'
+                                THEN actual_quantity ELSE 0 END) AS net_deducted
+                FROM stock_transactions
+                WHERE order_id = $1
+                  AND transaction_type IN ('order_deduction', 'order_cancellation')
+                GROUP BY ingredient_id
             `, [orderId]);
-            
-            const ingredientMap = new Map();
-            
-            for (const item of orderItemsResult.rows) {
-                if (!item.ingredient_id) continue;
-                
-                const orderQty = parseFloat(item.quantity);
-                const qtyRequired = parseFloat(item.quantity_required) || 0;
-                const wastagePct = parseFloat(item.wastage_percentage) || 0;
-                const cookingLossPct = parseFloat(item.cooking_loss_percentage) || 0;
-                
-                const expectedQuantity = qtyRequired * orderQty;
-                const restoredQuantity = expectedQuantity * (1 + wastagePct / 100) * (1 + cookingLossPct / 100);
-                
-                if (ingredientMap.has(item.ingredient_id)) {
-                    const existing = ingredientMap.get(item.ingredient_id);
-                    existing.restore_quantity += restoredQuantity;
-                    existing.ingredient_name = item.ingredient_name;
-                    existing.unit = item.unit;
-                    existing.unit_cost = item.unit_cost;
-                    existing.current_stock = item.current_stock;
-                } else {
-                    ingredientMap.set(item.ingredient_id, {
-                        ingredient_id: item.ingredient_id,
-                        ingredient_name: item.ingredient_name,
-                        restore_quantity: restoredQuantity,
-                        unit: item.unit,
-                        unit_cost: item.unit_cost,
-                        current_stock: item.current_stock
-                    });
-                }
-            }
-            
-            const ingredientIds = Array.from(ingredientMap.keys());
-            
-            if (ingredientIds.length > 0) {
+
+            const toRestore = ledgerResult.rows
+                .map(r => ({ ingredient_id: r.ingredient_id, qty: parseFloat(r.net_deducted) }))
+                .filter(r => r.qty > 0)
+                .sort((a, b) => a.ingredient_id - b.ingredient_id);
+
+            if (toRestore.length > 0) {
+                const ingredientIds = toRestore.map(r => r.ingredient_id);
+
                 const lockResult = await client.query(`
                     SELECT id, quantity, name, unit
                     FROM ingredients
@@ -1183,18 +1176,19 @@ router.put("/:orderId/cancel", authorizeBranch, allowWaiter, async (req, res) =>
                       AND branch_id = $3
                     FOR UPDATE
                 `, [ingredientIds, companyId, branchId]);
-                
+
+                const restoreById = new Map(toRestore.map(r => [r.ingredient_id, r.qty]));
+
                 for (const row of lockResult.rows) {
-                    const ingredientData = ingredientMap.get(row.id);
-                    const restoreQty = ingredientData.restore_quantity;
+                    const restoreQty = restoreById.get(row.id);
                     const newQuantity = parseFloat(row.quantity) + restoreQty;
-                    
+
                     await client.query(`
-                        UPDATE ingredients 
+                        UPDATE ingredients
                         SET quantity = $1, updated_at = NOW()
                         WHERE id = $2 AND company_id = $3 AND branch_id = $4
                     `, [newQuantity, row.id, companyId, branchId]);
-                    
+
                     await client.query(`
                         INSERT INTO stock_transactions (
                             ingredient_id, order_id,
@@ -1209,6 +1203,11 @@ router.put("/:orderId/cancel", authorizeBranch, allowWaiter, async (req, res) =>
                         `Stock restored from cancelled order ${order.order_number}`,
                         companyId, branchId
                     ]);
+                }
+
+                if (lockResult.rows.length !== ingredientIds.length) {
+                    const missing = ingredientIds.filter(id => !lockResult.rows.some(r => r.id === id));
+                    console.warn('[CANCEL] Ingredients not found for restoration (deleted or moved):', missing);
                 }
             }
         }
