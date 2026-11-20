@@ -88,142 +88,133 @@ router.put("/orders/:orderId/status", authorizeBranch, allowKitchen, async (req,
     const { status } = req.body;
     const branchId = req.user.branch_id;
     const companyId = req.user.company_id;
-    
+
+    const validStatuses = ['pending', 'preparing', 'ready', 'completed', 'cancelled'];
+    if (!status || !validStatuses.includes(status)) {
+        return res.status(400).json({ success: false, error: 'Invalid status' });
+    }
+
+    const orderIdInt = parseInt(orderId);
+    if (isNaN(orderIdInt)) {
+        return res.status(400).json({ success: false, error: 'Invalid order ID' });
+    }
+
+    // ── ONE client, ONE transaction for: order check, state transition,
+    //    and stock deduction. This is the D14 fix. The FOR UPDATE inside
+    //    a real transaction is what serializes concurrent "ready" requests.
+    const client = await pool.connect();
     try {
-        const validStatuses = ['pending', 'preparing', 'ready', 'completed', 'cancelled'];
-        if (!status || !validStatuses.includes(status)) {
-            return res.status(400).json({ 
-                success: false, 
-                error: 'Invalid status' 
-            });
-        }
+        await client.query('BEGIN');
 
-        const orderIdInt = parseInt(orderId);
-        if (isNaN(orderIdInt)) {
-            return res.status(400).json({ success: false, error: 'Invalid order ID' });
-        }
-
-        const orderCheck = await pool.query(
-            `SELECT id, status FROM kitchen_orders WHERE order_id = $1 FOR UPDATE`,
-            [orderIdInt]
+        // 1. Lock the kitchen order row and validate existence + tenant.
+        const orderCheck = await client.query(
+            `SELECT ko.id, ko.status
+             FROM kitchen_orders ko
+             JOIN orders o ON ko.order_id = o.id
+             WHERE ko.order_id = $1
+               AND o.branch_id = $2
+               AND o.company_id = $3
+             FOR UPDATE OF ko`,
+            [orderIdInt, branchId, companyId]
         );
-        
+
         if (orderCheck.rows.length === 0) {
+            await client.query('ROLLBACK');
             return res.status(404).json({ success: false, error: "Order not found in kitchen" });
         }
 
-        // Enforce the state machine: only legal forward transitions.
+        // 2. Enforce the state machine.
         const currentStatus = orderCheck.rows[0].status;
         const allowed = ALLOWED_TRANSITIONS[currentStatus] || [];
-
         if (!allowed.includes(status)) {
+            await client.query('ROLLBACK');
             return res.status(409).json({
                 success: false,
                 error: `Invalid transition: ${currentStatus} → ${status}`
             });
         }
 
-        await pool.query(
-            `UPDATE kitchen_orders 
-             SET status = $1, updated_at = NOW() 
+        // 3. For 'ready' transitions, check whether stock was already
+        //    deducted for this order. Still INSIDE the transaction — a
+        //    concurrent request that just committed a deduction will be
+        //    visible to us here because we only reach this point AFTER
+        //    acquiring the row lock above.
+        let alreadyDeducted = false;
+        if (status === 'ready') {
+            const dedCheck = await client.query(
+                `SELECT 1 FROM stock_transactions
+                 WHERE order_id = $1 AND transaction_type = 'order_deduction'
+                 LIMIT 1`,
+                [orderIdInt]
+            );
+            alreadyDeducted = dedCheck.rows.length > 0;
+        }
+
+        // 4. Perform the state transition (kitchen_orders + orders).
+        await client.query(
+            `UPDATE kitchen_orders
+             SET status = $1, updated_at = NOW()
              WHERE order_id = $2`,
             [status, orderIdInt]
         );
 
         if (status === 'preparing') {
-            await pool.query(
-                `UPDATE kitchen_orders 
-                 SET started_at = NOW() 
+            await client.query(
+                `UPDATE kitchen_orders
+                 SET started_at = NOW()
                  WHERE order_id = $1 AND started_at IS NULL`,
                 [orderIdInt]
             );
         }
 
         if (status === 'ready' || status === 'completed') {
-            await pool.query(
-                `UPDATE kitchen_orders 
-                 SET completed_at = NOW() 
+            await client.query(
+                `UPDATE kitchen_orders
+                 SET completed_at = NOW()
                  WHERE order_id = $1 AND completed_at IS NULL`,
                 [orderIdInt]
             );
         }
 
-        const orderStatus = status === 'pending' ? 'pending' : 
-                           status === 'preparing' ? 'preparing' : 
-                           status === 'ready' ? 'ready' : 
-                           status === 'completed' ? 'completed' : 'cancelled';
+        const orderStatus = status === 'pending' ? 'pending' :
+                            status === 'preparing' ? 'preparing' :
+                            status === 'ready' ? 'ready' :
+                            status === 'completed' ? 'completed' : 'cancelled';
 
-        await pool.query(
-            "UPDATE orders SET status = $1, updated_at = NOW() WHERE id = $2",
+        await client.query(
+            `UPDATE orders SET status = $1, updated_at = NOW() WHERE id = $2`,
             [orderStatus, orderIdInt]
         );
 
-        // ============================================================
-        // STOCK DEDUCTION happens HERE, when food leaves the kitchen.
-        // Guard: only deduct once per order, even if the kitchen clicks
-        // "ready" multiple times. We use the stock_transactions table as
-        // the source of truth for "was this order already deducted?".
-        // ============================================================
+        // 5. Stock deduction — SAME client, SAME transaction.
+        //    If this throws, the whole transaction (including the
+        //    status change) rolls back.
         let stockDeductionResult = null;
-
-        if (status === 'ready') {
-            const alreadyDeducted = await pool.query(
-                `SELECT 1 FROM stock_transactions
-                 WHERE order_id = $1 AND transaction_type = 'order_deduction'
-                 LIMIT 1`,
+        if (status === 'ready' && !alreadyDeducted) {
+            const itemsRes = await client.query(
+                `SELECT product_id, quantity FROM order_items WHERE order_id = $1`,
                 [orderIdInt]
             );
 
-            if (alreadyDeducted.rows.length === 0) {
-                const itemsRes = await pool.query(
-                    `SELECT product_id, quantity FROM order_items WHERE order_id = $1`,
-                    [orderIdInt]
-                );
-
-                const client = await pool.connect();
-                try {
-                    await client.query('BEGIN');
-                    stockDeductionResult = await processOrderStockDeduction(
-                        orderIdInt,
-                        itemsRes.rows,
-                        client,
-                        companyId,
-                        branchId
-                    );
-                    await client.query('COMMIT');
-                    console.log(`[KITCHEN] Stock deducted for order ${orderIdInt}:`,
-                        stockDeductionResult?.deductions?.length, 'ingredients');
-                } catch (deductErr) {
-                    await client.query('ROLLBACK');
-                    console.error(`[KITCHEN] Stock deduction FAILED for order ${orderIdInt}:`, deductErr.message);
-
-                    // Roll back the "ready" status so the kitchen can retry
-                    await pool.query(
-                        `UPDATE kitchen_orders SET status = 'preparing', updated_at = NOW() WHERE order_id = $1`,
-                        [orderIdInt]
-                    );
-                    await pool.query(
-                        `UPDATE orders SET status = 'preparing', updated_at = NOW() WHERE id = $1`,
-                        [orderIdInt]
-                    );
-
-                    return res.status(409).json({
-                        success: false,
-                        error: deductErr.message || 'Insufficient stock to complete this order',
-                        code: 'STOCK_DEDUCTION_FAILED'
-                    });
-                } finally {
-                    client.release();
-                }
-            } else {
-                console.log(`[KITCHEN] Stock already deducted for order ${orderIdInt}, skipping.`);
-            }
+            stockDeductionResult = await processOrderStockDeduction(
+                orderIdInt,
+                itemsRes.rows,
+                client,
+                companyId,
+                branchId
+            );
+            console.log(`[KITCHEN] Stock deducted for order ${orderIdInt}:`,
+                stockDeductionResult?.deductions?.length, 'ingredients');
+        } else if (status === 'ready' && alreadyDeducted) {
+            console.log(`[KITCHEN] Stock already deducted for order ${orderIdInt}, skipping.`);
         }
 
-        // AUTO-CONFIRM PICKUP FOR CASHIER-MANUAL ORDERS ONLY.
+        // 6. Auto-confirm pickup for cashier-manual orders.
+        //    Note: moved INSIDE the transaction so it rolls back with
+        //    everything else if the deduction above threw.
         let autoConfirmedCashier = false;
         if (status === 'ready') {
-            const autoConfirmResult = await pool.query(
+            const autoConfirmResult = await client.query(
                 `UPDATE orders
                  SET waiter_confirmed_pickup = true,
                      waiter_pickup_at = NOW(),
@@ -238,11 +229,15 @@ router.put("/orders/:orderId/status", authorizeBranch, allowKitchen, async (req,
             }
         }
 
-        const result = await pool.query(
+        const result = await client.query(
             `SELECT * FROM kitchen_orders WHERE order_id = $1`,
             [orderIdInt]
         );
 
+        await client.query('COMMIT');
+
+        // 7. Socket emissions — AFTER commit, so clients never see
+        //    "ready" for an order whose stock deduction rolled back.
         const io = req.app.get('io');
         if (io) {
             io.to(`branch_${companyId}_${branchId}`).emit('order_status_updated', {
@@ -280,7 +275,7 @@ router.put("/orders/:orderId/status", authorizeBranch, allowKitchen, async (req,
             }
         }
 
-        res.json({
+        return res.json({
             success: true,
             message: `Order status updated to ${status}`,
             data: result.rows[0],
@@ -292,8 +287,24 @@ router.put("/orders/:orderId/status", authorizeBranch, allowKitchen, async (req,
                 : null
         });
     } catch (err) {
+        // Roll back everything — status change, deduction, all of it.
+        try { await client.query('ROLLBACK'); } catch (_) { /* connection may already be dead */ }
+
         console.error("Update kitchen order error:", err);
-        res.status(500).json({ success: false, error: err.message });
+
+        // Preserve the specific error contract the original code had
+        // for stock-deduction failures.
+        if (err.message && /INSUFFICIENT_STOCK|STOCK_CONFLICT|Some ingredients not found|Company or branch context missing/.test(err.message)) {
+            return res.status(409).json({
+                success: false,
+                error: err.message,
+                code: 'STOCK_DEDUCTION_FAILED'
+            });
+        }
+
+        return res.status(500).json({ success: false, error: err.message });
+    } finally {
+        client.release();
     }
 });
 
