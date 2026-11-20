@@ -3,7 +3,7 @@
 import express from "express";
 import { protect, allowWaiter, allowCashier } from "../middleware/auth.js";
 import { authorizeBranch } from "../middleware/authorization.js";
-import { idempotent, requireIdempotency } from "../middleware/idempotency.js";
+import { idempotent, requireIdempotency, cacheSet as memoryCacheSet } from "../middleware/idempotency.js";
 import { pool } from "../config/database.js";
 import rateLimit from "express-rate-limit";
 import { processOrderStockDeduction } from "../controllers/recipeController.js";
@@ -230,6 +230,45 @@ router.post("/qr-order",
                     `, [orderId, item.product_id, item.quantity, productResult.rows[0].price, itemTotal]);
                 }
                 
+                // D3 fix: write the idempotency record inside the business transaction
+                if (req.idempotencyContext) {
+                    const ctx = req.idempotencyContext;
+                    const idemResponseBody = {
+                        success: true,
+                        message: "Order placed! Waiting for waiter confirmation.",
+                        data: { order_id: orderId, order_number: orderNumber, total_amount: totalAmount, status: 'pending_confirmation' }
+                    };
+                    try {
+                        await client.query(
+                            `INSERT INTO idempotency_records (
+                                idempotency_key, company_id, branch_id, resource_type,
+                                resource_id, request_hash, response_data, status_code,
+                                status, created_at, updated_at
+                            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'completed', NOW(), NOW())`,
+                            [
+                                ctx.key, ctx.companyId, ctx.branchId, ctx.resourceType,
+                                String(orderId), ctx.requestHash, JSON.stringify(idemResponseBody), 201
+                            ]
+                        );
+                    } catch (idemErr) {
+                        if (idemErr.code === '23505') {
+                            await client.query('ROLLBACK');
+                            const existing = await pool.query(
+                                `SELECT response_data, status_code, request_hash FROM idempotency_records
+                                 WHERE idempotency_key = $1 AND company_id = $2 AND branch_id = $3 AND resource_type = $4`,
+                                [ctx.key, ctx.companyId, ctx.branchId, ctx.resourceType]
+                            );
+                            if (existing.rows.length > 0) {
+                                const record = existing.rows[0];
+                                memoryCacheSet(ctx.cacheKey, record.status_code, record.response_data, record.request_hash);
+                                return res.status(record.status_code || 201).json(record.response_data);
+                            }
+                            return res.status(409).json({ success: false, error: 'Duplicate request' });
+                        }
+                        throw idemErr;
+                    }
+                }
+                
                 await client.query("COMMIT");
                 
                 const io = req.app.get('io');
@@ -399,6 +438,45 @@ router.post("/",
                     await client.query(`
                         UPDATE tables SET status = 'occupied', current_order_id = $1 WHERE id = $2
                     `, [orderId, table_id]);
+                }
+                
+                // D3 fix: write the idempotency record inside the business transaction
+                if (req.idempotencyContext) {
+                    const ctx = req.idempotencyContext;
+                    const idemResponseBody = {
+                        success: true,
+                        message: "Order created and sent to kitchen",
+                        data: { order_id: orderId, order_number: orderNumber, total_amount: totalAmount, status: 'pending' }
+                    };
+                    try {
+                        await client.query(
+                            `INSERT INTO idempotency_records (
+                                idempotency_key, company_id, branch_id, resource_type,
+                                resource_id, request_hash, response_data, status_code,
+                                status, created_at, updated_at
+                            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'completed', NOW(), NOW())`,
+                            [
+                                ctx.key, ctx.companyId, ctx.branchId, ctx.resourceType,
+                                String(orderId), ctx.requestHash, JSON.stringify(idemResponseBody), 201
+                            ]
+                        );
+                    } catch (idemErr) {
+                        if (idemErr.code === '23505') {
+                            await client.query('ROLLBACK');
+                            const existing = await pool.query(
+                                `SELECT response_data, status_code, request_hash FROM idempotency_records
+                                 WHERE idempotency_key = $1 AND company_id = $2 AND branch_id = $3 AND resource_type = $4`,
+                                [ctx.key, ctx.companyId, ctx.branchId, ctx.resourceType]
+                            );
+                            if (existing.rows.length > 0) {
+                                const record = existing.rows[0];
+                                memoryCacheSet(ctx.cacheKey, record.status_code, record.response_data, record.request_hash);
+                                return res.status(record.status_code || 201).json(record.response_data);
+                            }
+                            return res.status(409).json({ success: false, error: 'Duplicate request' });
+                        }
+                        throw idemErr;
+                    }
                 }
                 
                 await client.query("COMMIT");
@@ -809,9 +887,57 @@ router.post("/:orderId/pay",
                 ]);
             }
             
-            await client.query("COMMIT");
-            
             const profitMargin = sale.total_amount > 0 ? (sale.profit / sale.total_amount) * 100 : 0;
+            
+            // D3 fix: write the idempotency record inside the business transaction
+            if (req.idempotencyContext) {
+                const ctx = req.idempotencyContext;
+                const idemResponseBody = {
+                    success: true,
+                    message: "Payment processed successfully",
+                    data: {
+                        sale_id: sale.id,
+                        sale_number: sale.sale_number,
+                        order_id: parseInt(orderId),
+                        total_amount: parseFloat(sale.total_amount),
+                        total_cost: parseFloat(sale.total_cost),
+                        profit: parseFloat(sale.profit),
+                        profit_margin: parseFloat(profitMargin.toFixed(2)),
+                        payment_method: payment_method
+                    }
+                };
+                try {
+                    await client.query(
+                        `INSERT INTO idempotency_records (
+                            idempotency_key, company_id, branch_id, resource_type,
+                            resource_id, request_hash, response_data, status_code,
+                            status, created_at, updated_at
+                        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'completed', NOW(), NOW())`,
+                        [
+                            ctx.key, ctx.companyId, ctx.branchId, ctx.resourceType,
+                            String(sale.id), ctx.requestHash, JSON.stringify(idemResponseBody), 200
+                        ]
+                    );
+                } catch (idemErr) {
+                    if (idemErr.code === '23505') {
+                        await client.query('ROLLBACK');
+                        const existing = await pool.query(
+                            `SELECT response_data, status_code, request_hash FROM idempotency_records
+                             WHERE idempotency_key = $1 AND company_id = $2 AND branch_id = $3 AND resource_type = $4`,
+                            [ctx.key, ctx.companyId, ctx.branchId, ctx.resourceType]
+                        );
+                        if (existing.rows.length > 0) {
+                            const record = existing.rows[0];
+                            memoryCacheSet(ctx.cacheKey, record.status_code, record.response_data, record.request_hash);
+                            return res.status(record.status_code || 200).json(record.response_data);
+                        }
+                        return res.status(409).json({ success: false, error: 'Duplicate request' });
+                    }
+                    throw idemErr;
+                }
+            }
+            
+            await client.query("COMMIT");
             
             res.json({
                 success: true,
