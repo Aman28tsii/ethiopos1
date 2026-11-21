@@ -40,78 +40,140 @@ const calculateProductCost = async (productId, quantity, client) => {
 };
 
 // ============================================
-// HELPER: DEDUCT INGREDIENTS
+// HELPER: DEDUCT INGREDIENTS (D4 Fixed)
 // ============================================
 const deductIngredients = async (productId, quantity, saleId, companyId, branchId, client) => {
     const saleQuantity = Number(quantity);
-    
     if (!Number.isFinite(saleQuantity) || saleQuantity <= 0) {
         throw new AppError('Invalid sale quantity', 400);
     }
 
     const recipeResult = await client.query(
-        `SELECT ri.ingredient_id, ri.quantity_required, i.quantity as current_stock, i.name,
-                ri.wastage_percentage, ri.cooking_loss_percentage, i.unit_cost
+        `SELECT ri.ingredient_id, ri.quantity_required, i.name,
+         ri.wastage_percentage, ri.cooking_loss_percentage, i.unit_cost, i.company_id, i.branch_id
          FROM recipe_ingredients ri
          JOIN ingredients i ON ri.ingredient_id = i.id
          WHERE ri.recipe_id IN (SELECT id FROM recipes WHERE product_id = $1)`,
         [productId]
     );
 
+    if (recipeResult.rows.length === 0) {
+        return; // No ingredients to deduct
+    }
+
+    const ingredientMap = new Map();
+    const ingredientIds = [];
+
     for (const item of recipeResult.rows) {
         const qtyRequired = parseFloat(item.quantity_required) || 0;
         const wastagePct = parseFloat(item.wastage_percentage) || 0;
         const cookingLossPct = parseFloat(item.cooking_loss_percentage) || 0;
-        const currentQuantity = parseFloat(item.current_stock) || 0;
-        const unitCost = parseFloat(item.unit_cost) || 0;
-
+        
         const expectedQuantity = qtyRequired * saleQuantity;
         const requiredAmount = expectedQuantity * (1 + wastagePct / 100) * (1 + cookingLossPct / 100);
-        const wastageAmount = requiredAmount - expectedQuantity;
+        const finalQuantity = (item.unit === 'pcs' || item.unit === 'pieces') 
+            ? Math.ceil(requiredAmount) 
+            : Math.ceil(requiredAmount * 100) / 100;
+        
+        const wastageAmount = finalQuantity - expectedQuantity;
         const wastagePercentage = expectedQuantity > 0 ? (wastageAmount / expectedQuantity * 100) : 0;
-        const newQuantity = currentQuantity - requiredAmount;
 
-        if (newQuantity < 0) {
+        if (!ingredientMap.has(item.ingredient_id)) {
+            ingredientMap.set(item.ingredient_id, {
+                ingredient_id: item.ingredient_id,
+                name: item.name,
+                unit_cost: item.unit_cost,
+                unit: item.unit,
+                total_required: finalQuantity,
+                expected_quantity: expectedQuantity,
+                wastage_amount: wastageAmount,
+                wastage_percentage: wastagePercentage,
+                company_id: item.company_id,
+                branch_id: item.branch_id
+            });
+            ingredientIds.push(item.ingredient_id);
+        } else {
+            const existing = ingredientMap.get(item.ingredient_id);
+            existing.total_required += finalQuantity;
+            existing.expected_quantity += expectedQuantity;
+            existing.wastage_amount += wastageAmount;
+        }
+    }
+
+    // Sort ingredient IDs to prevent deadlocks
+    ingredientIds.sort((a, b) => a - b);
+
+    // Lock all ingredient rows in deterministic order with tenant isolation
+    const lockQuery = `
+        SELECT id, quantity, name, unit, company_id, branch_id
+        FROM ingredients
+        WHERE id = ANY($1) AND company_id = $2 AND branch_id = $3
+        FOR UPDATE
+    `;
+    const lockedResult = await client.query(lockQuery, [ingredientIds, companyId, branchId]);
+
+    if (lockedResult.rows.length !== ingredientIds.length) {
+        const foundIds = lockedResult.rows.map(r => r.id);
+        const missingIds = ingredientIds.filter(id => !foundIds.includes(id));
+        throw new AppError(`Some ingredients not found or tenant mismatch: ${missingIds.join(', ')}`, 404);
+    }
+
+    // Verify sufficient stock for ALL ingredients
+    for (const row of lockedResult.rows) {
+        const required = ingredientMap.get(row.id).total_required;
+        const available = parseFloat(row.quantity);
+        if (available < required) {
             throw new AppError(
-                `Insufficient stock for ingredient: ${item.name}. Required: ${requiredAmount.toFixed(2)}, Available: ${currentQuantity.toFixed(2)}`,
+                `INSUFFICIENT_STOCK: ${row.name}. Available: ${available}, Required: ${required}`,
                 400,
                 'INSUFFICIENT_STOCK'
             );
         }
+    }
 
-        await client.query(
-            'UPDATE ingredients SET quantity = quantity - $1, updated_at = NOW() WHERE id = $2',
-            [requiredAmount, item.ingredient_id]
-        );
+    // Atomic stock update with guarded update
+    for (const row of lockedResult.rows) {
+        const required = ingredientMap.get(row.id).total_required;
+        const updateResult = await client.query(`
+            UPDATE ingredients 
+            SET quantity = quantity - $1, updated_at = NOW()
+            WHERE id = $2 AND company_id = $3 AND branch_id = $4 AND quantity >= $1
+            RETURNING id, name, quantity, unit
+        `, [required, row.id, companyId, branchId]);
+
+        if (updateResult.rows.length === 0) {
+            throw new AppError(`STOCK_CONFLICT: ${row.name}. Stock was insufficient during update.`, 409, 'STOCK_CONFLICT');
+        }
+    }
+
+    // Create stock transaction records
+    for (const row of lockedResult.rows) {
+        const required = ingredientMap.get(row.id).total_required;
+        const expected = ingredientMap.get(row.id).expected_quantity;
+        const wastage = ingredientMap.get(row.id).wastage_amount;
+        const wastagePct = ingredientMap.get(row.id).wastage_percentage;
 
         await client.query(`
             INSERT INTO stock_transactions (
-                ingredient_id,
-                order_id,
-                product_id,
-                expected_quantity,
-                actual_quantity,
-                wastage_amount,
-                wastage_percentage,
-                transaction_type,
-                notes,
-                company_id,
-                branch_id,
-                sale_id
+                ingredient_id, order_id, product_id, sale_id,
+                expected_quantity, actual_quantity,
+                wastage_amount, wastage_percentage,
+                transaction_type, notes,
+                company_id, branch_id
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
         `, [
-            item.ingredient_id,
-            null,
+            row.id,
+            null, // order_id
             productId,
-            parseFloat(expectedQuantity.toFixed(3)),
-            parseFloat(requiredAmount.toFixed(3)),
-            parseFloat(wastageAmount.toFixed(3)),
-            parseFloat(wastagePercentage.toFixed(1)),
+            saleId,
+            parseFloat(expected.toFixed(3)),
+            parseFloat(required.toFixed(3)),
+            parseFloat(wastage.toFixed(3)),
+            parseFloat(wastagePct.toFixed(1)),
             'sale_deduction',
-            `Sale ${saleId} - ${item.name}`,
+            `Sale ${saleId} - ${row.name}`,
             companyId,
-            branchId,
-            saleId
+            branchId
         ]);
     }
 };
