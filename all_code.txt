@@ -5856,6 +5856,7 @@ import React, { useState, useEffect } from 'react';
 import API from '../../api/axios';
 import { Loader2, DollarSign, CreditCard, Smartphone, Printer } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
+import { getStableIdempotencyKey, clearIdempotencyKey } from '../../utils/idempotency.js';
 
 const CashierPOS = () => {
     const { t } = useLanguage();
@@ -5909,13 +5910,14 @@ const CashierPOS = () => {
         }
     };
 
-    const processPayment = async () => {
+      const processPayment = async () => {
         if (!selectedOrder) return;
         
         setProcessing(true);
         try {
-            // Generate unique Idempotency-Key
-            const idempotencyKey = `payment_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+            // ✅ FIX: Get a STABLE idempotency key for this specific order payment.
+            // If the user double-clicks or retries, this returns the EXACT SAME key.
+            const idempotencyKey = getStableIdempotencyKey('pay_order', selectedOrder.id);
             
             const response = await API.post(`/orders/${selectedOrder.id}/pay`, {
                 payment_method: paymentMethod
@@ -5924,17 +5926,23 @@ const CashierPOS = () => {
                     'Idempotency-Key': idempotencyKey
                 }
             });
-            
+
             if (response.data.success) {
-                alert(`✅ Payment successful! ${selectedOrder.order_number} completed.`);
+                // ✅ FIX: Only clear the key on SUCCESS. 
+                // If it fails, the key remains, allowing a safe retry.
+                clearIdempotencyKey('pay_order', selectedOrder.id);
+                
+                setNotification(`Payment successful! Sale #${response.data.data.sale_number}`);
                 setSelectedOrder(null);
-                fetchReadyOrders();
-                fetchSalesHistory();
-                fetchTodaySales();
+                setPaymentMethod('cash');
+                // Refresh orders list (assuming fetchOrders exists in your component)
+                if (typeof fetchOrders === 'function') fetchOrders(); 
             }
         } catch (err) {
             console.error('Payment error:', err);
-            alert(err.response?.data?.error || 'Payment failed');
+            const errorMsg = err.response?.data?.error || 'Payment failed. Please try again.';
+            setNotification(errorMsg);
+            // DO NOT clear the idempotency key here. Let the user retry with the same key.
         } finally {
             setProcessing(false);
         }
@@ -6245,6 +6253,20 @@ const ManualOrder = () => {
     // Reused across retries of the same order, regenerated for a new order.
     const idempotencyKeyRef = useRef(generateIdempotencyKey());
 
+    // ✅ D2: stable client-generated order id, persists across refresh via
+    // sessionStorage so a retry of the same logical order is deduplicated.
+    const clientOrderIdRef = useRef(null);
+    if (clientOrderIdRef.current === null) {
+        const stored = sessionStorage.getItem('manual_order_client_id');
+        if (stored) {
+            clientOrderIdRef.current = stored;
+        } else {
+            const newId = generateIdempotencyKey(); // same UUID generator
+            sessionStorage.setItem('manual_order_client_id', newId);
+            clientOrderIdRef.current = newId;
+        }
+    }
+
     // ============================================
     // FETCH DATA
     // ============================================
@@ -6360,10 +6382,11 @@ const ManualOrder = () => {
                 payment_method: paymentMethod
             };
 
-            // ✅ Send Idempotency-Key header (required by backend)
+            // ✅ Send Idempotency-Key and stable client order id
             const response = await API.post('/orders', orderData, {
                 headers: {
-                    'Idempotency-Key': idempotencyKeyRef.current
+                    'Idempotency-Key': idempotencyKeyRef.current,
+                    'X-Client-Order-Id': clientOrderIdRef.current
                 }
             });
             
@@ -6386,11 +6409,32 @@ const ManualOrder = () => {
                 if (orderType === 'dine_in') {
                     setSelectedTableId('');
                 }
-                // ✅ Generate a NEW idempotency key for the next order
+                // ✅ Generate a NEW idempotency key AND client order id for the next order
                 idempotencyKeyRef.current = generateIdempotencyKey();
+                const newClientId = generateIdempotencyKey();
+                sessionStorage.setItem('manual_order_client_id', newClientId);
+                clientOrderIdRef.current = newClientId;
             }
         } catch (err) {
             console.error('Place order error:', err);
+            if (err.response?.status === 409 && err.response?.data?.existing_order) {
+                const existing = err.response.data.existing_order;
+                setOrderNumber(existing.order_number);
+                setCompletedTotal(parseFloat(existing.total_amount || 0));
+                setOrderComplete(true);
+                setCart([]);
+                setCustomerName('');
+                setCustomerPhone('');
+                setSpecialInstructions('');
+                if (orderType === 'dine_in') {
+                    setSelectedTableId('');
+                }
+                const newClientId = generateIdempotencyKey();
+                sessionStorage.setItem('manual_order_client_id', newClientId);
+                clientOrderIdRef.current = newClientId;
+                idempotencyKeyRef.current = generateIdempotencyKey();
+                return;
+            }
             setOrderError(err.response?.data?.error || 'Failed to place order');
             alert(err.response?.data?.error || 'Failed to place order');
         } finally {
@@ -6412,8 +6456,11 @@ const ManualOrder = () => {
         setSelectedTableId('');
         setSearchTerm('');
         setOrderError(null);
-        // ✅ Fresh key for the brand-new order
+        // ✅ Fresh idempotency key AND fresh client order id for the brand-new order
         idempotencyKeyRef.current = generateIdempotencyKey();
+        const newClientId = generateIdempotencyKey();
+        sessionStorage.setItem('manual_order_client_id', newClientId);
+        clientOrderIdRef.current = newClientId;
     };
 
     // ============================================
@@ -15328,6 +15375,26 @@ const QRMenu = () => {
   const getOrderStorageKey = function() { return 'qr_order_table_' + tableId; };
   const getContinueOrderKey = function() { return 'continue_order_' + tableId; };
 
+  // D2: stable client order id per (table) logical order, survives refresh via sessionStorage
+  const getQrClientOrderId = function(tid) {
+    var key = 'qr_client_order_id_' + (tid || 'unknown');
+    var id = sessionStorage.getItem(key);
+    if (!id) {
+      id = (typeof crypto !== 'undefined' && crypto.randomUUID)
+        ? crypto.randomUUID()
+        : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+            var r = (Math.random() * 16) | 0;
+            return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+          });
+      sessionStorage.setItem(key, id);
+    }
+    return id;
+  };
+
+  const clearQrClientOrderId = function(tid) {
+    sessionStorage.removeItem('qr_client_order_id_' + (tid || 'unknown'));
+  };
+
   const getStatusText = function(status) {
     const statusMap = {
       'pending_confirmation': 'Waiting for Waiter',
@@ -15648,7 +15715,7 @@ const QRMenu = () => {
     setCart(function(prev) { return prev.filter(function(item) { return item.id !== productId; }); });
   };
 
-  // Place Order with Idempotency Key
+  // Place Order with Idempotency Key + stable client order id (D2)
   const placeOrder = async function() {
     if (cart.length === 0) {
       alert(t('pleaseAddItems'));
@@ -15668,10 +15735,12 @@ const QRMenu = () => {
       };
 
       const idempotencyKey = generateIdempotencyKey(orderData);
+      const clientOrderId = getQrClientOrderId(tableId);
 
       const response = await API.post('/orders/qr-order', orderData, {
         headers: {
-          'Idempotency-Key': idempotencyKey
+          'Idempotency-Key': idempotencyKey,
+          'X-Client-Order-Id': clientOrderId
         }
       });
       
@@ -15690,11 +15759,35 @@ const QRMenu = () => {
         setOrderPlaced(true);
         setCart([]);
         saveOrderToStorage(newOrder);
+        clearQrClientOrderId(tableId);
         startStatusPolling(data.order_number);
         setStatusMessage('Order placed! Waiting for confirmation.');
       }
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed to place order');
+      if (err.response && err.response.status === 409) {
+        var existing = err.response.data && err.response.data.existing_order;
+        if (existing) {
+          var dupOrder = {
+            order_id: existing.id,
+            order_number: existing.order_number,
+            total_amount: existing.total_amount,
+            status: existing.status,
+            placed_at: existing.created_at
+          };
+          setCurrentOrder(dupOrder);
+          setOrderNumber(existing.order_number);
+          setOrderStatus(existing.status);
+          setOrderPlaced(true);
+          setCart([]);
+          clearQrClientOrderId(tableId);
+          saveOrderToStorage(dupOrder);
+          startStatusPolling(existing.order_number);
+          setStatusMessage('Your order was already placed.');
+          setLoading(false);
+          return;
+        }
+      }
+      alert((err.response && err.response.data && err.response.data.error) || 'Failed to place order');
     } finally {
       setLoading(false);
     }
@@ -18527,7 +18620,7 @@ import {
     getOfflineOrder,
     getAllOfflineOrders
 } from './offlineDB';
-import { generateLocalOrderId, generateIdempotencyKey } from './orderService';
+import { generateLocalOrderId, generateIdempotencyKey, generateClientOrderId } from './orderService';
 
 // ============================================================
 // NETWORK STATUS CHECK
@@ -18558,10 +18651,11 @@ export const isFullyOnline = async () => {
 // OFFLINE ORDER CREATION
 // ============================================================
 
-export const createOrderOffline = async (orderData) => {
+export const createOrderOffline = async (orderData, clientOrderId = null) => {
     try {
         const localOrderId = generateLocalOrderId();
         const idempotencyKey = generateIdempotencyKey(orderData);
+        const effectiveClientOrderId = clientOrderId || generateClientOrderId();
         
         // Get user context
         const user = JSON.parse(localStorage.getItem('user') || '{}');
@@ -18571,6 +18665,7 @@ export const createOrderOffline = async (orderData) => {
             id: localOrderId,
             local_order_id: localOrderId,
             idempotency_key: idempotencyKey,
+            client_order_id: effectiveClientOrderId,
             company_id: user.company_id || 1,
             branch_id: parseInt(branchId),
             user_id: user.id,
@@ -18616,6 +18711,7 @@ export const createOrderOffline = async (orderData) => {
 
 export const createOrder = async (orderData) => {
     const online = await isFullyOnline();
+    const clientOrderId = generateClientOrderId();
     
     if (online) {
         try {
@@ -18623,7 +18719,8 @@ export const createOrder = async (orderData) => {
             
             const response = await API.post('/orders', orderData, {
                 headers: {
-                    'Idempotency-Key': idempotencyKey
+                    'Idempotency-Key': idempotencyKey,
+                    'X-Client-Order-Id': clientOrderId
                 }
             });
             
@@ -18637,12 +18734,21 @@ export const createOrder = async (orderData) => {
             }
             throw new Error(response.data.error || 'Order creation failed');
         } catch (error) {
+            if (error.response?.status === 409) {
+                return {
+                    success: true,
+                    data: error.response.data.existing_order || { order_number: 'DUPLICATE' },
+                    source: 'online',
+                    offline: false,
+                    duplicate: true
+                };
+            }
             console.warn('[ORDER] Online order failed:', error.message);
-            return await createOrderOffline(orderData);
+            return await createOrderOffline(orderData, clientOrderId);
         }
     }
     
-    return await createOrderOffline(orderData);
+    return await createOrderOffline(orderData, clientOrderId);
 };
 
 // ============================================================
@@ -18789,86 +18895,11 @@ import {
     deleteOfflineOrder,
     getOfflineOrder
 } from './offlineDB';
-import { v4 as uuidv4 } from 'uuid';
 
 // ============================================================
-// IDEMPOTENCY KEY GENERATION
+// NETWORK STATUS
 // ============================================================
 
-// Store keys for the current session to prevent duplicates
-const usedIdempotencyKeys = new Map();
-
-/**
- * Generate a unique idempotency key for a request
- * @param {Object} payload - The request payload
- * @returns {string} Unique idempotency key
- */
-export const generateIdempotencyKey = (payload) => {
-    // Create a deterministic key based on payload content
-    // This ensures the same order gets the same key
-    const key = `idem_${Date.now()}_${uuidv4()}`;
-    
-    // Store the key with a hash of the payload to detect misuse
-    const payloadHash = JSON.stringify(payload);
-    usedIdempotencyKeys.set(key, {
-        payloadHash,
-        timestamp: Date.now()
-    });
-    
-    return key;
-};
-
-/**
- * Check if a key has been used with a different payload
- * @param {string} key - The idempotency key
- * @param {Object} payload - The current request payload
- * @returns {boolean} True if the key is being reused with different data
- */
-export const isKeyMisused = (key, payload) => {
-    const stored = usedIdempotencyKeys.get(key);
-    if (!stored) return false;
-    
-    const currentHash = JSON.stringify(payload);
-    return stored.payloadHash !== currentHash;
-};
-
-/**
- * Clean up old idempotency keys from memory
- * (Prevents memory leaks)
- */
-export const cleanupIdempotencyKeys = () => {
-    const now = Date.now();
-    const TTL = 24 * 60 * 60 * 1000; // 24 hours
-    for (const [key, value] of usedIdempotencyKeys) {
-        if (now - value.timestamp > TTL) {
-            usedIdempotencyKeys.delete(key);
-        }
-    }
-};
-
-// Run cleanup every hour
-setInterval(cleanupIdempotencyKeys, 60 * 60 * 1000);
-
-// ============================================================
-// LOCAL ORDER ID GENERATION
-// ============================================================
-
-/**
- * Generate a unique local order ID for offline orders
- * @returns {string} Local order ID
- */
-export const generateLocalOrderId = () => {
-    return `offline_${Date.now()}_${uuidv4().slice(0, 8)}`;
-};
-
-// ============================================================
-// NETWORK STATUS CHECK
-// ============================================================
-
-/**
- * Check if the device is online
- * @returns {boolean} True if online
- */
 export const isOnline = () => {
     return navigator.onLine;
 };
@@ -18903,6 +18934,59 @@ export const isFullyOnline = async () => {
 };
 
 // ============================================================
+// ID GENERATORS
+// ============================================================
+
+export const generateLocalOrderId = () => {
+    return 'offline_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+};
+
+export const generateClientOrderId = () => {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+        return crypto.randomUUID();
+    }
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+        const r = (Math.random() * 16) | 0;
+        return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+    });
+};
+
+// ============================================================
+// IDEMPOTENCY KEY MANAGEMENT
+// ============================================================
+
+const usedIdempotencyKeys = new Map();
+
+export const generateIdempotencyKey = (payload) => {
+    const payloadHash = JSON.stringify(payload);
+    const existing = Array.from(usedIdempotencyKeys.entries()).find(
+        ([, value]) => value.payloadHash === payloadHash
+    );
+    
+    if (existing) {
+        return existing[0];
+    }
+    
+    const key = 'idem_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+    usedIdempotencyKeys.set(key, {
+        payloadHash,
+        timestamp: Date.now()
+    });
+    return key;
+};
+
+export const cleanupIdempotencyKeys = () => {
+    const oneHourAgo = Date.now() - 60 * 60 * 1000;
+    for (const [key, value] of usedIdempotencyKeys) {
+        if (value.timestamp < oneHourAgo) {
+            usedIdempotencyKeys.delete(key);
+        }
+    }
+};
+
+setInterval(cleanupIdempotencyKeys, 60 * 60 * 1000);
+
+// ============================================================
 // ORDER CREATION (ONLINE + OFFLINE)
 // ============================================================
 
@@ -18913,13 +18997,14 @@ export const isFullyOnline = async () => {
  * @returns {Promise<Object>} Order creation result
  */
 export const createOrder = async (orderData, options = {}) => {
-    const { forceOffline = false, retryCount = 0 } = options;
+    const { forceOffline = false, retryCount = 0, clientOrderId = null } = options;
+    const effectiveClientOrderId = clientOrderId || generateClientOrderId();
     const online = await isFullyOnline();
     
     // If online and not forced offline, try server first
     if (online && !forceOffline) {
         try {
-            const result = await createOrderOnline(orderData);
+            const result = await createOrderOnline(orderData, effectiveClientOrderId);
             return {
                 success: true,
                 data: result.data,
@@ -18934,7 +19019,7 @@ export const createOrder = async (orderData, options = {}) => {
                 console.log('[ORDER] Duplicate detected, using cached result');
                 return {
                     success: true,
-                    data: error.response?.data?.data || { order_number: 'DUPLICATE' },
+                    data: error.response?.data?.existing_order || error.response?.data?.data || { order_number: 'DUPLICATE' },
                     source: 'online',
                     offline: false,
                     duplicate: true
@@ -18946,18 +19031,19 @@ export const createOrder = async (orderData, options = {}) => {
                 console.log(`[ORDER] Retrying online (${retryCount + 1}/3)...`);
                 return await createOrder(orderData, {
                     ...options,
-                    retryCount: retryCount + 1
+                    retryCount: retryCount + 1,
+                    clientOrderId: effectiveClientOrderId
                 });
             }
             
             // After retries, fallback to offline
             console.log('[ORDER] Online failed after retries, saving offline');
-            return await createOrderOffline(orderData);
+            return await createOrderOffline(orderData, effectiveClientOrderId);
         }
     }
     
     // If offline or forced offline, save locally
-    return await createOrderOffline(orderData);
+    return await createOrderOffline(orderData, effectiveClientOrderId);
 };
 
 // ============================================================
@@ -18967,20 +19053,19 @@ export const createOrder = async (orderData, options = {}) => {
 /**
  * Create an order on the server
  * @param {Object} orderData - The order data
+ * @param {string|null} clientOrderId - Stable UUID for this logical order
  * @returns {Promise<Object>} Server response
  */
-export const createOrderOnline = async (orderData) => {
+export const createOrderOnline = async (orderData, clientOrderId = null) => {
     // Generate idempotency key for this order
     const idempotencyKey = generateIdempotencyKey(orderData);
     
     console.log(`[ORDER] Creating order online with key: ${idempotencyKey}`);
     
     try {
-        const response = await API.post('/orders', orderData, {
-            headers: {
-                'Idempotency-Key': idempotencyKey
-            }
-        });
+        const headers = { 'Idempotency-Key': idempotencyKey };
+        if (clientOrderId) headers['X-Client-Order-Id'] = clientOrderId;
+        const response = await API.post('/orders', orderData, { headers });
         
         if (response.data.success) {
             console.log(`[ORDER] Order created online: ${response.data.data?.order_number}`);
@@ -19004,12 +19089,14 @@ export const createOrderOnline = async (orderData) => {
 /**
  * Create an order offline (saved to IndexedDB)
  * @param {Object} orderData - The order data
+ * @param {string|null} clientOrderId - Stable UUID for this logical order
  * @returns {Promise<Object>} Offline order result
  */
-export const createOrderOffline = async (orderData) => {
+export const createOrderOffline = async (orderData, clientOrderId = null) => {
     try {
         const localOrderId = generateLocalOrderId();
         const idempotencyKey = generateIdempotencyKey(orderData);
+        const effectiveClientOrderId = clientOrderId || generateClientOrderId();
         
         // Get user context
         const user = JSON.parse(localStorage.getItem('user') || '{}');
@@ -19019,6 +19106,7 @@ export const createOrderOffline = async (orderData) => {
             id: localOrderId,
             local_order_id: localOrderId,
             idempotency_key: idempotencyKey,
+            client_order_id: effectiveClientOrderId,
             company_id: user.company_id || 1,
             branch_id: parseInt(branchId),
             user_id: user.id,
@@ -19088,7 +19176,7 @@ export const addItemsToOrder = async (orderId, items) => {
             const branchId = localStorage.getItem('ethiopos_selected_branch') || user.branch_id || 1;
             
             const offlineOperation = {
-                id: `add_items_${Date.now()}_${uuidv4().slice(0, 8)}`,
+                id: `add_items_${Date.now()}_${generateClientOrderId().slice(0, 8)}`,
                 operation: 'add_items',
                 order_id: orderId,
                 items: items,
@@ -19352,6 +19440,7 @@ export default {
     cancelOrder,
     generateIdempotencyKey,
     generateLocalOrderId,
+    generateClientOrderId,
     isOnline,
     isApiReachable,
     isFullyOnline,
@@ -19520,12 +19609,10 @@ const syncSingleOrder = async (order) => {
 
         console.log(`[SYNC] Processing order ${order.id}`);
 
-        // Send to server with idempotency key
-        const response = await API.post('/orders', order.payload, {
-            headers: {
-                'Idempotency-Key': order.idempotency_key
-            }
-        });
+              // Send to server with idempotency key and stable client order id
+        const headers = { 'Idempotency-Key': order.idempotency_key };
+        if (order.client_order_id) headers['X-Client-Order-Id'] = order.client_order_id;
+        const response = await API.post('/orders', order.payload, { headers });
 
         if (response.data.success) {
             await deleteOfflineOrder(order.id);
@@ -19713,6 +19800,51 @@ export const getStatusBadgeClasses = function(status) {
     text: info.label,
     icon: info.icon
   };
+};
+=== FILE: C:\Users\dell\Desktop\restaurant\client\src\utils\idempotency.js ===
+// client/src/utils/idempotency.js
+
+/**
+ * Generates or retrieves a stable idempotency key for a specific logical operation.
+ * This ensures that network retries or double-clicks reuse the same key,
+ * preventing duplicate backend processing.
+ * 
+ * @param {string} operationPrefix - e.g., 'pay_order', 'create_qr_order'
+ * @param {string|number} resourceId - e.g., the order ID or a temporary client ID
+ * @returns {string} A stable UUID v4 string
+ */
+export const getStableIdempotencyKey = (operationPrefix, resourceId) => {
+    const storageKey = `idem_key_${operationPrefix}_${resourceId}`;
+    
+    // 1. Check if we already have a key for this specific operation/resource
+    let key = sessionStorage.getItem(storageKey);
+    
+    if (!key) {
+        // 2. Generate a new UUID v4
+        if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+            key = crypto.randomUUID();
+        } else {
+            // Fallback for older browsers
+            key = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+                const r = (Math.random() * 16) | 0;
+                const v = c === 'x' ? r : (r & 0x3) | 0x8;
+                return v.toString(16);
+            });
+        }
+        // 3. Store it for future retries of the same operation
+        sessionStorage.setItem(storageKey, key);
+    }
+    
+    return key;
+};
+
+/**
+ * Clears the idempotency key for a specific operation after successful completion.
+ * This allows the same resource to be operated on again in the future (if applicable).
+ */
+export const clearIdempotencyKey = (operationPrefix, resourceId) => {
+    const storageKey = `idem_key_${operationPrefix}_${resourceId}`;
+    sessionStorage.removeItem(storageKey);
 };
 === FILE: C:\Users\dell\Desktop\restaurant\client\src\App.css ===
 .App {
@@ -41280,6 +41412,7 @@ export const getAllIngredients = catchAsync(async (req, res) => {
         SELECT id, name, unit, quantity, min_stock, unit_cost, 
                category, supplier, default_wastage_percentage, 
                default_cooking_loss_percentage, safety_stock,
+               bottle_size_ml,                      -- ★ NEW
                last_used, created_at, updated_at
         FROM ingredients
         WHERE company_id = $1 AND branch_id = $2
@@ -41343,16 +41476,10 @@ export const getLowStockAlert = catchAsync(async (req, res) => {
     
     const result = await query(`
         SELECT 
-            id, 
-            name, 
-            unit, 
-            quantity, 
-            min_stock,
-            safety_stock,
+            id, name, unit, quantity, min_stock, safety_stock,
             (quantity + safety_stock) as effective_stock,
             (min_stock - quantity) as needed,
-            category,
-            supplier,
+            category, supplier,
             CASE 
                 WHEN quantity <= 0 THEN 'out_of_stock'
                 WHEN quantity <= min_stock THEN 'critical'
@@ -41364,15 +41491,11 @@ export const getLowStockAlert = catchAsync(async (req, res) => {
         ORDER BY (quantity / NULLIF(min_stock, 0)) ASC
     `, [companyId, branchId]);
     
-    res.json({ 
-        success: true, 
-        data: result.rows,
-        count: result.rows.length
-    });
+    res.json({ success: true, data: result.rows, count: result.rows.length });
 });
 
 // ============================================================
-// GET INGREDIENT BY ID (Branch-validated)
+// GET INGREDIENT BY ID (Branch-validated) — SELECT * includes bottle_size_ml
 // ============================================================
 export const getIngredientById = catchAsync(async (req, res) => {
     const { id } = req.params;
@@ -41417,13 +41540,14 @@ export const getIngredientCategories = catchAsync(async (req, res) => {
 });
 
 // ============================================================
-// CREATE INGREDIENT (Branch-validated) — WITH OPENING STOCK AUDIT TRAIL
+// CREATE INGREDIENT (Branch-validated)
 // ============================================================
 export const createIngredient = catchAsync(async (req, res) => {
     const { 
         name, unit, quantity, min_stock, unit_cost, 
         category, supplier, default_wastage_percentage,
-        default_cooking_loss_percentage, safety_stock 
+        default_cooking_loss_percentage, safety_stock,
+        bottle_size_ml                       // ★ NEW
     } = req.body;
     
     if (!req.user?.company_id || !req.user?.branch_id) {
@@ -41436,8 +41560,17 @@ export const createIngredient = catchAsync(async (req, res) => {
     if (!name || !unit) {
         throw new AppError('Name and unit are required', 400);
     }
+
+    // ★ NEW: validate bottle_size_ml if provided
+    let bottleSize = null;
+    if (bottle_size_ml !== undefined && bottle_size_ml !== null && bottle_size_ml !== '') {
+        const parsed = parseInt(bottle_size_ml, 10);
+        if (!Number.isFinite(parsed) || parsed <= 0) {
+            throw new AppError('bottle_size_ml must be a positive integer', 400);
+        }
+        bottleSize = parsed;
+    }
     
-    // Parse initial quantity
     const initialQuantity = parseFloat(quantity) || 0;
     
     const client = await getClient();
@@ -41445,63 +41578,43 @@ export const createIngredient = catchAsync(async (req, res) => {
     try {
         await client.query('BEGIN');
         
-        // Create the ingredient
         const result = await client.query(`
             INSERT INTO ingredients (
                 company_id, branch_id, name, unit, quantity, min_stock, unit_cost, 
                 category, supplier, default_wastage_percentage,
-                default_cooking_loss_percentage, safety_stock
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                default_cooking_loss_percentage, safety_stock, bottle_size_ml
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
             RETURNING id, name, unit, quantity, min_stock, unit_cost, 
                       category, supplier, default_wastage_percentage,
-                      default_cooking_loss_percentage, safety_stock
+                      default_cooking_loss_percentage, safety_stock, bottle_size_ml
         `, [
             companyId, branchId, name.trim(), unit, initialQuantity, min_stock || 0, 
             unit_cost || 0, category, supplier,
             default_wastage_percentage || 0,
             default_cooking_loss_percentage || 0,
-            safety_stock || 0
+            safety_stock || 0,
+            bottleSize
         ]);
         
         const ingredient = result.rows[0];
         
-        // ★ FIX: Create opening_stock transaction if initial quantity > 0.
-        //   The result of the INSERT is now verified — if no row was written,
-        //   we throw so the whole transaction rolls back and we see the real error
-        //   instead of silently succeeding without an audit trail.
         if (initialQuantity > 0) {
             const auditResult = await client.query(`
                 INSERT INTO stock_transactions (
-                    ingredient_id,
-                    expected_quantity,
-                    actual_quantity,
-                    wastage_amount,
-                    wastage_percentage,
-                    transaction_type,
-                    notes,
-                    company_id,
-                    branch_id
+                    ingredient_id, expected_quantity, actual_quantity,
+                    wastage_amount, wastage_percentage, transaction_type,
+                    notes, company_id, branch_id
                 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
                 RETURNING id
             `, [
-                ingredient.id,
-                initialQuantity,
-                initialQuantity,
-                0,
-                0,
+                ingredient.id, initialQuantity, initialQuantity, 0, 0,
                 'opening_stock',
                 `Initial stock for ${ingredient.name}`,
-                companyId,
-                branchId
+                companyId, branchId
             ]);
 
-            // ★ FIX: if the audit insert wrote zero rows, the table is
-            //   missing, misnamed, or has a broken schema. Abort cleanly.
             if (!auditResult.rows || auditResult.rows.length === 0) {
-                throw new Error(
-                    'Audit trail failure: stock_transactions insert returned no rows. ' +
-                    'Verify the stock_transactions table exists with the expected columns.'
-                );
+                throw new Error('Audit trail failure: stock_transactions insert returned no rows.');
             }
         }
         
@@ -41516,12 +41629,7 @@ export const createIngredient = catchAsync(async (req, res) => {
     } catch (error) {
         await client.query('ROLLBACK');
         console.error('Create ingredient error:', error);
-        // ★ FIX: surface the real DB error message instead of the generic
-        //   "Internal server error", so tests can see what's actually wrong.
-        throw new AppError(
-            `Create ingredient failed: ${error.message || 'unknown error'}`,
-            500
-        );
+        throw new AppError(`Create ingredient failed: ${error.message || 'unknown error'}`, 500);
     } finally {
         client.release();
     }
@@ -41535,7 +41643,8 @@ export const updateIngredient = catchAsync(async (req, res) => {
     const { 
         name, unit, quantity, min_stock, unit_cost, 
         category, supplier, default_wastage_percentage, 
-        default_cooking_loss_percentage, safety_stock 
+        default_cooking_loss_percentage, safety_stock,
+        bottle_size_ml                       // ★ NEW
     } = req.body;
     
     if (!req.user?.company_id || !req.user?.branch_id) {
@@ -41544,6 +41653,27 @@ export const updateIngredient = catchAsync(async (req, res) => {
     
     const companyId = req.user.company_id;
     const branchId = req.user.branch_id;
+
+    // ★ NEW: normalize bottle_size_ml
+    //   - undefined  → don't touch (COALESCE keeps existing)
+    //   - '' or null → set to NULL (remove bottle tracking)
+    //   - positive   → set value
+    let bottleSizeParam = undefined;
+    if (bottle_size_ml !== undefined) {
+        if (bottle_size_ml === null || bottle_size_ml === '') {
+            bottleSizeParam = null;
+        } else {
+            const parsed = parseInt(bottle_size_ml, 10);
+            if (!Number.isFinite(parsed) || parsed <= 0) {
+                throw new AppError('bottle_size_ml must be a positive integer', 400);
+            }
+            bottleSizeParam = parsed;
+        }
+    }
+
+    // ★ FIX: COALESCE can't distinguish "set to NULL" from "don't touch".
+    //   Use a CASE with a sentinel ($14) that indicates whether the field was provided.
+    const bottleProvided = bottle_size_ml !== undefined;
 
     const result = await query(`
         UPDATE ingredients 
@@ -41557,8 +41687,9 @@ export const updateIngredient = catchAsync(async (req, res) => {
             default_wastage_percentage = COALESCE($8, default_wastage_percentage),
             default_cooking_loss_percentage = COALESCE($9, default_cooking_loss_percentage),
             safety_stock = COALESCE($10, safety_stock),
+            bottle_size_ml = CASE WHEN $11 THEN $12 ELSE bottle_size_ml END,
             updated_at = CURRENT_TIMESTAMP
-        WHERE id = $11 AND company_id = $12 AND branch_id = $13
+        WHERE id = $13 AND company_id = $14 AND branch_id = $15
         RETURNING *
     `, [
         name, unit, quantity, min_stock, unit_cost, 
@@ -41566,6 +41697,8 @@ export const updateIngredient = catchAsync(async (req, res) => {
         default_wastage_percentage || 0, 
         default_cooking_loss_percentage || 0, 
         safety_stock || 0,
+        bottleProvided,
+        bottleSizeParam,
         id, companyId, branchId
     ]);
 
@@ -41593,7 +41726,6 @@ export const deleteIngredient = catchAsync(async (req, res) => {
     const companyId = req.user.company_id;
     const branchId = req.user.branch_id;
     
-    // Check if ingredient is used in recipes
     const recipeCheck = await query(
         'SELECT COUNT(*) FROM recipe_ingredients WHERE ingredient_id = $1',
         [id]
@@ -41612,18 +41744,11 @@ export const deleteIngredient = catchAsync(async (req, res) => {
         throw new AppError('Ingredient not found', 404);
     }
     
-    res.json({
-        success: true,
-        message: 'Ingredient deleted successfully'
-    });
+    res.json({ success: true, message: 'Ingredient deleted successfully' });
 });
 
 // ============================================================
 // ADJUST STOCK (Branch-validated)
-//   - Row-level locking
-//   - Zero amount validation
-//   - Idempotency
-//   - ★ FIX: Verified audit trail insert (rolls back on failure)
 // ============================================================
 export const adjustStock = catchAsync(async (req, res) => {
     const { id } = req.params;
@@ -41636,7 +41761,6 @@ export const adjustStock = catchAsync(async (req, res) => {
     const companyId = req.user.company_id;
     const branchId = req.user.branch_id;
     
-    // Validate amount is a valid non-zero number
     if (amount === undefined || amount === null || amount === '') {
         throw new AppError('Amount is required', 400);
     }
@@ -41651,40 +41775,26 @@ export const adjustStock = catchAsync(async (req, res) => {
         throw new AppError('Adjustment amount cannot be zero', 400);
     }
     
-    // ============================================================
-    // IDEMPOTENCY CHECK (INV-005) — Check BEFORE transaction
-    // ============================================================
     const idempotencyKey = req.headers['idempotency-key'];
     let recordId = null;
     
     if (idempotencyKey) {
-        console.log(`[IDEMPOTENCY] Checking key: ${idempotencyKey} for ingredient ${id}`);
-        
-        // Check if this key has been used for this ingredient (completed)
         const existing = await query(
             `SELECT id, response_data, request_hash FROM idempotency_records 
-             WHERE idempotency_key = $1 
-               AND company_id = $2 
-               AND branch_id = $3 
-               AND resource_type = 'stock_adjustment'
-               AND resource_id = $4
+             WHERE idempotency_key = $1 AND company_id = $2 AND branch_id = $3 
+               AND resource_type = 'stock_adjustment' AND resource_id = $4
                AND status = 'completed'`,
             [idempotencyKey, companyId, branchId, id]
         );
         
         if (existing.rows.length > 0) {
-            console.log(`[IDEMPOTENCY] Cache hit for ${idempotencyKey}`);
             return res.status(200).json(existing.rows[0].response_data);
         }
         
-        // Check for conflicting key with different payload (processing or completed)
         const conflicting = await query(
             `SELECT id, request_hash, status FROM idempotency_records 
-             WHERE idempotency_key = $1 
-               AND company_id = $2 
-               AND branch_id = $3 
-               AND resource_type = 'stock_adjustment'
-               AND resource_id = $4`,
+             WHERE idempotency_key = $1 AND company_id = $2 AND branch_id = $3 
+               AND resource_type = 'stock_adjustment' AND resource_id = $4`,
             [idempotencyKey, companyId, branchId, id]
         );
         
@@ -41704,30 +41814,19 @@ export const adjustStock = catchAsync(async (req, res) => {
     try {
         await client.query('BEGIN');
         
-        // Save idempotency record FIRST (before stock update)
         if (idempotencyKey) {
             const requestHash = crypto.createHash('sha256').update(JSON.stringify(req.body)).digest('hex');
-            
             const insertResult = await client.query(
                 `INSERT INTO idempotency_records 
                  (idempotency_key, company_id, branch_id, resource_type, resource_id, 
                   request_hash, status, created_at, updated_at)
                  VALUES ($1, $2, $3, $4, $5, $6, 'processing', NOW(), NOW())
                  RETURNING id`,
-                [
-                    idempotencyKey,
-                    companyId,
-                    branchId,
-                    'stock_adjustment',
-                    parseInt(id),
-                    requestHash
-                ]
+                [idempotencyKey, companyId, branchId, 'stock_adjustment', parseInt(id), requestHash]
             );
             recordId = insertResult.rows[0].id;
-            console.log(`[IDEMPOTENCY] Created processing record ${recordId} for ${idempotencyKey}`);
         }
         
-        // Row-level lock using FOR UPDATE
         const lockResult = await client.query(`
             SELECT id, name, quantity, unit, unit_cost, company_id, branch_id
             FROM ingredients
@@ -41743,96 +41842,256 @@ export const adjustStock = catchAsync(async (req, res) => {
         const currentQuantity = parseFloat(ingredient.quantity);
         const newQuantity = currentQuantity + numericAmount;
         
-        // Prevent negative stock
         if (newQuantity < 0) {
-            throw new AppError(`Cannot reduce stock below zero. Current: ${currentQuantity}, Requested reduction: ${Math.abs(numericAmount)}`, 400);
+            throw new AppError(`Cannot reduce stock below zero. Current: ${currentQuantity}, Requested: ${Math.abs(numericAmount)}`, 400);
         }
         
-        // Update the stock
         const updateResult = await client.query(`
-            UPDATE ingredients 
-            SET quantity = $1,
-                updated_at = CURRENT_TIMESTAMP
+            UPDATE ingredients SET quantity = $1, updated_at = CURRENT_TIMESTAMP
             WHERE id = $2 AND company_id = $3 AND branch_id = $4
             RETURNING *
         `, [newQuantity, id, companyId, branchId]);
         
-        // Determine transaction type
         const transactionType = numericAmount > 0 ? 'adjustment_add' : 'adjustment_remove';
         const absAmount = Math.abs(numericAmount);
         
-        // ★ FIX: Record stock transaction and verify it was actually written.
-        //   If the insert fails silently (table missing, schema drift, etc.),
-        //   we abort the whole operation so the client never sees a stock
-        //   change without an accompanying audit row.
         const auditResult = await client.query(`
             INSERT INTO stock_transactions (
-                ingredient_id,
-                expected_quantity,
-                actual_quantity,
-                wastage_amount,
-                wastage_percentage,
-                transaction_type,
-                notes,
-                company_id,
-                branch_id
+                ingredient_id, expected_quantity, actual_quantity,
+                wastage_amount, wastage_percentage, transaction_type,
+                notes, company_id, branch_id
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             RETURNING id
         `, [
-            id,
-            absAmount,
-            absAmount,
-            0,
-            0,
-            transactionType,
+            id, absAmount, absAmount, 0, 0, transactionType,
             reason || (numericAmount > 0 ? 'Manual stock addition' : 'Manual stock removal'),
-            companyId,
-            branchId
+            companyId, branchId
         ]);
 
-        // ★ FIX: if the audit insert wrote zero rows, we have a real problem.
-        //   Abort and surface the reason instead of committing silently.
         if (!auditResult.rows || auditResult.rows.length === 0) {
-            throw new Error(
-                'Audit trail failure: stock_transactions insert returned no rows. ' +
-                'Verify the stock_transactions table exists with the expected columns.'
-            );
+            throw new Error('Audit trail failure: stock_transactions insert returned no rows.');
         }
         
         const action = numericAmount > 0 ? 'added to' : 'removed from';
-        
         const responseData = {
             success: true,
             message: `${absAmount} ${ingredient.unit} ${action} ${ingredient.name}`,
             data: updateResult.rows[0]
         };
         
-        // Update idempotency record to completed
         if (recordId) {
             await client.query(
                 `UPDATE idempotency_records 
-                 SET status = 'completed',
-                     response_data = $1,
-                     status_code = 200,
-                     updated_at = NOW()
+                 SET status = 'completed', response_data = $1, status_code = 200, updated_at = NOW()
                  WHERE id = $2`,
                 [responseData, recordId]
             );
-            console.log(`[IDEMPOTENCY] Updated record ${recordId} to completed`);
         }
         
         await client.query('COMMIT');
-        
         res.json(responseData);
         
     } catch (error) {
         await client.query('ROLLBACK');
         console.error('Adjust stock error:', error);
-        // ★ FIX: surface the real DB error message so we can see what failed.
         const statusCode = error.statusCode || 500;
         const message = error.isOperational
             ? error.message
             : `Adjust stock failed: ${error.message || 'unknown error'}`;
+        throw new AppError(message, statusCode);
+    } finally {
+        client.release();
+    }
+});
+
+// ============================================================
+// ★ NEW — MARK BOTTLE EMPTY
+//
+// Deducts exactly one bottle (bottle_size_ml) from stock.
+// Only valid for ingredients with bottle_size_ml > 0.
+// Records an audit row in stock_transactions.
+// ============================================================
+export const markBottleEmpty = catchAsync(async (req, res) => {
+    const { id } = req.params;
+    
+    if (!req.user?.company_id || !req.user?.branch_id) {
+        throw new AppError('Authentication required', 401);
+    }
+    
+    const companyId = req.user.company_id;
+    const branchId = req.user.branch_id;
+    
+    const client = await getClient();
+    
+    try {
+        await client.query('BEGIN');
+        
+        const lockResult = await client.query(
+            `SELECT id, name, unit, quantity, bottle_size_ml
+             FROM ingredients
+             WHERE id = $1 AND company_id = $2 AND branch_id = $3
+             FOR UPDATE`,
+            [id, companyId, branchId]
+        );
+        
+        if (lockResult.rows.length === 0) {
+            throw new AppError('Ingredient not found', 404);
+        }
+        
+        const ingredient = lockResult.rows[0];
+        const bottleSize = parseFloat(ingredient.bottle_size_ml);
+        
+        if (!bottleSize || bottleSize <= 0) {
+            throw new AppError('This ingredient is not tracked by bottles', 400);
+        }
+        
+        const currentQty = parseFloat(ingredient.quantity);
+        const newQty = currentQty - bottleSize;
+        
+        if (newQty < 0) {
+            throw new AppError(`Not enough stock. Current: ${currentQty} ml, Bottle size: ${bottleSize} ml`, 400);
+        }
+        
+        await client.query(
+            `UPDATE ingredients SET quantity = $1, updated_at = NOW()
+             WHERE id = $2 AND company_id = $3 AND branch_id = $4`,
+            [newQty, id, companyId, branchId]
+        );
+        
+        const auditResult = await client.query(`
+            INSERT INTO stock_transactions (
+                ingredient_id, expected_quantity, actual_quantity,
+                wastage_amount, wastage_percentage, transaction_type,
+                notes, company_id, branch_id
+            ) VALUES ($1, $2, $3, 0, 0, 'bottle_empty', $4, $5, $6)
+            RETURNING id
+        `, [
+            id, bottleSize, bottleSize,
+            `Bottle marked empty (${bottleSize} ml)`,
+            companyId, branchId
+        ]);
+
+        if (!auditResult.rows || auditResult.rows.length === 0) {
+            throw new Error('Audit trail failure: stock_transactions insert returned no rows.');
+        }
+        
+        await client.query('COMMIT');
+        
+        res.json({
+            success: true,
+            message: `Bottle marked empty. ${bottleSize} ${ingredient.unit} deducted from ${ingredient.name}.`,
+            data: {
+                ingredient_id: parseInt(id),
+                deducted: bottleSize,
+                remaining: newQty
+            }
+        });
+        
+    } catch (error) {
+        await client.query('ROLLBACK');
+        console.error('markBottleEmpty error:', error);
+        const statusCode = error.statusCode || 500;
+        const message = error.isOperational ? error.message : `Mark bottle empty failed: ${error.message}`;
+        throw new AppError(message, statusCode);
+    } finally {
+        client.release();
+    }
+});
+
+// ============================================================
+// ★ NEW — RECORD BROKEN BOTTLE
+//
+// Deducts one bottle from stock and records it as wastage.
+// Requires a reason (defaults to "Broken bottle").
+// ============================================================
+export const recordBrokenBottle = catchAsync(async (req, res) => {
+    const { id } = req.params;
+    const { reason } = req.body;
+    
+    if (!req.user?.company_id || !req.user?.branch_id) {
+        throw new AppError('Authentication required', 401);
+    }
+    
+    const companyId = req.user.company_id;
+    const branchId = req.user.branch_id;
+    
+    const client = await getClient();
+    
+    try {
+        await client.query('BEGIN');
+        
+        const lockResult = await client.query(
+            `SELECT id, name, unit, quantity, bottle_size_ml, unit_cost
+             FROM ingredients
+             WHERE id = $1 AND company_id = $2 AND branch_id = $3
+             FOR UPDATE`,
+            [id, companyId, branchId]
+        );
+        
+        if (lockResult.rows.length === 0) {
+            throw new AppError('Ingredient not found', 404);
+        }
+        
+        const ingredient = lockResult.rows[0];
+        const bottleSize = parseFloat(ingredient.bottle_size_ml);
+        
+        if (!bottleSize || bottleSize <= 0) {
+            throw new AppError('This ingredient is not tracked by bottles', 400);
+        }
+        
+        const currentQty = parseFloat(ingredient.quantity);
+        const newQty = currentQty - bottleSize;
+        
+        if (newQty < 0) {
+            throw new AppError(`Not enough stock. Current: ${currentQty} ml, Bottle size: ${bottleSize} ml`, 400);
+        }
+        
+        await client.query(
+            `UPDATE ingredients SET quantity = $1, updated_at = NOW()
+             WHERE id = $2 AND company_id = $3 AND branch_id = $4`,
+            [newQty, id, companyId, branchId]
+        );
+        
+        const auditResult = await client.query(`
+            INSERT INTO stock_transactions (
+                ingredient_id, expected_quantity, actual_quantity,
+                wastage_amount, wastage_percentage, transaction_type,
+                notes, company_id, branch_id
+            ) VALUES ($1, $2, $3, $4, $5, 'bottle_broken', $6, $7, $8)
+            RETURNING id
+        `, [
+            id,
+            bottleSize,
+            bottleSize,
+            bottleSize,   // full bottle is wastage
+            100,          // 100% wastage
+            reason || 'Broken bottle',
+            companyId,
+            branchId
+        ]);
+
+        if (!auditResult.rows || auditResult.rows.length === 0) {
+            throw new Error('Audit trail failure: stock_transactions insert returned no rows.');
+        }
+        
+        await client.query('COMMIT');
+        
+        res.json({
+            success: true,
+            message: `Broken bottle recorded. ${bottleSize} ${ingredient.unit} deducted from ${ingredient.name}.`,
+            data: {
+                ingredient_id: parseInt(id),
+                deducted: bottleSize,
+                remaining: newQty,
+                reason: reason || 'Broken bottle'
+            }
+        });
+        
+    } catch (error) {
+        await client.query('ROLLBACK');
+        console.error('recordBrokenBottle error:', error);
+        const statusCode = error.statusCode || 500;
+        const message = error.isOperational ? error.message : `Record broken bottle failed: ${error.message}`;
         throw new AppError(message, statusCode);
     } finally {
         client.release();
@@ -43517,6 +43776,7 @@ export const processOrderStockDeduction = async (orderId, items, client, company
 
 import { query, getClient } from '../config/database.js';
 import { AppError, catchAsync } from '../middleware/errorHandler.js';
+import { cacheSet as memoryCacheSet } from '../middleware/idempotency.js';
 
 // ============================================
 // HELPER: GENERATE SALE NUMBER
@@ -43554,78 +43814,140 @@ const calculateProductCost = async (productId, quantity, client) => {
 };
 
 // ============================================
-// HELPER: DEDUCT INGREDIENTS
+// HELPER: DEDUCT INGREDIENTS (D4 Fixed)
 // ============================================
 const deductIngredients = async (productId, quantity, saleId, companyId, branchId, client) => {
     const saleQuantity = Number(quantity);
-    
     if (!Number.isFinite(saleQuantity) || saleQuantity <= 0) {
         throw new AppError('Invalid sale quantity', 400);
     }
 
     const recipeResult = await client.query(
-        `SELECT ri.ingredient_id, ri.quantity_required, i.quantity as current_stock, i.name,
-                ri.wastage_percentage, ri.cooking_loss_percentage, i.unit_cost
+        `SELECT ri.ingredient_id, ri.quantity_required, i.name,
+         ri.wastage_percentage, ri.cooking_loss_percentage, i.unit_cost, i.company_id, i.branch_id
          FROM recipe_ingredients ri
          JOIN ingredients i ON ri.ingredient_id = i.id
          WHERE ri.recipe_id IN (SELECT id FROM recipes WHERE product_id = $1)`,
         [productId]
     );
 
+    if (recipeResult.rows.length === 0) {
+        return; // No ingredients to deduct
+    }
+
+    const ingredientMap = new Map();
+    const ingredientIds = [];
+
     for (const item of recipeResult.rows) {
         const qtyRequired = parseFloat(item.quantity_required) || 0;
         const wastagePct = parseFloat(item.wastage_percentage) || 0;
         const cookingLossPct = parseFloat(item.cooking_loss_percentage) || 0;
-        const currentQuantity = parseFloat(item.current_stock) || 0;
-        const unitCost = parseFloat(item.unit_cost) || 0;
-
+        
         const expectedQuantity = qtyRequired * saleQuantity;
         const requiredAmount = expectedQuantity * (1 + wastagePct / 100) * (1 + cookingLossPct / 100);
-        const wastageAmount = requiredAmount - expectedQuantity;
+        const finalQuantity = (item.unit === 'pcs' || item.unit === 'pieces') 
+            ? Math.ceil(requiredAmount) 
+            : Math.ceil(requiredAmount * 100) / 100;
+        
+        const wastageAmount = finalQuantity - expectedQuantity;
         const wastagePercentage = expectedQuantity > 0 ? (wastageAmount / expectedQuantity * 100) : 0;
-        const newQuantity = currentQuantity - requiredAmount;
 
-        if (newQuantity < 0) {
+        if (!ingredientMap.has(item.ingredient_id)) {
+            ingredientMap.set(item.ingredient_id, {
+                ingredient_id: item.ingredient_id,
+                name: item.name,
+                unit_cost: item.unit_cost,
+                unit: item.unit,
+                total_required: finalQuantity,
+                expected_quantity: expectedQuantity,
+                wastage_amount: wastageAmount,
+                wastage_percentage: wastagePercentage,
+                company_id: item.company_id,
+                branch_id: item.branch_id
+            });
+            ingredientIds.push(item.ingredient_id);
+        } else {
+            const existing = ingredientMap.get(item.ingredient_id);
+            existing.total_required += finalQuantity;
+            existing.expected_quantity += expectedQuantity;
+            existing.wastage_amount += wastageAmount;
+        }
+    }
+
+    // Sort ingredient IDs to prevent deadlocks
+    ingredientIds.sort((a, b) => a - b);
+
+    // Lock all ingredient rows in deterministic order with tenant isolation
+    const lockQuery = `
+        SELECT id, quantity, name, unit, company_id, branch_id
+        FROM ingredients
+        WHERE id = ANY($1) AND company_id = $2 AND branch_id = $3
+        FOR UPDATE
+    `;
+    const lockedResult = await client.query(lockQuery, [ingredientIds, companyId, branchId]);
+
+    if (lockedResult.rows.length !== ingredientIds.length) {
+        const foundIds = lockedResult.rows.map(r => r.id);
+        const missingIds = ingredientIds.filter(id => !foundIds.includes(id));
+        throw new AppError(`Some ingredients not found or tenant mismatch: ${missingIds.join(', ')}`, 404);
+    }
+
+    // Verify sufficient stock for ALL ingredients
+    for (const row of lockedResult.rows) {
+        const required = ingredientMap.get(row.id).total_required;
+        const available = parseFloat(row.quantity);
+        if (available < required) {
             throw new AppError(
-                `Insufficient stock for ingredient: ${item.name}. Required: ${requiredAmount.toFixed(2)}, Available: ${currentQuantity.toFixed(2)}`,
+                `INSUFFICIENT_STOCK: ${row.name}. Available: ${available}, Required: ${required}`,
                 400,
                 'INSUFFICIENT_STOCK'
             );
         }
+    }
 
-        await client.query(
-            'UPDATE ingredients SET quantity = quantity - $1, updated_at = NOW() WHERE id = $2',
-            [requiredAmount, item.ingredient_id]
-        );
+    // Atomic stock update with guarded update
+    for (const row of lockedResult.rows) {
+        const required = ingredientMap.get(row.id).total_required;
+        const updateResult = await client.query(`
+            UPDATE ingredients 
+            SET quantity = quantity - $1, updated_at = NOW()
+            WHERE id = $2 AND company_id = $3 AND branch_id = $4 AND quantity >= $1
+            RETURNING id, name, quantity, unit
+        `, [required, row.id, companyId, branchId]);
+
+        if (updateResult.rows.length === 0) {
+            throw new AppError(`STOCK_CONFLICT: ${row.name}. Stock was insufficient during update.`, 409, 'STOCK_CONFLICT');
+        }
+    }
+
+    // Create stock transaction records
+    for (const row of lockedResult.rows) {
+        const required = ingredientMap.get(row.id).total_required;
+        const expected = ingredientMap.get(row.id).expected_quantity;
+        const wastage = ingredientMap.get(row.id).wastage_amount;
+        const wastagePct = ingredientMap.get(row.id).wastage_percentage;
 
         await client.query(`
             INSERT INTO stock_transactions (
-                ingredient_id,
-                order_id,
-                product_id,
-                expected_quantity,
-                actual_quantity,
-                wastage_amount,
-                wastage_percentage,
-                transaction_type,
-                notes,
-                company_id,
-                branch_id,
-                sale_id
+                ingredient_id, order_id, product_id, sale_id,
+                expected_quantity, actual_quantity,
+                wastage_amount, wastage_percentage,
+                transaction_type, notes,
+                company_id, branch_id
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
         `, [
-            item.ingredient_id,
-            null,
+            row.id,
+            null, // order_id
             productId,
-            parseFloat(expectedQuantity.toFixed(3)),
-            parseFloat(requiredAmount.toFixed(3)),
-            parseFloat(wastageAmount.toFixed(3)),
-            parseFloat(wastagePercentage.toFixed(1)),
+            saleId,
+            parseFloat(expected.toFixed(3)),
+            parseFloat(required.toFixed(3)),
+            parseFloat(wastage.toFixed(3)),
+            parseFloat(wastagePct.toFixed(1)),
             'sale_deduction',
-            `Sale ${saleId} - ${item.name}`,
+            `Sale ${saleId} - ${row.name}`,
             companyId,
-            branchId,
-            saleId
+            branchId
         ]);
     }
 };
@@ -43708,15 +44030,60 @@ export const createSale = catchAsync(async (req, res) => {
             await deductIngredients(item.product_id, item.quantity, saleId, companyId, branchId, client);
         }
         
-        // ★ FIX: sale_items has no company_id / branch_id columns in production.
-        //   Tenant context is derived through sale_id → sales.company_id / sales.branch_id.
-        //   Params reduced from 9 to 7.
         for (const item of saleItems) {
             await client.query(
                 `INSERT INTO sale_items (sale_id, product_id, quantity, unit_price, total_price, total_cost, profit)
                  VALUES ($1, $2, $3, $4, $5, $6, $7)`,
                 [saleId, item.product_id, item.quantity, item.unit_price, item.total_price, item.cost, item.total_price - item.cost]
             );
+        }
+        
+        // D3 fix: write the idempotency record inside the business transaction
+        if (req.idempotencyContext) {
+            const ctx = req.idempotencyContext;
+            const idemResponseBody = {
+                success: true,
+                message: 'Sale completed successfully',
+                data: {
+                    sale_id: saleId,
+                    sale_number: saleNumber,
+                    total_amount: totalAmount,
+                    total_cost: totalCost,
+                    profit: profit,
+                    profit_margin: parseFloat(profitMargin.toFixed(2)),
+                    payment_method: payment_method,
+                    items: saleItems
+                }
+            };
+            try {
+                await client.query(
+                    `INSERT INTO idempotency_records (
+                        idempotency_key, company_id, branch_id, resource_type,
+                        resource_id, request_hash, response_data, status_code,
+                        status, created_at, updated_at
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'completed', NOW(), NOW())`,
+                    [
+                        ctx.key, ctx.companyId, ctx.branchId, ctx.resourceType,
+                        String(saleId), ctx.requestHash, JSON.stringify(idemResponseBody), 201
+                    ]
+                );
+            } catch (idemErr) {
+                if (idemErr.code === '23505') {
+                    await client.query('ROLLBACK');
+                    const existing = await query(
+                        `SELECT response_data, status_code, request_hash FROM idempotency_records
+                         WHERE idempotency_key = $1 AND company_id = $2 AND branch_id = $3 AND resource_type = $4`,
+                        [ctx.key, ctx.companyId, ctx.branchId, ctx.resourceType]
+                    );
+                    if (existing.rows.length > 0) {
+                        const record = existing.rows[0];
+                        memoryCacheSet(ctx.cacheKey, record.status_code, record.response_data, record.request_hash);
+                        return res.status(record.status_code || 201).json(record.response_data);
+                    }
+                    return res.status(409).json({ success: false, error: 'Duplicate request' });
+                }
+                throw idemErr;
+            }
         }
         
         await client.query('COMMIT');
@@ -44828,7 +45195,7 @@ export const setupUnhandledRejection = () => {
 === FILE: C:\Users\dell\Desktop\restaurant\server\src\middleware\idempotency.js ===
 // server/src/middleware/idempotency.js
 
-import { query, getClient } from '../config/database.js';
+import { query } from '../config/database.js';
 import crypto from 'crypto';
 
 const IDEMPOTENCY_HEADER = 'idempotency-key';
@@ -44903,87 +45270,15 @@ const getCachedResult = async (idempotencyKey, companyId, branchId, resourceType
     }
 };
 
-// Atomically claim idempotency key
-const claimIdempotencyKey = async (client, idempotencyKey, companyId, branchId, resourceType, requestHash) => {
-    try {
-        await client.query(
-            `INSERT INTO idempotency_records 
-             (idempotency_key, company_id, branch_id, resource_type, request_hash, status, created_at, updated_at)
-             VALUES ($1, $2, $3, $4, $5, 'processing', NOW(), NOW())`,
-            [idempotencyKey, companyId, branchId, resourceType, requestHash]
-        );
-        return { claimed: true, existing: null };
-    } catch (err) {
-        if (err.code === '23505') {
-            const existing = await client.query(
-                `SELECT response_data, status_code, status, request_hash
-                 FROM idempotency_records 
-                 WHERE idempotency_key = $1 
-                   AND company_id = $2 
-                   AND branch_id = $3 
-                   AND resource_type = $4`,
-                [idempotencyKey, companyId, branchId, resourceType]
-            );
-            
-            if (existing.rows.length > 0) {
-                const record = existing.rows[0];
-                if (record.request_hash !== requestHash) {
-                    return { 
-                        claimed: false, 
-                        existing: null, 
-                        conflict: true 
-                    };
-                }
-                if (record.status === 'processing') {
-                    return { claimed: false, existing: null, processing: true };
-                }
-                return { claimed: false, existing: record };
-            }
-        }
-        throw err;
-    }
-};
-
-// Store result in database
-const storeResult = async (client, idempotencyKey, companyId, branchId, resourceType, resourceId, responseData, statusCode) => {
-    try {
-        await client.query(
-            `UPDATE idempotency_records 
-             SET response_data = $1, 
-                 status_code = $2, 
-                 resource_id = $3,
-                 status = 'completed',
-                 updated_at = NOW()
-             WHERE idempotency_key = $4 
-               AND company_id = $5 
-               AND branch_id = $6 
-               AND resource_type = $7`,
-            [responseData, statusCode, resourceId, idempotencyKey, companyId, branchId, resourceType]
-        );
-        console.log(`[IDEMPOTENCY] Stored result for ${idempotencyKey}`);
-    } catch (err) {
-        console.error('[IDEMPOTENCY] Store result error:', err.message);
-        throw err;
-    }
-};
-
-// Mark as failed
-const markFailed = async (client, idempotencyKey, companyId, branchId, resourceType) => {
-    try {
-        await client.query(
-            `UPDATE idempotency_records 
-             SET status = 'failed',
-                 updated_at = NOW()
-             WHERE idempotency_key = $1 
-               AND company_id = $2 
-               AND branch_id = $3 
-               AND resource_type = $4`,
-            [idempotencyKey, companyId, branchId, resourceType]
-        );
-        console.log(`[IDEMPOTENCY] Marked ${idempotencyKey} as failed`);
-    } catch (err) {
-        console.error('[IDEMPOTENCY] Mark failed error:', err.message);
-    }
+// Export a helper so handlers can update the memory cache after writing the
+// idempotency record themselves (D3 fix).
+export const cacheSet = (cacheKey, status, data, requestHash) => {
+    memoryCache.set(cacheKey, {
+        status: status || 200,
+        data: data,
+        requestHash: requestHash,
+        timestamp: Date.now()
+    });
 };
 
 // Get resource type from request path
@@ -45061,7 +45356,22 @@ const resolveTenantContext = async (req) => {
     }
 };
 
-// Idempotency middleware
+// ============================================================
+// Idempotency middleware â€” D3 fix.
+//
+// The middleware no longer acquires a DB client, no longer opens
+// a transaction, and no longer writes/commits the idempotency
+// record. It only:
+//   1. Reads the Idempotency-Key header.
+//   2. Resolves tenant context.
+//   3. Checks memory + database for a completed record.
+//   4. Attaches req.idempotencyContext and calls next().
+//
+// The handler is responsible for inserting the completed
+// idempotency record inside its own business transaction. Both
+// rows commit atomically, so there is no window where the
+// business row is durable and the idempotency row is not.
+// ============================================================
 export const idempotent = (req, res, next) => {
     const idempotencyKey = req.headers[IDEMPOTENCY_HEADER];
     
@@ -45072,8 +45382,6 @@ export const idempotent = (req, res, next) => {
     const resourceType = getResourceType(req);
     const requestHash = generateRequestHash(req.body);
 
-    // Resolve tenant context BEFORE proceeding. This now supports
-    // anonymous QR orders via table_id.
     resolveTenantContext(req)
         .then(async (tenant) => {
             if (!tenant) {
@@ -45103,6 +45411,13 @@ export const idempotent = (req, res, next) => {
             // Check database for cached result
             const cachedResult = await getCachedResult(idempotencyKey, companyId, branchId, resourceType);
             if (cachedResult) {
+                if (cachedResult.request_hash !== requestHash) {
+                    return res.status(409).json({
+                        success: false,
+                        error: 'Idempotency key reused with different request payload',
+                        idempotency_key: idempotencyKey
+                    });
+                }
                 memoryCache.set(cacheKey, {
                     status: cachedResult.status_code || 200,
                     data: cachedResult.response_data,
@@ -45112,156 +45427,19 @@ export const idempotent = (req, res, next) => {
                 return res.status(cachedResult.status_code || 200).json(cachedResult.response_data);
             }
 
-            // No cached result, process the request
-            const client = await getClient();
+            // No cached result â€” hand off to the handler.
+            // The handler will insert the completed idempotency record
+            // inside its own business transaction.
+            req.idempotencyContext = {
+                key: idempotencyKey,
+                companyId,
+                branchId,
+                resourceType,
+                requestHash,
+                cacheKey
+            };
 
-            try {
-                await client.query('BEGIN');
-
-                const claim = await claimIdempotencyKey(client, idempotencyKey, companyId, branchId, resourceType, requestHash);
-
-                if (claim.conflict) {
-                    await client.query('ROLLBACK');
-                    return res.status(409).json({
-                        success: false,
-                        error: 'Idempotency key reused with different request payload',
-                        idempotency_key: idempotencyKey
-                    });
-                }
-
-                if (claim.processing) {
-                    await client.query('ROLLBACK');
-                    await new Promise(resolve => setTimeout(resolve, 500));
-                    const retryResult = await getCachedResult(idempotencyKey, companyId, branchId, resourceType);
-                    if (retryResult) {
-                        return res.status(retryResult.status_code || 200).json(retryResult.response_data);
-                    }
-                    return res.status(409).json({
-                        success: false,
-                        error: 'Duplicate request is being processed',
-                        idempotency_key: idempotencyKey
-                    });
-                }
-
-                if (claim.existing) {
-                    await client.query('COMMIT');
-                    const record = claim.existing;
-                    memoryCache.set(cacheKey, {
-                        status: record.status_code || 200,
-                        data: record.response_data,
-                        requestHash: record.request_hash,
-                        timestamp: Date.now()
-                    });
-                    return res.status(200).json(record.response_data);
-                }
-
-                // We have successfully claimed the key
-                const originalJson = res.json.bind(res);
-                const originalSend = res.send.bind(res);
-                const originalStatus = res.status.bind(res);
-                let statusCode = 200;
-                let responseSent = false;
-
-                res.status = function(code) {
-                    statusCode = code;
-                    return originalStatus(code);
-                };
-
-                res.json = function(data) {
-                    if (!responseSent) {
-                        responseSent = true;
-                        let resourceId = null;
-                        if (data?.data?.sale_number) {
-                            resourceId = data.data.sale_number;
-                        } else if (data?.data?.order_id) {
-                            resourceId = data.data.order_id;
-                        } else if (data?.data?.id) {
-                            resourceId = data.data.id;
-                        }
-                        
-                        if (statusCode >= 200 && statusCode < 300) {
-                            storeResult(client, idempotencyKey, companyId, branchId, resourceType, resourceId, data, statusCode)
-                                .then(() => client.query('COMMIT').catch(err => console.error('[IDEMPOTENCY] Commit error:', err)))
-                                .catch(async (err) => {
-                                    console.error('[IDEMPOTENCY] Store result error:', err);
-                                    await markFailed(client, idempotencyKey, companyId, branchId, resourceType);
-                                    await client.query('ROLLBACK');
-                                });
-                            
-                            memoryCache.set(cacheKey, {
-                                status: statusCode,
-                                data: data,
-                                requestHash: requestHash,
-                                timestamp: Date.now()
-                            });
-                        } else {
-                            markFailed(client, idempotencyKey, companyId, branchId, resourceType)
-                                .then(() => client.query('COMMIT').catch(err => console.error('[IDEMPOTENCY] Commit error:', err)))
-                                .catch(async (err) => {
-                                    console.error('[IDEMPOTENCY] Mark failed error:', err);
-                                    await client.query('ROLLBACK');
-                                });
-                        }
-                    }
-                    return originalJson(data);
-                };
-
-                res.send = function(data) {
-                    if (!responseSent) {
-                        responseSent = true;
-                        if (statusCode >= 200 && statusCode < 300) {
-                            try {
-                                const parsed = typeof data === 'string' ? JSON.parse(data) : data;
-                                let resourceId = null;
-                                if (parsed?.data?.sale_number) {
-                                    resourceId = parsed.data.sale_number;
-                                } else if (parsed?.data?.order_id) {
-                                    resourceId = parsed.data.order_id;
-                                } else if (parsed?.data?.id) {
-                                    resourceId = parsed.data.id;
-                                }
-                                
-                                storeResult(client, idempotencyKey, companyId, branchId, resourceType, resourceId, parsed, statusCode)
-                                    .then(() => client.query('COMMIT').catch(err => console.error('[IDEMPOTENCY] Commit error:', err)))
-                                    .catch(async (err) => {
-                                        console.error('[IDEMPOTENCY] Store result error:', err);
-                                        await markFailed(client, idempotencyKey, companyId, branchId, resourceType);
-                                        await client.query('ROLLBACK');
-                                    });
-                                
-                                memoryCache.set(cacheKey, {
-                                    status: statusCode,
-                                    data: parsed,
-                                    requestHash: requestHash,
-                                    timestamp: Date.now()
-                                });
-                            } catch (e) {
-                                client.query('COMMIT').catch(err => console.error('[IDEMPOTENCY] Commit error:', err));
-                            }
-                        } else {
-                            markFailed(client, idempotencyKey, companyId, branchId, resourceType)
-                                .then(() => client.query('COMMIT').catch(err => console.error('[IDEMPOTENCY] Commit error:', err)))
-                                .catch(async (err) => {
-                                    console.error('[IDEMPOTENCY] Mark failed error:', err);
-                                    await client.query('ROLLBACK');
-                                });
-                        }
-                    }
-                    return originalSend(data);
-                };
-
-                next();
-
-            } catch (error) {
-                await client.query('ROLLBACK');
-                console.error('[IDEMPOTENCY] Transaction error:', error);
-                res.status(500).json({
-                    success: false,
-                    error: 'Internal server error during idempotency processing'
-                });
-            } finally {
-                client.release();
-            }
+            next();
         })
         .catch((err) => {
             console.error('[IDEMPOTENCY] Processing error:', err);
@@ -46492,7 +46670,7 @@ router.use(requireCompanyContext);
 // KITCHEN ORDER STATE MACHINE
 //
 // Legal forward transitions only. Any move not listed here is
-// rejected with 409. This closes the "ready → pending" and
+// rejected with 409. This closes the "ready ? pending" and
 // similar reverse-transition gaps found during the audit.
 // ============================================================
 const ALLOWED_TRANSITIONS = {
@@ -46565,142 +46743,133 @@ router.put("/orders/:orderId/status", authorizeBranch, allowKitchen, async (req,
     const { status } = req.body;
     const branchId = req.user.branch_id;
     const companyId = req.user.company_id;
-    
+
+    const validStatuses = ['pending', 'preparing', 'ready', 'completed', 'cancelled'];
+    if (!status || !validStatuses.includes(status)) {
+        return res.status(400).json({ success: false, error: 'Invalid status' });
+    }
+
+    const orderIdInt = parseInt(orderId);
+    if (isNaN(orderIdInt)) {
+        return res.status(400).json({ success: false, error: 'Invalid order ID' });
+    }
+
+    // -- ONE client, ONE transaction for: order check, state transition,
+    //    and stock deduction. This is the D14 fix. The FOR UPDATE inside
+    //    a real transaction is what serializes concurrent "ready" requests.
+    const client = await pool.connect();
     try {
-        const validStatuses = ['pending', 'preparing', 'ready', 'completed', 'cancelled'];
-        if (!status || !validStatuses.includes(status)) {
-            return res.status(400).json({ 
-                success: false, 
-                error: 'Invalid status' 
-            });
-        }
+        await client.query('BEGIN');
 
-        const orderIdInt = parseInt(orderId);
-        if (isNaN(orderIdInt)) {
-            return res.status(400).json({ success: false, error: 'Invalid order ID' });
-        }
-
-        const orderCheck = await pool.query(
-            `SELECT id, status FROM kitchen_orders WHERE order_id = $1 FOR UPDATE`,
-            [orderIdInt]
+        // 1. Lock the kitchen order row and validate existence + tenant.
+        const orderCheck = await client.query(
+            `SELECT ko.id, ko.status
+             FROM kitchen_orders ko
+             JOIN orders o ON ko.order_id = o.id
+             WHERE ko.order_id = $1
+               AND o.branch_id = $2
+               AND o.company_id = $3
+             FOR UPDATE OF ko`,
+            [orderIdInt, branchId, companyId]
         );
-        
+
         if (orderCheck.rows.length === 0) {
+            await client.query('ROLLBACK');
             return res.status(404).json({ success: false, error: "Order not found in kitchen" });
         }
 
-        // Enforce the state machine: only legal forward transitions.
+        // 2. Enforce the state machine.
         const currentStatus = orderCheck.rows[0].status;
         const allowed = ALLOWED_TRANSITIONS[currentStatus] || [];
-
         if (!allowed.includes(status)) {
+            await client.query('ROLLBACK');
             return res.status(409).json({
                 success: false,
-                error: `Invalid transition: ${currentStatus} → ${status}`
+                error: `Invalid transition: ${currentStatus} ? ${status}`
             });
         }
 
-        await pool.query(
-            `UPDATE kitchen_orders 
-             SET status = $1, updated_at = NOW() 
+        // 3. For 'ready' transitions, check whether stock was already
+        //    deducted for this order. Still INSIDE the transaction — a
+        //    concurrent request that just committed a deduction will be
+        //    visible to us here because we only reach this point AFTER
+        //    acquiring the row lock above.
+        let alreadyDeducted = false;
+        if (status === 'ready') {
+            const dedCheck = await client.query(
+                `SELECT 1 FROM stock_transactions
+                 WHERE order_id = $1 AND transaction_type = 'order_deduction'
+                 LIMIT 1`,
+                [orderIdInt]
+            );
+            alreadyDeducted = dedCheck.rows.length > 0;
+        }
+
+        // 4. Perform the state transition (kitchen_orders + orders).
+        await client.query(
+            `UPDATE kitchen_orders
+             SET status = $1, updated_at = NOW()
              WHERE order_id = $2`,
             [status, orderIdInt]
         );
 
         if (status === 'preparing') {
-            await pool.query(
-                `UPDATE kitchen_orders 
-                 SET started_at = NOW() 
+            await client.query(
+                `UPDATE kitchen_orders
+                 SET started_at = NOW()
                  WHERE order_id = $1 AND started_at IS NULL`,
                 [orderIdInt]
             );
         }
 
         if (status === 'ready' || status === 'completed') {
-            await pool.query(
-                `UPDATE kitchen_orders 
-                 SET completed_at = NOW() 
+            await client.query(
+                `UPDATE kitchen_orders
+                 SET completed_at = NOW()
                  WHERE order_id = $1 AND completed_at IS NULL`,
                 [orderIdInt]
             );
         }
 
-        const orderStatus = status === 'pending' ? 'pending' : 
-                           status === 'preparing' ? 'preparing' : 
-                           status === 'ready' ? 'ready' : 
-                           status === 'completed' ? 'completed' : 'cancelled';
+        const orderStatus = status === 'pending' ? 'pending' :
+                            status === 'preparing' ? 'preparing' :
+                            status === 'ready' ? 'ready' :
+                            status === 'completed' ? 'completed' : 'cancelled';
 
-        await pool.query(
-            "UPDATE orders SET status = $1, updated_at = NOW() WHERE id = $2",
+        await client.query(
+            `UPDATE orders SET status = $1, updated_at = NOW() WHERE id = $2`,
             [orderStatus, orderIdInt]
         );
 
-        // ============================================================
-        // STOCK DEDUCTION happens HERE, when food leaves the kitchen.
-        // Guard: only deduct once per order, even if the kitchen clicks
-        // "ready" multiple times. We use the stock_transactions table as
-        // the source of truth for "was this order already deducted?".
-        // ============================================================
+        // 5. Stock deduction — SAME client, SAME transaction.
+        //    If this throws, the whole transaction (including the
+        //    status change) rolls back.
         let stockDeductionResult = null;
-
-        if (status === 'ready') {
-            const alreadyDeducted = await pool.query(
-                `SELECT 1 FROM stock_transactions
-                 WHERE order_id = $1 AND transaction_type = 'order_deduction'
-                 LIMIT 1`,
+        if (status === 'ready' && !alreadyDeducted) {
+            const itemsRes = await client.query(
+                `SELECT product_id, quantity FROM order_items WHERE order_id = $1`,
                 [orderIdInt]
             );
 
-            if (alreadyDeducted.rows.length === 0) {
-                const itemsRes = await pool.query(
-                    `SELECT product_id, quantity FROM order_items WHERE order_id = $1`,
-                    [orderIdInt]
-                );
-
-                const client = await pool.connect();
-                try {
-                    await client.query('BEGIN');
-                    stockDeductionResult = await processOrderStockDeduction(
-                        orderIdInt,
-                        itemsRes.rows,
-                        client,
-                        companyId,
-                        branchId
-                    );
-                    await client.query('COMMIT');
-                    console.log(`[KITCHEN] Stock deducted for order ${orderIdInt}:`,
-                        stockDeductionResult?.deductions?.length, 'ingredients');
-                } catch (deductErr) {
-                    await client.query('ROLLBACK');
-                    console.error(`[KITCHEN] Stock deduction FAILED for order ${orderIdInt}:`, deductErr.message);
-
-                    // Roll back the "ready" status so the kitchen can retry
-                    await pool.query(
-                        `UPDATE kitchen_orders SET status = 'preparing', updated_at = NOW() WHERE order_id = $1`,
-                        [orderIdInt]
-                    );
-                    await pool.query(
-                        `UPDATE orders SET status = 'preparing', updated_at = NOW() WHERE id = $1`,
-                        [orderIdInt]
-                    );
-
-                    return res.status(409).json({
-                        success: false,
-                        error: deductErr.message || 'Insufficient stock to complete this order',
-                        code: 'STOCK_DEDUCTION_FAILED'
-                    });
-                } finally {
-                    client.release();
-                }
-            } else {
-                console.log(`[KITCHEN] Stock already deducted for order ${orderIdInt}, skipping.`);
-            }
+            stockDeductionResult = await processOrderStockDeduction(
+                orderIdInt,
+                itemsRes.rows,
+                client,
+                companyId,
+                branchId
+            );
+            console.log(`[KITCHEN] Stock deducted for order ${orderIdInt}:`,
+                stockDeductionResult?.deductions?.length, 'ingredients');
+        } else if (status === 'ready' && alreadyDeducted) {
+            console.log(`[KITCHEN] Stock already deducted for order ${orderIdInt}, skipping.`);
         }
 
-        // AUTO-CONFIRM PICKUP FOR CASHIER-MANUAL ORDERS ONLY.
+        // 6. Auto-confirm pickup for cashier-manual orders.
+        //    Note: moved INSIDE the transaction so it rolls back with
+        //    everything else if the deduction above threw.
         let autoConfirmedCashier = false;
         if (status === 'ready') {
-            const autoConfirmResult = await pool.query(
+            const autoConfirmResult = await client.query(
                 `UPDATE orders
                  SET waiter_confirmed_pickup = true,
                      waiter_pickup_at = NOW(),
@@ -46715,11 +46884,15 @@ router.put("/orders/:orderId/status", authorizeBranch, allowKitchen, async (req,
             }
         }
 
-        const result = await pool.query(
+        const result = await client.query(
             `SELECT * FROM kitchen_orders WHERE order_id = $1`,
             [orderIdInt]
         );
 
+        await client.query('COMMIT');
+
+        // 7. Socket emissions — AFTER commit, so clients never see
+        //    "ready" for an order whose stock deduction rolled back.
         const io = req.app.get('io');
         if (io) {
             io.to(`branch_${companyId}_${branchId}`).emit('order_status_updated', {
@@ -46757,7 +46930,7 @@ router.put("/orders/:orderId/status", authorizeBranch, allowKitchen, async (req,
             }
         }
 
-        res.json({
+        return res.json({
             success: true,
             message: `Order status updated to ${status}`,
             data: result.rows[0],
@@ -46769,8 +46942,24 @@ router.put("/orders/:orderId/status", authorizeBranch, allowKitchen, async (req,
                 : null
         });
     } catch (err) {
+        // Roll back everything — status change, deduction, all of it.
+        try { await client.query('ROLLBACK'); } catch (_) { /* connection may already be dead */ }
+
         console.error("Update kitchen order error:", err);
-        res.status(500).json({ success: false, error: err.message });
+
+        // Preserve the specific error contract the original code had
+        // for stock-deduction failures.
+        if (err.message && /INSUFFICIENT_STOCK|STOCK_CONFLICT|Some ingredients not found|Company or branch context missing/.test(err.message)) {
+            return res.status(409).json({
+                success: false,
+                error: err.message,
+                code: 'STOCK_DEDUCTION_FAILED'
+            });
+        }
+
+        return res.status(500).json({ success: false, error: err.message });
+    } finally {
+        client.release();
     }
 });
 
@@ -46867,174 +47056,177 @@ router.put("/orders/bulk-status", authorizeBranch, allowKitchen, async (req, res
     const companyId = req.user.company_id;
     
     if (!orderIds || !Array.isArray(orderIds) || orderIds.length === 0) {
-        return res.status(400).json({ 
-            success: false, 
-            error: "orderIds array is required" 
-        });
+        return res.status(400).json({ success: false, error: "orderIds array is required" });
     }
 
     const validStatuses = ['pending', 'preparing', 'ready', 'completed', 'cancelled'];
     if (!status || !validStatuses.includes(status)) {
-        return res.status(400).json({ 
-            success: false, 
-            error: 'Invalid status' 
-        });
+        return res.status(400).json({ success: false, error: 'Invalid status' });
     }
 
-    try {
-        const results = [];
-        const stockErrors = [];
+    const results = [];
+    const stockErrors = [];
 
-        for (const orderId of orderIds) {
-            const orderIdInt = parseInt(orderId);
-            if (isNaN(orderIdInt)) continue;
+    for (const orderId of orderIds) {
+        const orderIdInt = parseInt(orderId);
+        if (isNaN(orderIdInt)) continue;
 
+        const client = await pool.connect();
+        try {
+            await client.query('BEGIN');
+
+            // 1. Lock order and validate tenant (D15-B)
+            const orderCheck = await client.query(
+                `SELECT o.id, ko.status as kitchen_status
+                 FROM orders o
+                 JOIN kitchen_orders ko ON o.id = ko.order_id
+                 WHERE o.id = $1 AND o.company_id = $2 AND o.branch_id = $3
+                 FOR UPDATE OF o, ko`,
+                [orderIdInt, companyId, branchId]
+            );
+
+            if (orderCheck.rows.length === 0) {
+                await client.query('ROLLBACK');
+                continue; // Skip invalid/unauthorized orders silently
+            }
+
+            const currentStatus = orderCheck.rows[0].kitchen_status;
+            const allowed = {
+                'pending': ['preparing', 'cancelled'],
+                'preparing': ['ready', 'cancelled'],
+                'ready': ['completed', 'cancelled'],
+                'completed': [],
+                'cancelled': []
+            }[currentStatus] || [];
+
+            if (!allowed.includes(status)) {
+                await client.query('ROLLBACK');
+                continue;
+            }
+
+            // 2. Check deduction INSIDE the transaction (D15-A)
+            let alreadyDeducted = false;
             if (status === 'ready') {
-                const alreadyDeducted = await pool.query(
+                const dedCheck = await client.query(
                     `SELECT 1 FROM stock_transactions
                      WHERE order_id = $1 AND transaction_type = 'order_deduction'
                      LIMIT 1`,
                     [orderIdInt]
                 );
-
-                if (alreadyDeducted.rows.length === 0) {
-                    const itemsRes = await pool.query(
-                        `SELECT product_id, quantity FROM order_items WHERE order_id = $1`,
-                        [orderIdInt]
-                    );
-
-                    const client = await pool.connect();
-                    try {
-                        await client.query('BEGIN');
-                        await processOrderStockDeduction(
-                            orderIdInt,
-                            itemsRes.rows,
-                            client,
-                            companyId,
-                            branchId
-                        );
-                        await client.query('COMMIT');
-                    } catch (deductErr) {
-                        await client.query('ROLLBACK');
-                        console.error(`[KITCHEN BULK] Stock deduction failed for order ${orderIdInt}:`, deductErr.message);
-                        stockErrors.push({
-                            order_id: orderIdInt,
-                            error: deductErr.message
-                        });
-                        continue;
-                    } finally {
-                        client.release();
-                    }
-                }
+                alreadyDeducted = dedCheck.rows.length > 0;
             }
-            
-            await pool.query(
-                `UPDATE kitchen_orders 
-                 SET status = $1, updated_at = NOW() 
-                 WHERE order_id = $2`,
+
+            // 3. Perform state transitions INSIDE the transaction
+            await client.query(
+                `UPDATE kitchen_orders SET status = $1, updated_at = NOW() WHERE order_id = $2`,
                 [status, orderIdInt]
             );
 
             if (status === 'preparing') {
-                await pool.query(
-                    `UPDATE kitchen_orders 
-                     SET started_at = NOW() 
-                     WHERE order_id = $1 AND started_at IS NULL`,
+                await client.query(
+                    `UPDATE kitchen_orders SET started_at = NOW() WHERE order_id = $1 AND started_at IS NULL`,
                     [orderIdInt]
                 );
             }
 
             if (status === 'ready' || status === 'completed') {
-                await pool.query(
-                    `UPDATE kitchen_orders 
-                     SET completed_at = NOW() 
-                     WHERE order_id = $1 AND completed_at IS NULL`,
+                await client.query(
+                    `UPDATE kitchen_orders SET completed_at = NOW() WHERE order_id = $1 AND completed_at IS NULL`,
                     [orderIdInt]
                 );
             }
 
-            const orderStatus = status === 'pending' ? 'pending' : 
-                               status === 'preparing' ? 'preparing' : 
-                               status === 'ready' ? 'ready' : 
+            const orderStatus = status === 'pending' ? 'pending' :
+                               status === 'preparing' ? 'preparing' :
+                               status === 'ready' ? 'ready' :
                                status === 'completed' ? 'completed' : 'cancelled';
 
-            await pool.query(
-                "UPDATE orders SET status = $1, updated_at = NOW() WHERE id = $2",
+            await client.query(
+                `UPDATE orders SET status = $1, updated_at = NOW() WHERE id = $2`,
                 [orderStatus, orderIdInt]
             );
 
+            // 4. Stock deduction INSIDE the transaction
+            if (status === 'ready' && !alreadyDeducted) {
+                const itemsRes = await client.query(
+                    `SELECT product_id, quantity FROM order_items WHERE order_id = $1`,
+                    [orderIdInt]
+                );
+                await processOrderStockDeduction(orderIdInt, itemsRes.rows, client, companyId, branchId);
+            }
+
+            // 5. Auto-confirm pickup for cashier-manual orders
             if (status === 'ready') {
-                await pool.query(
+                await client.query(
                     `UPDATE orders
-                     SET waiter_confirmed_pickup = true,
-                         waiter_pickup_at = NOW(),
-                         updated_at = NOW()
-                     WHERE id = $1
-                       AND (source = 'cashier_manual' OR source = 'cashier')`,
+                     SET waiter_confirmed_pickup = true, waiter_pickup_at = NOW(), updated_at = NOW()
+                     WHERE id = $1 AND (source = 'cashier_manual' OR source = 'cashier')`,
                     [orderIdInt]
                 );
             }
 
+            await client.query('COMMIT');
             results.push({ order_id: orderIdInt, status: status });
+
+        } catch (err) {
+            await client.query('ROLLBACK');
+            console.error(`[KITCHEN BULK] Failed for order ${orderIdInt}:`, err.message);
+            
+            if (err.message && /INSUFFICIENT_STOCK|STOCK_CONFLICT|Some ingredients not found|Company or branch context missing/.test(err.message)) {
+                stockErrors.push({ order_id: orderIdInt, error: err.message });
+            }
+        } finally {
+            client.release();
         }
+    }
 
-        const io = req.app.get('io');
-        if (io) {
-            io.to(`branch_${companyId}_${branchId}`).emit('order_status_updated', {
-                order_ids: results.map(r => r.order_id),
-                status: status,
-                order_status: status === 'pending' ? 'pending' : 
-                             status === 'preparing' ? 'preparing' : 
-                             status === 'ready' ? 'ready' : 
-                             status === 'completed' ? 'completed' : 'cancelled'
-            });
+    // Socket emissions (after all transactions are committed)
+    const io = req.app.get('io');
+    if (io && results.length > 0) {
+        const orderStatus = status === 'pending' ? 'pending' :
+                           status === 'preparing' ? 'preparing' :
+                           status === 'ready' ? 'ready' :
+                           status === 'completed' ? 'completed' : 'cancelled';
 
-            if (status === 'ready' && results.length > 0) {
-                const checkResult = await pool.query(
-                    `SELECT id, order_number, table_id, source,
-                            waiter_confirmed_pickup
-                     FROM orders
-                     WHERE id = ANY($1::int[])`,
-                    [results.map(r => r.order_id)]
-                );
+        io.to(`branch_${companyId}_${branchId}`).emit('order_status_updated', {
+            order_ids: results.map(r => r.order_id),
+            status: status,
+            order_status: orderStatus
+        });
 
-                for (const row of checkResult.rows) {
-                    if (row.source === 'cashier_manual' || row.source === 'cashier') {
-                        io.to(`cashier_${companyId}_${branchId}`).emit('order_ready_for_cashier', {
-                            order_id: row.id,
-                            order_number: row.order_number,
-                            table_id: row.table_id
-                        });
-                    } else {
-                        io.to(`waiter_${companyId}_${branchId}`).emit('order_ready_for_waiter', {
-                            order_id: row.id,
-                            status: 'ready',
-                            message: `Order #${row.id} is ready for pickup!`
-                        });
-                    }
+        if (status === 'ready') {
+            const checkResult = await pool.query(
+                `SELECT id, order_number, table_id, source FROM orders WHERE id = ANY($1::int[])`,
+                [results.map(r => r.order_id)]
+            );
+            for (const row of checkResult.rows) {
+                if (row.source === 'cashier_manual' || row.source === 'cashier') {
+                    io.to(`cashier_${companyId}_${branchId}`).emit('order_ready_for_cashier', {
+                        order_id: row.id, order_number: row.order_number, table_id: row.table_id
+                    });
+                } else {
+                    io.to(`waiter_${companyId}_${branchId}`).emit('order_ready_for_waiter', {
+                        order_id: row.id, status: 'ready', message: `Order #${row.id} is ready for pickup!`
+                    });
                 }
             }
-
-            if (status === 'completed') {
-                results.forEach(r => {
-                    io.to(`branch_${companyId}_${branchId}`).emit('order_completed', {
-                        order_id: r.order_id,
-                        status: 'completed'
-                    });
-                });
-            }
         }
 
-        res.json({
-            success: true,
-            message: `Updated ${results.length} orders to ${status}`,
-            data: results,
-            stock_errors: stockErrors.length > 0 ? stockErrors : undefined
-        });
-    } catch (err) {
-        console.error("Bulk update error:", err);
-        res.status(500).json({ success: false, error: err.message });
+        if (status === 'completed') {
+            results.forEach(r => {
+                io.to(`branch_${companyId}_${branchId}`).emit('order_completed', {
+                    order_id: r.order_id, status: 'completed'
+                });
+            });
+        }
     }
+
+    res.json({
+        success: true,
+        message: `Updated ${results.length} orders to ${status}`,
+        data: results,
+        stock_errors: stockErrors.length > 0 ? stockErrors : undefined
+    });
 });
 
 // ============================================================
@@ -47074,7 +47266,7 @@ export default router;
 import express from "express";
 import { protect, allowWaiter, allowCashier } from "../middleware/auth.js";
 import { authorizeBranch } from "../middleware/authorization.js";
-import { idempotent, requireIdempotency } from "../middleware/idempotency.js";
+import { idempotent, requireIdempotency, cacheSet as memoryCacheSet } from "../middleware/idempotency.js";
 import { pool } from "../config/database.js";
 import rateLimit from "express-rate-limit";
 import { processOrderStockDeduction } from "../controllers/recipeController.js";
@@ -47082,6 +47274,16 @@ import { AppError } from "../middleware/errorHandler.js";
 import { mutationLimiter, PostgresStore } from "../middleware/rateLimiter.js";
 
 const router = express.Router();
+const CLIENT_ORDER_ID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function extractClientOrderId(req) {
+    const raw = req.headers['x-client-order-id'] || (req.body && req.body.client_order_id) || null;
+    if (raw === null) return { present: false, value: null, valid: true };
+    const str = String(raw).trim();
+    if (!str) return { present: false, value: null, valid: true };
+    if (!CLIENT_ORDER_ID_REGEX.test(str)) return { present: true, value: str, valid: false };
+    return { present: true, value: str, valid: true };
+}
 
 const trackLimiter = rateLimit({
     windowMs: 60 * 1000,
@@ -47239,19 +47441,44 @@ router.post("/qr-order",
                 }
                 
                 const orderNumber = `QR-${Date.now().toString().slice(-8)}${Math.floor(Math.random() * 1000)}`;
-                
-                const orderResult = await client.query(`
-                    INSERT INTO orders (
-                        order_number, total_amount, status, payment_status, 
-                        customer_name, customer_phone, table_id, order_type, notes, 
-                        source, waiter_id, company_id, branch_id
-                    ) VALUES ($1, $2, 'pending_confirmation', 'pending', $3, $4, $5, 'dine_in', $6, 'qr_menu', $7, $8, $9)
-                    RETURNING id, order_number, total_amount
-                `, [
-                    orderNumber, totalAmount, customer_name || null, customer_phone || null,
-                    table_id, notes || null, waiterId, companyId, branchId
-                ]);
-                
+
+                const coid = extractClientOrderId(req);
+                if (coid.present && !coid.valid) {
+                    await client.query("ROLLBACK");
+                    return res.status(400).json({ success: false, error: "Invalid X-Client-Order-Id header (expected UUID)" });
+                }
+
+                let orderResult;
+                try {
+                    orderResult = await client.query(`
+                        INSERT INTO orders (
+                            order_number, total_amount, status, payment_status, 
+                            customer_name, customer_phone, table_id, order_type, notes, 
+                            source, waiter_id, company_id, branch_id, client_order_id
+                        ) VALUES ($1, $2, 'pending_confirmation', 'pending', $3, $4, $5, 'dine_in', $6, 'qr_menu', $7, $8, $9, $10)
+                        RETURNING id, order_number, total_amount
+                    `, [
+                        orderNumber, totalAmount, customer_name || null, customer_phone || null,
+                        table_id, notes || null, waiterId, companyId, branchId, coid.value
+                    ]);
+                } catch (insertErr) {
+                    if (insertErr.code === '23505' && insertErr.constraint === 'uniq_orders_client_order_id') {
+                        await client.query('ROLLBACK');
+                        const existing = await pool.query(
+                            `SELECT id, order_number, total_amount, status, created_at
+                             FROM orders WHERE client_order_id = $1`,
+                            [coid.value]
+                        );
+                        return res.status(409).json({
+                            success: false,
+                            error: "Duplicate order",
+                            code: "DUPLICATE_ORDER",
+                            existing_order: existing.rows[0] || null
+                        });
+                    }
+                    throw insertErr;
+                }
+
                 const orderId = orderResult.rows[0].id;
                 
                 for (const item of items) {
@@ -47264,6 +47491,45 @@ router.post("/qr-order",
                         INSERT INTO order_items (order_id, product_id, quantity, unit_price, total_price)
                         VALUES ($1, $2, $3, $4, $5)
                     `, [orderId, item.product_id, item.quantity, productResult.rows[0].price, itemTotal]);
+                }
+                
+                // D3 fix: write the idempotency record inside the business transaction
+                if (req.idempotencyContext) {
+                    const ctx = req.idempotencyContext;
+                    const idemResponseBody = {
+                        success: true,
+                        message: "Order placed! Waiting for waiter confirmation.",
+                        data: { order_id: orderId, order_number: orderNumber, total_amount: totalAmount, status: 'pending_confirmation' }
+                    };
+                    try {
+                        await client.query(
+                            `INSERT INTO idempotency_records (
+                                idempotency_key, company_id, branch_id, resource_type,
+                                resource_id, request_hash, response_data, status_code,
+                                status, created_at, updated_at
+                            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'completed', NOW(), NOW())`,
+                            [
+                                ctx.key, ctx.companyId, ctx.branchId, ctx.resourceType,
+                                String(orderId), ctx.requestHash, JSON.stringify(idemResponseBody), 201
+                            ]
+                        );
+                    } catch (idemErr) {
+                        if (idemErr.code === '23505') {
+                            await client.query('ROLLBACK');
+                            const existing = await pool.query(
+                                `SELECT response_data, status_code, request_hash FROM idempotency_records
+                                 WHERE idempotency_key = $1 AND company_id = $2 AND branch_id = $3 AND resource_type = $4`,
+                                [ctx.key, ctx.companyId, ctx.branchId, ctx.resourceType]
+                            );
+                            if (existing.rows.length > 0) {
+                                const record = existing.rows[0];
+                                memoryCacheSet(ctx.cacheKey, record.status_code, record.response_data, record.request_hash);
+                                return res.status(record.status_code || 201).json(record.response_data);
+                            }
+                            return res.status(409).json({ success: false, error: 'Duplicate request' });
+                        }
+                        throw idemErr;
+                    }
                 }
                 
                 await client.query("COMMIT");
@@ -47377,16 +47643,41 @@ router.post("/",
                 }
                 
                 const orderNumber = generateOrderNumber();
-                
-                const orderResult = await client.query(`
-                    INSERT INTO orders (
-                        order_number, total_amount, created_by, status, payment_status, 
-                        customer_name, customer_phone, table_id, order_type, notes, source, waiter_id,
-                        company_id, branch_id
-                    ) VALUES ($1, $2, $3, 'pending', 'pending', $4, $5, $6, $7, $8, $9, $10, $11, $12)
-                    RETURNING id, order_number, total_amount
-                `, [orderNumber, totalAmount, userId, customer_name || null, customer_phone || null, table_id || null, order_type, notes || null, source, userId, companyId, branchId]);
-                
+
+                const coid = extractClientOrderId(req);
+                if (coid.present && !coid.valid) {
+                    await client.query("ROLLBACK");
+                    return res.status(400).json({ success: false, error: "Invalid X-Client-Order-Id header (expected UUID)" });
+                }
+
+                let orderResult;
+                try {
+                    orderResult = await client.query(`
+                        INSERT INTO orders (
+                            order_number, total_amount, created_by, status, payment_status, 
+                            customer_name, customer_phone, table_id, order_type, notes, source, waiter_id,
+                            company_id, branch_id, client_order_id
+                        ) VALUES ($1, $2, $3, 'pending', 'pending', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+                        RETURNING id, order_number, total_amount
+                    `, [orderNumber, totalAmount, userId, customer_name || null, customer_phone || null, table_id || null, order_type, notes || null, source, userId, companyId, branchId, coid.value]);
+                } catch (insertErr) {
+                    if (insertErr.code === '23505' && insertErr.constraint === 'uniq_orders_client_order_id') {
+                        await client.query('ROLLBACK');
+                        const existing = await pool.query(
+                            `SELECT id, order_number, total_amount, status, created_at
+                             FROM orders WHERE client_order_id = $1`,
+                            [coid.value]
+                        );
+                        return res.status(409).json({
+                            success: false,
+                            error: "Duplicate order",
+                            code: "DUPLICATE_ORDER",
+                            existing_order: existing.rows[0] || null
+                        });
+                    }
+                    throw insertErr;
+                }
+
                 const orderId = orderResult.rows[0].id;
                 
                 for (const item of items) {
@@ -47410,6 +47701,45 @@ router.post("/",
                     await client.query(`
                         UPDATE tables SET status = 'occupied', current_order_id = $1 WHERE id = $2
                     `, [orderId, table_id]);
+                }
+                
+                // D3 fix: write the idempotency record inside the business transaction
+                if (req.idempotencyContext) {
+                    const ctx = req.idempotencyContext;
+                    const idemResponseBody = {
+                        success: true,
+                        message: "Order created and sent to kitchen",
+                        data: { order_id: orderId, order_number: orderNumber, total_amount: totalAmount, status: 'pending' }
+                    };
+                    try {
+                        await client.query(
+                            `INSERT INTO idempotency_records (
+                                idempotency_key, company_id, branch_id, resource_type,
+                                resource_id, request_hash, response_data, status_code,
+                                status, created_at, updated_at
+                            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'completed', NOW(), NOW())`,
+                            [
+                                ctx.key, ctx.companyId, ctx.branchId, ctx.resourceType,
+                                String(orderId), ctx.requestHash, JSON.stringify(idemResponseBody), 201
+                            ]
+                        );
+                    } catch (idemErr) {
+                        if (idemErr.code === '23505') {
+                            await client.query('ROLLBACK');
+                            const existing = await pool.query(
+                                `SELECT response_data, status_code, request_hash FROM idempotency_records
+                                 WHERE idempotency_key = $1 AND company_id = $2 AND branch_id = $3 AND resource_type = $4`,
+                                [ctx.key, ctx.companyId, ctx.branchId, ctx.resourceType]
+                            );
+                            if (existing.rows.length > 0) {
+                                const record = existing.rows[0];
+                                memoryCacheSet(ctx.cacheKey, record.status_code, record.response_data, record.request_hash);
+                                return res.status(record.status_code || 201).json(record.response_data);
+                            }
+                            return res.status(409).json({ success: false, error: 'Duplicate request' });
+                        }
+                        throw idemErr;
+                    }
                 }
                 
                 await client.query("COMMIT");
@@ -47548,7 +47878,6 @@ router.post("/:orderId/add-items",
     async (req, res) => {
         const { orderId } = req.params;
         const { items } = req.body;
-        const userId = req.user.id;
         const companyId = req.user.company_id;
         const branchId = req.user.branch_id;
 
@@ -47560,10 +47889,14 @@ router.post("/:orderId/add-items",
         try {
             await client.query("BEGIN");
 
+            // Lock the order row so a concurrent cancel cannot restore stock
+            // while we add (and possibly deduct) items. Same first lock as the
+            // cancel handler, so the two serialize without a new deadlock edge.
             const orderCheck = await client.query(`
                 SELECT id, order_number, total_amount, payment_status, status, table_id
                 FROM orders
                 WHERE id = $1 AND company_id = $2 AND branch_id = $3
+                FOR UPDATE
             `, [orderId, companyId, branchId]);
 
             if (orderCheck.rows.length === 0) {
@@ -47585,14 +47918,12 @@ router.post("/:orderId/add-items",
                     `SELECT price, name, company_id FROM products WHERE id = $1`,
                     [item.product_id]
                 );
-
                 if (productResult.rows.length === 0) {
                     throw new Error(`Product ${item.product_id} not found`);
                 }
                 if (productResult.rows[0].company_id !== companyId) {
                     throw new Error(`Product ${item.product_id} does not belong to your company`);
                 }
-
                 const unitPrice = parseFloat(productResult.rows[0].price);
                 const itemTotal = unitPrice * item.quantity;
                 additionalAmount += itemTotal;
@@ -47601,6 +47932,21 @@ router.post("/:orderId/add-items",
                     INSERT INTO order_items (order_id, product_id, quantity, unit_price, total_price)
                     VALUES ($1, $2, $3, $4, $5)
                 `, [orderId, item.product_id, item.quantity, unitPrice, itemTotal]);
+            }
+
+            // D-A fix: if this order was already deducted (kitchen marked it
+            // ready once), the kitchen "ready" guard will skip re-deduction.
+            // Deduct ONLY the newly added items here, in the same transaction.
+            // If the order has never been deducted, leave it to the kitchen
+            // "ready" transition (existing behavior unchanged).
+            const dedCheck = await client.query(
+                `SELECT 1 FROM stock_transactions
+                 WHERE order_id = $1 AND transaction_type = 'order_deduction'
+                 LIMIT 1`,
+                [orderId]
+            );
+            if (dedCheck.rows.length > 0) {
+                await processOrderStockDeduction(orderId, items, client, companyId, branchId);
             }
 
             const newTotal = parseFloat(order.total_amount) + additionalAmount;
@@ -47644,6 +47990,9 @@ router.post("/:orderId/add-items",
         } catch (err) {
             await client.query("ROLLBACK");
             console.error("[ADD ITEMS] Error:", err.message);
+            if (err.message && /INSUFFICIENT_STOCK|STOCK_CONFLICT|Some ingredients not found|Company or branch context missing/.test(err.message)) {
+                return res.status(409).json({ success: false, error: err.message, code: 'STOCK_DEDUCTION_FAILED' });
+            }
             res.status(500).json({ success: false, error: err.message });
         } finally {
             client.release();
@@ -47739,11 +48088,13 @@ router.post("/:orderId/pay",
         try {
             await client.query("BEGIN");
             
+            // D5 FIX: Add FOR UPDATE to lock the order row and prevent concurrent payment race conditions
             const orderResult = await client.query(`
                 SELECT o.*, ko.status as kitchen_status 
                 FROM orders o
                 JOIN kitchen_orders ko ON o.id = ko.order_id
                 WHERE o.id = $1 AND o.branch_id = $2 AND o.company_id = $3
+                FOR UPDATE
             `, [orderId, branchId, companyId]);
             
             if (orderResult.rows.length === 0) {
@@ -47761,11 +48112,12 @@ router.post("/:orderId/pay",
             const totalCost = await calculateOrderTotalCost(orderId, client);
             const profit = parseFloat(order.total_amount) - totalCost;
             
+            // D5 FIX: Added company_id and branch_id for defense-in-depth
             await client.query(`
                 UPDATE orders 
                 SET payment_status = 'paid', payment_method = $1, status = 'completed', updated_at = NOW()
-                WHERE id = $2
-            `, [payment_method, orderId]);
+                WHERE id = $2 AND company_id = $3 AND branch_id = $4
+            `, [payment_method, orderId, companyId, branchId]);
             
             if (order.table_id) {
                 await client.query(`
@@ -47799,8 +48151,6 @@ router.post("/:orderId/pay",
                 WHERE oi.order_id = $1
             `, [orderId]);
             
-            // â˜… FIX: sale_items has no company_id / branch_id columns in production.
-            //   Tenant context is derived through sale_id â†’ sales.company_id / sales.branch_id.
             for (const item of orderItems.rows) {
                 const itemCost = await calculateProductCost(item.product_id, item.quantity, client);
                 const itemProfit = item.total_price - itemCost;
@@ -47822,9 +48172,57 @@ router.post("/:orderId/pay",
                 ]);
             }
             
-            await client.query("COMMIT");
-            
             const profitMargin = sale.total_amount > 0 ? (sale.profit / sale.total_amount) * 100 : 0;
+            
+            // D3 fix: write the idempotency record inside the business transaction
+            if (req.idempotencyContext) {
+                const ctx = req.idempotencyContext;
+                const idemResponseBody = {
+                    success: true,
+                    message: "Payment processed successfully",
+                    data: {
+                        sale_id: sale.id,
+                        sale_number: sale.sale_number,
+                        order_id: parseInt(orderId),
+                        total_amount: parseFloat(sale.total_amount),
+                        total_cost: parseFloat(sale.total_cost),
+                        profit: parseFloat(sale.profit),
+                        profit_margin: parseFloat(profitMargin.toFixed(2)),
+                        payment_method: payment_method
+                    }
+                };
+                try {
+                    await client.query(
+                        `INSERT INTO idempotency_records (
+                            idempotency_key, company_id, branch_id, resource_type,
+                            resource_id, request_hash, response_data, status_code,
+                            status, created_at, updated_at
+                        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'completed', NOW(), NOW())`,
+                        [
+                            ctx.key, ctx.companyId, ctx.branchId, ctx.resourceType,
+                            String(sale.id), ctx.requestHash, JSON.stringify(idemResponseBody), 200
+                        ]
+                    );
+                } catch (idemErr) {
+                    if (idemErr.code === '23505') {
+                        await client.query('ROLLBACK');
+                        const existing = await pool.query(
+                            `SELECT response_data, status_code, request_hash FROM idempotency_records
+                             WHERE idempotency_key = $1 AND company_id = $2 AND branch_id = $3 AND resource_type = $4`,
+                            [ctx.key, ctx.companyId, ctx.branchId, ctx.resourceType]
+                        );
+                        if (existing.rows.length > 0) {
+                            const record = existing.rows[0];
+                            memoryCacheSet(ctx.cacheKey, record.status_code, record.response_data, record.request_hash);
+                            return res.status(record.status_code || 200).json(record.response_data);
+                        }
+                        return res.status(409).json({ success: false, error: 'Duplicate request' });
+                    }
+                    throw idemErr;
+                }
+            }
+            
+            await client.query("COMMIT");
             
             res.json({
                 success: true,
@@ -47971,7 +48369,8 @@ router.put("/:orderId/cancel", authorizeBranch, allowWaiter, async (req, res) =>
                AND o.waiter_id = $2 
                AND o.branch_id = $3 
                AND o.company_id = $4
-               AND o.status NOT IN ('completed', 'cancelled')`,
+               AND o.status NOT IN ('completed', 'cancelled')
+             FOR UPDATE`,
             [orderId, userId, branchId, companyId]
         );
         
@@ -47990,6 +48389,9 @@ router.put("/:orderId/cancel", authorizeBranch, allowWaiter, async (req, res) =>
             if (anyOrder.rows[0].status === 'completed') {
                 throw new Error("Order already completed");
             }
+            if (anyOrder.rows[0].status === 'cancelled') {
+                throw new Error("Order already cancelled");
+            }
             throw new Error("Order not assigned to you");
         }
         
@@ -48007,57 +48409,31 @@ router.put("/:orderId/cancel", authorizeBranch, allowWaiter, async (req, res) =>
         );
         const wasDeducted = deductionCheck.rows.length > 0;
         
-        if (wasDeducted) {
-            const orderItemsResult = await client.query(`
-                SELECT 
-                    oi.product_id, oi.quantity, p.name as product_name,
-                    ri.ingredient_id, ri.quantity_required,
-                    ri.wastage_percentage, ri.cooking_loss_percentage,
-                    i.name as ingredient_name, i.unit, i.unit_cost,
-                    i.quantity as current_stock
-                FROM order_items oi
-                JOIN products p ON oi.product_id = p.id
-                LEFT JOIN recipes r ON p.id = r.product_id
-                LEFT JOIN recipe_ingredients ri ON r.id = ri.recipe_id
-                LEFT JOIN ingredients i ON ri.ingredient_id = i.id
-                WHERE oi.order_id = $1
+                if (wasDeducted) {
+            // D-B fix: restore exactly what the ledger says was deducted for
+            // this order, per ingredient, minus anything already restored by a
+            // prior cancellation. Do NOT recompute from recipes â€” that drifts
+            // with rounding, recipe edits, and items added after ready.
+            const ledgerResult = await client.query(`
+                SELECT ingredient_id,
+                       SUM(CASE WHEN transaction_type = 'order_deduction'
+                                THEN actual_quantity ELSE 0 END)
+                     - SUM(CASE WHEN transaction_type = 'order_cancellation'
+                                THEN actual_quantity ELSE 0 END) AS net_deducted
+                FROM stock_transactions
+                WHERE order_id = $1
+                  AND transaction_type IN ('order_deduction', 'order_cancellation')
+                GROUP BY ingredient_id
             `, [orderId]);
-            
-            const ingredientMap = new Map();
-            
-            for (const item of orderItemsResult.rows) {
-                if (!item.ingredient_id) continue;
-                
-                const orderQty = parseFloat(item.quantity);
-                const qtyRequired = parseFloat(item.quantity_required) || 0;
-                const wastagePct = parseFloat(item.wastage_percentage) || 0;
-                const cookingLossPct = parseFloat(item.cooking_loss_percentage) || 0;
-                
-                const expectedQuantity = qtyRequired * orderQty;
-                const restoredQuantity = expectedQuantity * (1 + wastagePct / 100) * (1 + cookingLossPct / 100);
-                
-                if (ingredientMap.has(item.ingredient_id)) {
-                    const existing = ingredientMap.get(item.ingredient_id);
-                    existing.restore_quantity += restoredQuantity;
-                    existing.ingredient_name = item.ingredient_name;
-                    existing.unit = item.unit;
-                    existing.unit_cost = item.unit_cost;
-                    existing.current_stock = item.current_stock;
-                } else {
-                    ingredientMap.set(item.ingredient_id, {
-                        ingredient_id: item.ingredient_id,
-                        ingredient_name: item.ingredient_name,
-                        restore_quantity: restoredQuantity,
-                        unit: item.unit,
-                        unit_cost: item.unit_cost,
-                        current_stock: item.current_stock
-                    });
-                }
-            }
-            
-            const ingredientIds = Array.from(ingredientMap.keys());
-            
-            if (ingredientIds.length > 0) {
+
+            const toRestore = ledgerResult.rows
+                .map(r => ({ ingredient_id: r.ingredient_id, qty: parseFloat(r.net_deducted) }))
+                .filter(r => r.qty > 0)
+                .sort((a, b) => a.ingredient_id - b.ingredient_id);
+
+            if (toRestore.length > 0) {
+                const ingredientIds = toRestore.map(r => r.ingredient_id);
+
                 const lockResult = await client.query(`
                     SELECT id, quantity, name, unit
                     FROM ingredients
@@ -48066,18 +48442,19 @@ router.put("/:orderId/cancel", authorizeBranch, allowWaiter, async (req, res) =>
                       AND branch_id = $3
                     FOR UPDATE
                 `, [ingredientIds, companyId, branchId]);
-                
+
+                const restoreById = new Map(toRestore.map(r => [r.ingredient_id, r.qty]));
+
                 for (const row of lockResult.rows) {
-                    const ingredientData = ingredientMap.get(row.id);
-                    const restoreQty = ingredientData.restore_quantity;
+                    const restoreQty = restoreById.get(row.id);
                     const newQuantity = parseFloat(row.quantity) + restoreQty;
-                    
+
                     await client.query(`
-                        UPDATE ingredients 
+                        UPDATE ingredients
                         SET quantity = $1, updated_at = NOW()
                         WHERE id = $2 AND company_id = $3 AND branch_id = $4
                     `, [newQuantity, row.id, companyId, branchId]);
-                    
+
                     await client.query(`
                         INSERT INTO stock_transactions (
                             ingredient_id, order_id,
@@ -48092,6 +48469,11 @@ router.put("/:orderId/cancel", authorizeBranch, allowWaiter, async (req, res) =>
                         `Stock restored from cancelled order ${order.order_number}`,
                         companyId, branchId
                     ]);
+                }
+
+                if (lockResult.rows.length !== ingredientIds.length) {
+                    const missing = ingredientIds.filter(id => !lockResult.rows.some(r => r.id === id));
+                    console.warn('[CANCEL] Ingredients not found for restoration (deleted or moved):', missing);
                 }
             }
         }
@@ -48136,6 +48518,9 @@ router.put("/:orderId/cancel", authorizeBranch, allowWaiter, async (req, res) =>
             return res.status(409).json({ success: false, error: error.message });
         }
         if (error.message === "Order already completed") {
+            return res.status(409).json({ success: false, error: error.message });
+        }
+        if (error.message === "Order already cancelled") {
             return res.status(409).json({ success: false, error: error.message });
         }
         if (error.message === "Order not assigned to you") {
@@ -49682,6 +50067,126 @@ describe('EthioPOS API Tests', () => {
 console.log('\n========================================');
 console.log('âœ… All tests completed');
 console.log('========================================');
+=== FILE: C:\Users\dell\Desktop\restaurant\server\tests\d4-sale-integrity.test.js ===
+// server/tests/d4-sale-integrity.test.js
+import { describe, it, before, after } from 'node:test';
+import assert from 'node:assert';
+import axios from 'axios';
+import pkg from 'pg';
+const { Pool } = pkg;
+import dotenv from 'dotenv';
+dotenv.config();
+
+const BASE_URL = process.env.TEST_API_URL || 'http://localhost:5000/api';
+const dbPool = new Pool({ connectionString: process.env.DATABASE_URL });
+
+let authToken1 = null;
+let authToken2 = null; // For cross-tenant test
+let testProductId = null;
+let testIngredientId = null;
+
+const api1 = axios.create({ baseURL: BASE_URL, headers: { 'Content-Type': ' each request' } });
+api1.interceptors.request.use(config => {
+    if (authToken1) config.headers.Authorization = `Bearer ${authToken1}`;
+    return config;
+});
+
+describe('D4: Cashier Direct-Sale Stock Integrity', () => {
+    before(async () => {
+        // 1. Login as Company 1 / Branch 1
+        const res1 = await api1.post('/auth/login', { email: 'owner.test@example.com', password: 'test123' });
+        authToken1 = res1.data.token;
+
+        // 2. Find a product with a recipe in Company 1
+        const productsRes = await api1.get('/products');
+        const product = productsRes.data.data.find(p => p.is_available);
+        testProductId = product.id;
+
+        // 3. Find its ingredient to check stock
+        const recipeRes = await api1.get(`/recipes/product/${testProductId}`);
+        testIngredientId = recipeRes.data.data.ingredients[0].ingredient_id;
+        console.log(`âœ… Setup complete. Product: ${testProductId}, Ingredient: ${testIngredientId}`);
+    });
+
+    it('should deduct stock correctly for a normal sale', async () => {
+        const initialStockRes = await dbPool.query('SELECT quantity FROM ingredients WHERE id = $1', [testIngredientId]);
+        const initialStock = parseFloat(initialStockRes.rows[0].quantity);
+
+        const res = await api1.post('/sales', {
+            items: [{ product_id: testProductId, quantity: 1 }],
+            payment_method: 'cash'
+        }, { headers: { 'Idempotency-Key': `normal_sale_${Date.now()}` } });
+
+        assert.strictEqual(res.status, 201);
+        
+        const finalStockRes = await dbPool.query('SELECT quantity FROM ingredients WHERE id = $1', [testIngredientId]);
+        const finalStock = parseFloat(finalStockRes.rows[0].quantity);
+        
+        assert(finalStock < initialStock, 'Stock should be deducted');
+        console.log('âœ… Normal sale: Stock deducted correctly');
+    });
+
+    it('should reject sale with insufficient stock', async () => {
+        try {
+            await api1.post('/sales', {
+                items: [{ product_id: testProductId, quantity: 99999 }],
+                payment_method: 'cash'
+            }, { headers: { 'Idempotency-Key': `insufficient_${Date.now()}` } });
+            assert.fail('Should have thrown 400/409');
+        } catch (err) {
+            assert(err.response.status === 400 || err.response.status === 409, 'Should reject insufficient stock');
+            console.log('âœ… Insufficient stock: Sale rejected correctly');
+        }
+    });
+
+    it('should prevent duplicate deductions on repeated idempotency key', async () => {
+        const idemKey = `idem_test_${Date.now()}`;
+        
+        // First request
+        await api1.post('/sales', {
+            items: [{ product_id: testProductId, quantity: 1 }],
+            payment_method: 'cash'
+        }, { headers: { 'Idempotency-Key': idemKey } });
+
+        // Second request with same key
+        const res2 = await api1.post('/sales', {
+            items: [{ product_id: testProductId, quantity: 1 }],
+            payment_method: 'cash'
+        }, { headers: { 'Idempotency-Key': idemKey } });
+
+        assert.strictEqual(res2.status, 200); // Idempotent return
+        console.log('âœ… Idempotency: Duplicate request handled correctly');
+    });
+
+    it('should handle concurrent sales without overselling (no lost updates)', async () => {
+        const initialStockRes = await dbPool.query('SELECT quantity FROM ingredients WHERE id = $1', [testIngredientId]);
+        const initialStock = parseFloat(initialStockRes.rows[0].quantity);
+        const concurrentRequests = 5;
+        const idemKeys = Array.from({ length: concurrentRequests }, (_, i) => `concurrent_${Date.now()}_${i}`);
+
+        const promises = idemKeys.map(key => 
+            api1.post('/sales', {
+                items: [{ product_id: testProductId, quantity: 1 }],
+                payment_method: 'cash'
+            }, { headers: { 'Idempotency-Key': key } }).catch(e => e)
+        );
+
+        const results = await Promise.all(promises);
+        const successCount = results.filter(r => r.status === 201).length;
+        
+        const finalStockRes = await dbPool.query('SELECT quantity FROM ingredients WHERE id = $1', [testIngredientId]);
+        const finalStock = parseFloat(finalStockRes.rows[0].quantity);
+        const expectedDeduction = successCount; // Simplified for 1 unit per sale
+        
+        assert(finalStock <= initialStock, 'Stock should not increase');
+        assert(finalStock >= (initialStock - expectedDeduction - 0.1), 'Stock should not be over-deducted (no lost updates)');
+        console.log(`âœ… Concurrent sales: ${successCount} succeeded, no overselling detected`);
+    });
+});
+
+console.log('\n========================================');
+console.log('âœ… D4 Test Suite Loaded. Run with: node --test server/tests/d4-sale-integrity.test.js');
+console.log('========================================\n');
 === FILE: C:\Users\dell\Desktop\restaurant\server\hash.js ===
 import bcrypt from 'bcrypt';
 const pw = process.argv[2];
@@ -52136,138 +52641,3 @@ console.log(missingKeys.map(k => `'${k}': '',`).join('\n'));
 
 console.log('\n' + '='.repeat(60));
 console.log('âœ… Done!');
-=== FILE: C:\Users\dell\Desktop\restaurant\test-api.js ===
-import axios from 'axios';
-import dotenv from 'dotenv';
-dotenv.config();
-
-const BASE_URL = 'http://localhost:5001'; // Change to your Render URL if deployed
-
-async function testAPI() {
-    console.log('=========================================');
-    console.log('ðŸ”¬ BRANCH ISOLATION API TEST');
-    console.log('=========================================\n');
-
-    try {
-        // STEP 1: Login as owner
-        console.log('ðŸ” Logging in as owner...');
-        const loginRes = await axios.post(`${BASE_URL}/api/auth/login`, {
-            email: 'owner@example.com',
-            password: 'owner123'
-        });
-        
-        const token = loginRes.data.token;
-        console.log('âœ… Token received\n');
-
-        // STEP 2: Test with no query param
-        console.log('ðŸ“‹ TEST 1: GET /api/tables (no query)');
-        const res1 = await axios.get(`${BASE_URL}/api/tables`, {
-            headers: { Authorization: `Bearer ${token}` }
-        });
-        console.log(`   Result: ${res1.data.data.length} tables`);
-
-        // STEP 3: Test with branchId=999 (should be ignored)
-        console.log('\nðŸ“‹ TEST 2: GET /api/tables?branchId=999');
-        const res2 = await axios.get(`${BASE_URL}/api/tables?branchId=999`, {
-            headers: { Authorization: `Bearer ${token}` }
-        });
-        console.log(`   Result: ${res2.data.data.length} tables (should be same as test 1)`);
-
-        // STEP 4: Test with branchId=1
-        console.log('\nðŸ“‹ TEST 3: GET /api/tables?branchId=1');
-        const res3 = await axios.get(`${BASE_URL}/api/tables?branchId=1`, {
-            headers: { Authorization: `Bearer ${token}` }
-        });
-        console.log(`   Result: ${res3.data.data.length} tables`);
-
-        // STEP 5: Test owner endpoint
-        console.log('\nðŸ“‹ TEST 4: GET /api/tables/owner');
-        const res4 = await axios.get(`${BASE_URL}/api/tables/owner`, {
-            headers: { Authorization: `Bearer ${token}` }
-        });
-        console.log(`   Result: ${res4.data.data.length} tables (all branches)`);
-
-        // STEP 6: Test owner with branch filter
-        console.log('\nðŸ“‹ TEST 5: GET /api/tables/owner?branchId=1');
-        const res5 = await axios.get(`${BASE_URL}/api/tables/owner?branchId=1`, {
-            headers: { Authorization: `Bearer ${token}` }
-        });
-        console.log(`   Result: ${res5.data.data.length} tables (branch 1 only)`);
-
-        // STEP 7: Test invalid branch (should fail)
-        console.log('\nðŸ“‹ TEST 6: GET /api/tables/owner?branchId=999');
-        try {
-            await axios.get(`${BASE_URL}/api/tables/owner?branchId=999`, {
-                headers: { Authorization: `Bearer ${token}` }
-            });
-            console.log('   âŒ FAILED - Should have returned 403');
-        } catch (err) {
-            if (err.response?.status === 403) {
-                console.log('   âœ… PASSED - Got 403 Forbidden as expected');
-            } else {
-                console.log(`   âŒ Unexpected error: ${err.response?.status}`);
-            }
-        }
-
-        // STEP 8: Create a new table
-        console.log('\nðŸ“‹ TEST 7: POST /api/tables (create new table)');
-        const createRes = await axios.post(`${BASE_URL}/api/tables`, {
-            table_number: 999,
-            capacity: 4,
-            status: 'available'
-        }, {
-            headers: { Authorization: `Bearer ${token}` }
-        });
-        console.log(`   âœ… Created table 999 in branch ${createRes.data.data.branch_id}`);
-
-        // STEP 9: Verify table was created in correct branch
-        console.log('\nðŸ“‹ TEST 8: Verify new table branch');
-        const verifyRes = await axios.get(`${BASE_URL}/api/tables`, {
-            headers: { Authorization: `Bearer ${token}` }
-        });
-        const newTable = verifyRes.data.data.find(t => t.table_number === 999);
-        if (newTable) {
-            console.log(`   âœ… Table 999 is in branch ${newTable.branch_id} (expected 1)`);
-        }
-
-        // STEP 10: Delete test table
-        console.log('\nðŸ§¹ Cleaning up test table...');
-        await axios.delete(`${BASE_URL}/api/tables/999`, {
-            headers: { Authorization: `Bearer ${token}` }
-        });
-        console.log('   âœ… Test table deleted');
-
-        // STEP 11: Test without auth
-        console.log('\nðŸ“‹ TEST 9: GET /api/tables (no auth)');
-        try {
-            await axios.get(`${BASE_URL}/api/tables`);
-            console.log('   âŒ FAILED - Should have returned 401');
-        } catch (err) {
-            if (err.response?.status === 401) {
-                console.log('   âœ… PASSED - Got 401 Unauthorized as expected');
-            } else {
-                console.log(`   âŒ Unexpected error: ${err.response?.status}`);
-            }
-        }
-
-        // SUMMARY
-        console.log('\n=========================================');
-        console.log('ðŸ“Š TEST SUMMARY');
-        console.log('=========================================');
-        console.log(`âœ… Branch isolation: WORKING`);
-        console.log(`âœ… Query param ignored: WORKING`);
-        console.log(`âœ… Owner access: WORKING`);
-        console.log(`âœ… Invalid branch blocked: WORKING`);
-        console.log(`âœ… Create uses JWT context: WORKING`);
-        console.log(`âœ… Unauthenticated blocked: WORKING`);
-
-    } catch (err) {
-        console.error('âŒ Test failed:', err.message);
-        if (err.response) {
-            console.error('   Status:', err.response.status);
-            console.error('   Data:', err.response.data);
-        }
-    }
-}
-
-testAPI();

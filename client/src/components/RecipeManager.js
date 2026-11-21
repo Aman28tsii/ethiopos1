@@ -231,26 +231,37 @@ const RecipeManager = ({ productId, productName, productPrice, onSave, onClose }
     };
 
     // ============================================
-    // SAVE RECIPE - ✅ FIXED: Include unit in payload
+    // SAVE RECIPE - ✅ FIXED: Normalize quantity to be PER PORTION
     // ============================================
     const saveRecipe = async () => {
         if (ingredients.length === 0) {
             setError('Please add at least one ingredient');
             return;
         }
-
+        
         setSaving(true);
         setError(null);
+        
         try {
-            const payload = {
-                yield_quantity: yieldQuantity,
-                ingredients: ingredients.map(ing => ({
+            const yieldQty = parseFloat(yieldQuantity) || 1;
+            
+            // FIX: Normalize quantity_required to be PER PORTION
+            const normalizedIngredients = ingredients.map(ing => {
+                const rawQty = parseFloat(ing.quantity_required) || 0;
+                const perPortionQty = rawQty / yieldQty;
+                
+                return {
                     ingredient_id: ing.ingredient_id,
-                    unit: ing.unit,  // ✅ FIXED: Include unit
-                    quantity_required: ing.quantity_required,
+                    unit: ing.unit,
+                    quantity_required: parseFloat(perPortionQty.toFixed(4)), // Store precise per-portion amount
                     wastage_percentage: ing.wastage_percentage || 0,
                     cooking_loss_percentage: ing.cooking_loss_percentage || 0
-                }))
+                };
+            });
+
+            const payload = {
+                yield_quantity: yieldQty,
+                ingredients: normalizedIngredients
             };
 
             await API.post(`/recipes/product/${productId}`, payload);
