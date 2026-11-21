@@ -415,54 +415,58 @@ router.put("/orders/bulk-status", authorizeBranch, allowKitchen, async (req, res
         });
     }
 
-    try {
-        const results = [];
-        const stockErrors = [];
+    const results = [];
+    const stockErrors = [];
 
-        for (const orderId of orderIds) {
-            const orderIdInt = parseInt(orderId);
-            if (isNaN(orderIdInt)) continue;
+    for (const orderId of orderIds) {
+        const orderIdInt = parseInt(orderId);
+        if (isNaN(orderIdInt)) continue;
 
+        const client = await pool.connect();
+        try {
+            await client.query('BEGIN');
+
+            // 1. Lock and validate tenant ownership (D15-B: Tenant Isolation)
+            const orderCheck = await client.query(
+                `SELECT ko.id, ko.status, o.company_id, o.branch_id
+                 FROM kitchen_orders ko
+                 JOIN orders o ON ko.order_id = o.id
+                 WHERE ko.order_id = $1
+                   AND o.company_id = $2
+                   AND o.branch_id = $3
+                 FOR UPDATE OF ko`,
+                [orderIdInt, companyId, branchId]
+            );
+
+            if (orderCheck.rows.length === 0) {
+                await client.query('ROLLBACK');
+                console.warn(`[KITCHEN BULK] Order ${orderIdInt} not found or tenant mismatch`);
+                continue; // Skip this order, don't fail the whole batch
+            }
+
+            // 2. Enforce the state machine
+            const currentStatus = orderCheck.rows[0].status;
+            const allowed = ALLOWED_TRANSITIONS[currentStatus] || [];
+            if (!allowed.includes(status)) {
+                await client.query('ROLLBACK');
+                console.warn(`[KITCHEN BULK] Invalid transition for order ${orderIdInt}: ${currentStatus} → ${status}`);
+                continue;
+            }
+
+            // 3. Check deduction status INSIDE the transaction (D15-A: Concurrency)
+            let alreadyDeducted = false;
             if (status === 'ready') {
-                const alreadyDeducted = await pool.query(
+                const dedCheck = await client.query(
                     `SELECT 1 FROM stock_transactions
                      WHERE order_id = $1 AND transaction_type = 'order_deduction'
                      LIMIT 1`,
                     [orderIdInt]
                 );
-
-                if (alreadyDeducted.rows.length === 0) {
-                    const itemsRes = await pool.query(
-                        `SELECT product_id, quantity FROM order_items WHERE order_id = $1`,
-                        [orderIdInt]
-                    );
-
-                    const client = await pool.connect();
-                    try {
-                        await client.query('BEGIN');
-                        await processOrderStockDeduction(
-                            orderIdInt,
-                            itemsRes.rows,
-                            client,
-                            companyId,
-                            branchId
-                        );
-                        await client.query('COMMIT');
-                    } catch (deductErr) {
-                        await client.query('ROLLBACK');
-                        console.error(`[KITCHEN BULK] Stock deduction failed for order ${orderIdInt}:`, deductErr.message);
-                        stockErrors.push({
-                            order_id: orderIdInt,
-                            error: deductErr.message
-                        });
-                        continue;
-                    } finally {
-                        client.release();
-                    }
-                }
+                alreadyDeducted = dedCheck.rows.length > 0;
             }
-            
-            await pool.query(
+
+            // 4. Perform state transitions
+            await client.query(
                 `UPDATE kitchen_orders 
                  SET status = $1, updated_at = NOW() 
                  WHERE order_id = $2`,
@@ -470,7 +474,7 @@ router.put("/orders/bulk-status", authorizeBranch, allowKitchen, async (req, res
             );
 
             if (status === 'preparing') {
-                await pool.query(
+                await client.query(
                     `UPDATE kitchen_orders 
                      SET started_at = NOW() 
                      WHERE order_id = $1 AND started_at IS NULL`,
@@ -479,7 +483,7 @@ router.put("/orders/bulk-status", authorizeBranch, allowKitchen, async (req, res
             }
 
             if (status === 'ready' || status === 'completed') {
-                await pool.query(
+                await client.query(
                     `UPDATE kitchen_orders 
                      SET completed_at = NOW() 
                      WHERE order_id = $1 AND completed_at IS NULL`,
@@ -492,13 +496,29 @@ router.put("/orders/bulk-status", authorizeBranch, allowKitchen, async (req, res
                                status === 'ready' ? 'ready' : 
                                status === 'completed' ? 'completed' : 'cancelled';
 
-            await pool.query(
+            await client.query(
                 "UPDATE orders SET status = $1, updated_at = NOW() WHERE id = $2",
                 [orderStatus, orderIdInt]
             );
 
+            // 5. Stock deduction (inside the same transaction)
+            if (status === 'ready' && !alreadyDeducted) {
+                const itemsRes = await client.query(
+                    `SELECT product_id, quantity FROM order_items WHERE order_id = $1`,
+                    [orderIdInt]
+                );
+                await processOrderStockDeduction(
+                    orderIdInt,
+                    itemsRes.rows,
+                    client,
+                    companyId,
+                    branchId
+                );
+            }
+
+            // 6. Auto-confirm pickup for cashier-manual orders
             if (status === 'ready') {
-                await pool.query(
+                await client.query(
                     `UPDATE orders
                      SET waiter_confirmed_pickup = true,
                          waiter_pickup_at = NOW(),
@@ -509,66 +529,79 @@ router.put("/orders/bulk-status", authorizeBranch, allowKitchen, async (req, res
                 );
             }
 
+            await client.query('COMMIT');
             results.push({ order_id: orderIdInt, status: status });
-        }
 
-        const io = req.app.get('io');
-        if (io) {
-            io.to(`branch_${companyId}_${branchId}`).emit('order_status_updated', {
-                order_ids: results.map(r => r.order_id),
-                status: status,
-                order_status: status === 'pending' ? 'pending' : 
-                             status === 'preparing' ? 'preparing' : 
-                             status === 'ready' ? 'ready' : 
-                             status === 'completed' ? 'completed' : 'cancelled'
-            });
-
-            if (status === 'ready' && results.length > 0) {
-                const checkResult = await pool.query(
-                    `SELECT id, order_number, table_id, source,
-                            waiter_confirmed_pickup
-                     FROM orders
-                     WHERE id = ANY($1::int[])`,
-                    [results.map(r => r.order_id)]
-                );
-
-                for (const row of checkResult.rows) {
-                    if (row.source === 'cashier_manual' || row.source === 'cashier') {
-                        io.to(`cashier_${companyId}_${branchId}`).emit('order_ready_for_cashier', {
-                            order_id: row.id,
-                            order_number: row.order_number,
-                            table_id: row.table_id
-                        });
-                    } else {
-                        io.to(`waiter_${companyId}_${branchId}`).emit('order_ready_for_waiter', {
-                            order_id: row.id,
-                            status: 'ready',
-                            message: `Order #${row.id} is ready for pickup!`
-                        });
-                    }
-                }
-            }
-
-            if (status === 'completed') {
-                results.forEach(r => {
-                    io.to(`branch_${companyId}_${branchId}`).emit('order_completed', {
-                        order_id: r.order_id,
-                        status: 'completed'
-                    });
+        } catch (err) {
+            await client.query('ROLLBACK');
+            console.error(`[KITCHEN BULK] Failed for order ${orderIdInt}:`, err.message);
+            
+            if (err.message && /INSUFFICIENT_STOCK|STOCK_CONFLICT|Some ingredients not found|Company or branch context missing/.test(err.message)) {
+                stockErrors.push({
+                    order_id: orderIdInt,
+                    error: err.message
                 });
             }
+        } finally {
+            client.release();
+        }
+    }
+
+    const io = req.app.get('io');
+    if (io && results.length > 0) {
+        const orderStatus = status === 'pending' ? 'pending' : 
+                           status === 'preparing' ? 'preparing' : 
+                           status === 'ready' ? 'ready' : 
+                           status === 'completed' ? 'completed' : 'cancelled';
+
+        io.to(`branch_${companyId}_${branchId}`).emit('order_status_updated', {
+            order_ids: results.map(r => r.order_id),
+            status: status,
+            order_status: orderStatus
+        });
+
+        if (status === 'ready') {
+            const checkResult = await pool.query(
+                `SELECT id, order_number, table_id, source,
+                        waiter_confirmed_pickup
+                 FROM orders
+                 WHERE id = ANY($1::int[])`,
+                [results.map(r => r.order_id)]
+            );
+
+            for (const row of checkResult.rows) {
+                if (row.source === 'cashier_manual' || row.source === 'cashier') {
+                    io.to(`cashier_${companyId}_${branchId}`).emit('order_ready_for_cashier', {
+                        order_id: row.id,
+                        order_number: row.order_number,
+                        table_id: row.table_id
+                    });
+                } else {
+                    io.to(`waiter_${companyId}_${branchId}`).emit('order_ready_for_waiter', {
+                        order_id: row.id,
+                        status: 'ready',
+                        message: `Order #${row.id} is ready for pickup!`
+                    });
+                }
+            }
         }
 
-        res.json({
-            success: true,
-            message: `Updated ${results.length} orders to ${status}`,
-            data: results,
-            stock_errors: stockErrors.length > 0 ? stockErrors : undefined
-        });
-    } catch (err) {
-        console.error("Bulk update error:", err);
-        res.status(500).json({ success: false, error: err.message });
+        if (status === 'completed') {
+            results.forEach(r => {
+                io.to(`branch_${companyId}_${branchId}`).emit('order_completed', {
+                    order_id: r.order_id,
+                    status: 'completed'
+                });
+            });
+        }
     }
+
+    res.json({
+        success: true,
+        message: `Processed ${results.length} orders. ${stockErrors.length > 0 ? `${stockErrors.length} failed.` : ''}`,
+        data: results,
+        stock_errors: stockErrors.length > 0 ? stockErrors : undefined
+    });
 });
 
 // ============================================================
