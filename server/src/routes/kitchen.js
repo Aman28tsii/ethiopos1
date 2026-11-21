@@ -401,18 +401,12 @@ router.put("/orders/bulk-status", authorizeBranch, allowKitchen, async (req, res
     const companyId = req.user.company_id;
     
     if (!orderIds || !Array.isArray(orderIds) || orderIds.length === 0) {
-        return res.status(400).json({ 
-            success: false, 
-            error: "orderIds array is required" 
-        });
+        return res.status(400).json({ success: false, error: "orderIds array is required" });
     }
 
     const validStatuses = ['pending', 'preparing', 'ready', 'completed', 'cancelled'];
     if (!status || !validStatuses.includes(status)) {
-        return res.status(400).json({ 
-            success: false, 
-            error: 'Invalid status' 
-        });
+        return res.status(400).json({ success: false, error: 'Invalid status' });
     }
 
     const results = [];
@@ -426,7 +420,8 @@ router.put("/orders/bulk-status", authorizeBranch, allowKitchen, async (req, res
         try {
             await client.query('BEGIN');
 
-            // 1. Lock the order and validate tenant isolation (D15-B)
+            // 1. Lock the order row and validate tenant isolation (D15-B)
+            // This prevents concurrent modifications and ensures the order belongs to this tenant.
             const orderCheck = await client.query(
                 `SELECT o.id, ko.status as kitchen_status
                  FROM orders o
@@ -439,15 +434,21 @@ router.put("/orders/bulk-status", authorizeBranch, allowKitchen, async (req, res
             if (orderCheck.rows.length === 0) {
                 await client.query('ROLLBACK');
                 console.warn(`[KITCHEN BULK] Order ${orderIdInt} not found or tenant mismatch`);
-                continue; // Skip this order, don't fail the whole batch
+                continue;
             }
 
-            const currentKitchenStatus = orderCheck.rows[0].kitchen_status;
-            const allowed = ALLOWED_TRANSITIONS[currentKitchenStatus] || [];
-            
+            const currentStatus = orderCheck.rows[0].kitchen_status;
+            const allowed = {
+                'pending': ['preparing', 'cancelled'],
+                'preparing': ['ready', 'cancelled'],
+                'ready': ['completed', 'cancelled'],
+                'completed': [],
+                'cancelled': []
+            }[currentStatus] || [];
+
             if (!allowed.includes(status)) {
                 await client.query('ROLLBACK');
-                console.warn(`[KITCHEN BULK] Invalid transition for order ${orderIdInt}: ${currentKitchenStatus} → ${status}`);
+                console.warn(`[KITCHEN BULK] Invalid transition for order ${orderIdInt}: ${currentStatus} → ${status}`);
                 continue;
             }
 
@@ -494,12 +495,9 @@ router.put("/orders/bulk-status", authorizeBranch, allowKitchen, async (req, res
                                status === 'ready' ? 'ready' : 
                                status === 'completed' ? 'completed' : 'cancelled';
 
-            // Tenant-isolated update (D15-B)
             await client.query(
-                `UPDATE orders 
-                 SET status = $1, updated_at = NOW() 
-                 WHERE id = $2 AND company_id = $3 AND branch_id = $4`,
-                [orderStatus, orderIdInt, companyId, branchId]
+                "UPDATE orders SET status = $1, updated_at = NOW() WHERE id = $2",
+                [orderStatus, orderIdInt]
             );
 
             // 4. Stock deduction inside the same transaction (D15-A)
@@ -538,10 +536,7 @@ router.put("/orders/bulk-status", authorizeBranch, allowKitchen, async (req, res
             console.error(`[KITCHEN BULK] Failed for order ${orderIdInt}:`, err.message);
             
             if (err.message && /INSUFFICIENT_STOCK|STOCK_CONFLICT|Some ingredients not found|Company or branch context missing/.test(err.message)) {
-                stockErrors.push({
-                    order_id: orderIdInt,
-                    error: err.message
-                });
+                stockErrors.push({ order_id: orderIdInt, error: err.message });
             }
         } finally {
             client.release();
@@ -564,24 +559,18 @@ router.put("/orders/bulk-status", authorizeBranch, allowKitchen, async (req, res
 
         if (status === 'ready') {
             const checkResult = await pool.query(
-                `SELECT id, order_number, table_id, source
-                 FROM orders
-                 WHERE id = ANY($1::int[])`,
+                `SELECT id, order_number, table_id, source FROM orders WHERE id = ANY($1::int[])`,
                 [results.map(r => r.order_id)]
             );
 
             for (const row of checkResult.rows) {
                 if (row.source === 'cashier_manual' || row.source === 'cashier') {
                     io.to(`cashier_${companyId}_${branchId}`).emit('order_ready_for_cashier', {
-                        order_id: row.id,
-                        order_number: row.order_number,
-                        table_id: row.table_id
+                        order_id: row.id, order_number: row.order_number, table_id: row.table_id
                     });
                 } else {
                     io.to(`waiter_${companyId}_${branchId}`).emit('order_ready_for_waiter', {
-                        order_id: row.id,
-                        status: 'ready',
-                        message: `Order #${row.id} is ready for pickup!`
+                        order_id: row.id, status: 'ready', message: `Order #${row.id} is ready for pickup!`
                     });
                 }
             }
@@ -590,8 +579,7 @@ router.put("/orders/bulk-status", authorizeBranch, allowKitchen, async (req, res
         if (status === 'completed') {
             results.forEach(r => {
                 io.to(`branch_${companyId}_${branchId}`).emit('order_completed', {
-                    order_id: r.order_id,
-                    status: 'completed'
+                    order_id: r.order_id, status: 'completed'
                 });
             });
         }
