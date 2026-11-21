@@ -1,4 +1,4 @@
-﻿// server/src/routes/kitchen.js
+// server/src/routes/kitchen.js
 
 import express from "express";
 import { protect, allowKitchen } from "../middleware/auth.js";
@@ -15,7 +15,7 @@ router.use(requireCompanyContext);
 // KITCHEN ORDER STATE MACHINE
 //
 // Legal forward transitions only. Any move not listed here is
-// rejected with 409. This closes the "ready → pending" and
+// rejected with 409. This closes the "ready ? pending" and
 // similar reverse-transition gaps found during the audit.
 // ============================================================
 const ALLOWED_TRANSITIONS = {
@@ -99,7 +99,7 @@ router.put("/orders/:orderId/status", authorizeBranch, allowKitchen, async (req,
         return res.status(400).json({ success: false, error: 'Invalid order ID' });
     }
 
-    // ── ONE client, ONE transaction for: order check, state transition,
+    // -- ONE client, ONE transaction for: order check, state transition,
     //    and stock deduction. This is the D14 fix. The FOR UPDATE inside
     //    a real transaction is what serializes concurrent "ready" requests.
     const client = await pool.connect();
@@ -130,12 +130,12 @@ router.put("/orders/:orderId/status", authorizeBranch, allowKitchen, async (req,
             await client.query('ROLLBACK');
             return res.status(409).json({
                 success: false,
-                error: `Invalid transition: ${currentStatus} → ${status}`
+                error: `Invalid transition: ${currentStatus} ? ${status}`
             });
         }
 
         // 3. For 'ready' transitions, check whether stock was already
-        //    deducted for this order. Still INSIDE the transaction — a
+        //    deducted for this order. Still INSIDE the transaction � a
         //    concurrent request that just committed a deduction will be
         //    visible to us here because we only reach this point AFTER
         //    acquiring the row lock above.
@@ -186,7 +186,7 @@ router.put("/orders/:orderId/status", authorizeBranch, allowKitchen, async (req,
             [orderStatus, orderIdInt]
         );
 
-        // 5. Stock deduction — SAME client, SAME transaction.
+        // 5. Stock deduction � SAME client, SAME transaction.
         //    If this throws, the whole transaction (including the
         //    status change) rolls back.
         let stockDeductionResult = null;
@@ -236,7 +236,7 @@ router.put("/orders/:orderId/status", authorizeBranch, allowKitchen, async (req,
 
         await client.query('COMMIT');
 
-        // 7. Socket emissions — AFTER commit, so clients never see
+        // 7. Socket emissions � AFTER commit, so clients never see
         //    "ready" for an order whose stock deduction rolled back.
         const io = req.app.get('io');
         if (io) {
@@ -287,7 +287,7 @@ router.put("/orders/:orderId/status", authorizeBranch, allowKitchen, async (req,
                 : null
         });
     } catch (err) {
-        // Roll back everything — status change, deduction, all of it.
+        // Roll back everything � status change, deduction, all of it.
         try { await client.query('ROLLBACK'); } catch (_) { /* connection may already be dead */ }
 
         console.error("Update kitchen order error:", err);
@@ -444,7 +444,7 @@ router.put("/orders/bulk-status", authorizeBranch, allowKitchen, async (req, res
                 'cancelled': []
             }[currentStatus] || [];
 
-            if (!allowed.includes(status)) and status !== currentStatus) {
+            if (!allowed.includes(status)) {
                 await client.query('ROLLBACK');
                 continue;
             }
