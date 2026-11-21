@@ -2,6 +2,7 @@
 import API from '../../api/axios';
 import { Loader2, DollarSign, CreditCard, Smartphone, Printer } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
+import { getStableIdempotencyKey, clearIdempotencyKey } from '../../utils/idempotency.js';
 
 const CashierPOS = () => {
     const { t } = useLanguage();
@@ -55,13 +56,14 @@ const CashierPOS = () => {
         }
     };
 
-    const processPayment = async () => {
+      const processPayment = async () => {
         if (!selectedOrder) return;
         
         setProcessing(true);
         try {
-            // Generate unique Idempotency-Key
-            const idempotencyKey = `payment_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+            // ✅ FIX: Get a STABLE idempotency key for this specific order payment.
+            // If the user double-clicks or retries, this returns the EXACT SAME key.
+            const idempotencyKey = getStableIdempotencyKey('pay_order', selectedOrder.id);
             
             const response = await API.post(`/orders/${selectedOrder.id}/pay`, {
                 payment_method: paymentMethod
@@ -70,17 +72,23 @@ const CashierPOS = () => {
                     'Idempotency-Key': idempotencyKey
                 }
             });
-            
+
             if (response.data.success) {
-                alert(`✅ Payment successful! ${selectedOrder.order_number} completed.`);
+                // ✅ FIX: Only clear the key on SUCCESS. 
+                // If it fails, the key remains, allowing a safe retry.
+                clearIdempotencyKey('pay_order', selectedOrder.id);
+                
+                setNotification(`Payment successful! Sale #${response.data.data.sale_number}`);
                 setSelectedOrder(null);
-                fetchReadyOrders();
-                fetchSalesHistory();
-                fetchTodaySales();
+                setPaymentMethod('cash');
+                // Refresh orders list (assuming fetchOrders exists in your component)
+                if (typeof fetchOrders === 'function') fetchOrders(); 
             }
         } catch (err) {
             console.error('Payment error:', err);
-            alert(err.response?.data?.error || 'Payment failed');
+            const errorMsg = err.response?.data?.error || 'Payment failed. Please try again.';
+            setNotification(errorMsg);
+            // DO NOT clear the idempotency key here. Let the user retry with the same key.
         } finally {
             setProcessing(false);
         }
