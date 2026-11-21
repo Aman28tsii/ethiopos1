@@ -420,7 +420,7 @@ router.put("/orders/bulk-status", authorizeBranch, allowKitchen, async (req, res
         try {
             await client.query('BEGIN');
 
-            // 1. Lock the order and validate tenant isolation (D15-B)
+            // 1. Lock the order row and validate tenant isolation (D15-B)
             const orderCheck = await client.query(
                 `SELECT o.id, ko.status as kitchen_status
                  FROM orders o
@@ -432,14 +432,22 @@ router.put("/orders/bulk-status", authorizeBranch, allowKitchen, async (req, res
 
             if (orderCheck.rows.length === 0) {
                 await client.query('ROLLBACK');
-                continue; // Skip silently, don't fail the whole batch
+                console.warn(`[KITCHEN BULK] Order ${orderIdInt} not found or tenant mismatch`);
+                continue;
             }
 
             const currentStatus = orderCheck.rows[0].kitchen_status;
-            const allowed = ALLOWED_TRANSITIONS[currentStatus] || [];
-            
+            const allowed = {
+                'pending': ['preparing', 'cancelled'],
+                'preparing': ['ready', 'cancelled'],
+                'ready': ['completed', 'cancelled'],
+                'completed': [],
+                'cancelled': []
+            }[currentStatus] || [];
+
             if (!allowed.includes(status)) {
                 await client.query('ROLLBACK');
+                console.warn(`[KITCHEN BULK] Invalid transition for order ${orderIdInt}: ${currentStatus} → ${status}`);
                 continue;
             }
 
@@ -534,7 +542,6 @@ router.put("/orders/bulk-status", authorizeBranch, allowKitchen, async (req, res
         }
     }
 
-    // Socket emissions (after all transactions are committed)
     const io = req.app.get('io');
     if (io && results.length > 0) {
         const orderStatus = status === 'pending' ? 'pending' : 
