@@ -420,7 +420,7 @@ router.put("/orders/bulk-status", authorizeBranch, allowKitchen, async (req, res
         try {
             await client.query('BEGIN');
 
-            // 1. Lock the order row and validate tenant isolation (D15-B)
+            // 1. Lock order and validate tenant (D15-B)
             const orderCheck = await client.query(
                 `SELECT o.id, ko.status as kitchen_status
                  FROM orders o
@@ -432,8 +432,7 @@ router.put("/orders/bulk-status", authorizeBranch, allowKitchen, async (req, res
 
             if (orderCheck.rows.length === 0) {
                 await client.query('ROLLBACK');
-                console.warn(`[KITCHEN BULK] Order ${orderIdInt} not found or tenant mismatch`);
-                continue;
+                continue; // Skip invalid/unauthorized orders silently
             }
 
             const currentStatus = orderCheck.rows[0].kitchen_status;
@@ -445,13 +444,12 @@ router.put("/orders/bulk-status", authorizeBranch, allowKitchen, async (req, res
                 'cancelled': []
             }[currentStatus] || [];
 
-            if (!allowed.includes(status)) {
+            if (!allowed.includes(status)) and status !== currentStatus) {
                 await client.query('ROLLBACK');
-                console.warn(`[KITCHEN BULK] Invalid transition for order ${orderIdInt}: ${currentStatus} → ${status}`);
                 continue;
             }
 
-            // 2. Check deduction status INSIDE the transaction (D15-A)
+            // 2. Check deduction INSIDE the transaction (D15-A)
             let alreadyDeducted = false;
             if (status === 'ready') {
                 const dedCheck = await client.query(
@@ -463,66 +461,51 @@ router.put("/orders/bulk-status", authorizeBranch, allowKitchen, async (req, res
                 alreadyDeducted = dedCheck.rows.length > 0;
             }
 
-            // 3. Perform state transitions
+            // 3. Perform state transitions INSIDE the transaction
             await client.query(
-                `UPDATE kitchen_orders 
-                 SET status = $1, updated_at = NOW() 
-                 WHERE order_id = $2`,
+                `UPDATE kitchen_orders SET status = $1, updated_at = NOW() WHERE order_id = $2`,
                 [status, orderIdInt]
             );
 
             if (status === 'preparing') {
                 await client.query(
-                    `UPDATE kitchen_orders 
-                     SET started_at = NOW() 
-                     WHERE order_id = $1 AND started_at IS NULL`,
+                    `UPDATE kitchen_orders SET started_at = NOW() WHERE order_id = $1 AND started_at IS NULL`,
                     [orderIdInt]
                 );
             }
 
             if (status === 'ready' || status === 'completed') {
                 await client.query(
-                    `UPDATE kitchen_orders 
-                     SET completed_at = NOW() 
-                     WHERE order_id = $1 AND completed_at IS NULL`,
+                    `UPDATE kitchen_orders SET completed_at = NOW() WHERE order_id = $1 AND completed_at IS NULL`,
                     [orderIdInt]
                 );
             }
 
-            const orderStatus = status === 'pending' ? 'pending' : 
-                               status === 'preparing' ? 'preparing' : 
-                               status === 'ready' ? 'ready' : 
+            const orderStatus = status === 'pending' ? 'pending' :
+                               status === 'preparing' ? 'preparing' :
+                               status === 'ready' ? 'ready' :
                                status === 'completed' ? 'completed' : 'cancelled';
 
             await client.query(
-                "UPDATE orders SET status = $1, updated_at = NOW() WHERE id = $2",
+                `UPDATE orders SET status = $1, updated_at = NOW() WHERE id = $2`,
                 [orderStatus, orderIdInt]
             );
 
-            // 4. Stock deduction inside the same transaction
+            // 4. Stock deduction INSIDE the transaction
             if (status === 'ready' && !alreadyDeducted) {
                 const itemsRes = await client.query(
                     `SELECT product_id, quantity FROM order_items WHERE order_id = $1`,
                     [orderIdInt]
                 );
-                await processOrderStockDeduction(
-                    orderIdInt,
-                    itemsRes.rows,
-                    client,
-                    companyId,
-                    branchId
-                );
+                await processOrderStockDeduction(orderIdInt, itemsRes.rows, client, companyId, branchId);
             }
 
             // 5. Auto-confirm pickup for cashier-manual orders
             if (status === 'ready') {
                 await client.query(
                     `UPDATE orders
-                     SET waiter_confirmed_pickup = true,
-                         waiter_pickup_at = NOW(),
-                         updated_at = NOW()
-                     WHERE id = $1
-                       AND (source = 'cashier_manual' OR source = 'cashier')`,
+                     SET waiter_confirmed_pickup = true, waiter_pickup_at = NOW(), updated_at = NOW()
+                     WHERE id = $1 AND (source = 'cashier_manual' OR source = 'cashier')`,
                     [orderIdInt]
                 );
             }
@@ -542,11 +525,12 @@ router.put("/orders/bulk-status", authorizeBranch, allowKitchen, async (req, res
         }
     }
 
+    // Socket emissions (after all transactions are committed)
     const io = req.app.get('io');
     if (io && results.length > 0) {
-        const orderStatus = status === 'pending' ? 'pending' : 
-                           status === 'preparing' ? 'preparing' : 
-                           status === 'ready' ? 'ready' : 
+        const orderStatus = status === 'pending' ? 'pending' :
+                           status === 'preparing' ? 'preparing' :
+                           status === 'ready' ? 'ready' :
                            status === 'completed' ? 'completed' : 'cancelled';
 
         io.to(`branch_${companyId}_${branchId}`).emit('order_status_updated', {
@@ -557,24 +541,17 @@ router.put("/orders/bulk-status", authorizeBranch, allowKitchen, async (req, res
 
         if (status === 'ready') {
             const checkResult = await pool.query(
-                `SELECT id, order_number, table_id, source
-                 FROM orders
-                 WHERE id = ANY($1::int[])`,
+                `SELECT id, order_number, table_id, source FROM orders WHERE id = ANY($1::int[])`,
                 [results.map(r => r.order_id)]
             );
-
             for (const row of checkResult.rows) {
                 if (row.source === 'cashier_manual' || row.source === 'cashier') {
                     io.to(`cashier_${companyId}_${branchId}`).emit('order_ready_for_cashier', {
-                        order_id: row.id,
-                        order_number: row.order_number,
-                        table_id: row.table_id
+                        order_id: row.id, order_number: row.order_number, table_id: row.table_id
                     });
                 } else {
                     io.to(`waiter_${companyId}_${branchId}`).emit('order_ready_for_waiter', {
-                        order_id: row.id,
-                        status: 'ready',
-                        message: `Order #${row.id} is ready for pickup!`
+                        order_id: row.id, status: 'ready', message: `Order #${row.id} is ready for pickup!`
                     });
                 }
             }
@@ -583,8 +560,7 @@ router.put("/orders/bulk-status", authorizeBranch, allowKitchen, async (req, res
         if (status === 'completed') {
             results.forEach(r => {
                 io.to(`branch_${companyId}_${branchId}`).emit('order_completed', {
-                    order_id: r.order_id,
-                    status: 'completed'
+                    order_id: r.order_id, status: 'completed'
                 });
             });
         }
@@ -592,7 +568,7 @@ router.put("/orders/bulk-status", authorizeBranch, allowKitchen, async (req, res
 
     res.json({
         success: true,
-        message: `Processed ${results.length} orders.`,
+        message: `Updated ${results.length} orders to ${status}`,
         data: results,
         stock_errors: stockErrors.length > 0 ? stockErrors : undefined
     });
