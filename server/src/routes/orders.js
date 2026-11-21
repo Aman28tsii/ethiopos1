@@ -825,11 +825,13 @@ router.post("/:orderId/pay",
         try {
             await client.query("BEGIN");
             
+            // D5 FIX: Add FOR UPDATE to lock the order row and prevent concurrent payment race conditions
             const orderResult = await client.query(`
                 SELECT o.*, ko.status as kitchen_status 
                 FROM orders o
                 JOIN kitchen_orders ko ON o.id = ko.order_id
                 WHERE o.id = $1 AND o.branch_id = $2 AND o.company_id = $3
+                FOR UPDATE
             `, [orderId, branchId, companyId]);
             
             if (orderResult.rows.length === 0) {
@@ -847,11 +849,12 @@ router.post("/:orderId/pay",
             const totalCost = await calculateOrderTotalCost(orderId, client);
             const profit = parseFloat(order.total_amount) - totalCost;
             
+            // D5 FIX: Added company_id and branch_id for defense-in-depth
             await client.query(`
                 UPDATE orders 
                 SET payment_status = 'paid', payment_method = $1, status = 'completed', updated_at = NOW()
-                WHERE id = $2
-            `, [payment_method, orderId]);
+                WHERE id = $2 AND company_id = $3 AND branch_id = $4
+            `, [payment_method, orderId, companyId, branchId]);
             
             if (order.table_id) {
                 await client.query(`
