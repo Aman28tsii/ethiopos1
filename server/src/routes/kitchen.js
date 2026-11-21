@@ -426,15 +426,13 @@ router.put("/orders/bulk-status", authorizeBranch, allowKitchen, async (req, res
         try {
             await client.query('BEGIN');
 
-            // 1. Lock and validate tenant ownership (D15-B: Tenant Isolation)
+            // 1. Lock the order and validate tenant isolation (D15-B)
             const orderCheck = await client.query(
-                `SELECT ko.id, ko.status, o.company_id, o.branch_id
-                 FROM kitchen_orders ko
-                 JOIN orders o ON ko.order_id = o.id
-                 WHERE ko.order_id = $1
-                   AND o.company_id = $2
-                   AND o.branch_id = $3
-                 FOR UPDATE OF ko`,
+                `SELECT o.id, ko.status as kitchen_status
+                 FROM orders o
+                 JOIN kitchen_orders ko ON o.id = ko.order_id
+                 WHERE o.id = $1 AND o.company_id = $2 AND o.branch_id = $3
+                 FOR UPDATE OF o, ko`,
                 [orderIdInt, companyId, branchId]
             );
 
@@ -444,16 +442,16 @@ router.put("/orders/bulk-status", authorizeBranch, allowKitchen, async (req, res
                 continue; // Skip this order, don't fail the whole batch
             }
 
-            // 2. Enforce the state machine
-            const currentStatus = orderCheck.rows[0].status;
-            const allowed = ALLOWED_TRANSITIONS[currentStatus] || [];
+            const currentKitchenStatus = orderCheck.rows[0].kitchen_status;
+            const allowed = ALLOWED_TRANSITIONS[currentKitchenStatus] || [];
+            
             if (!allowed.includes(status)) {
                 await client.query('ROLLBACK');
-                console.warn(`[KITCHEN BULK] Invalid transition for order ${orderIdInt}: ${currentStatus} → ${status}`);
+                console.warn(`[KITCHEN BULK] Invalid transition for order ${orderIdInt}: ${currentKitchenStatus} → ${status}`);
                 continue;
             }
 
-            // 3. Check deduction status INSIDE the transaction (D15-A: Concurrency)
+            // 2. Check deduction status INSIDE the transaction (D15-A)
             let alreadyDeducted = false;
             if (status === 'ready') {
                 const dedCheck = await client.query(
@@ -465,7 +463,7 @@ router.put("/orders/bulk-status", authorizeBranch, allowKitchen, async (req, res
                 alreadyDeducted = dedCheck.rows.length > 0;
             }
 
-            // 4. Perform state transitions
+            // 3. Perform state transitions
             await client.query(
                 `UPDATE kitchen_orders 
                  SET status = $1, updated_at = NOW() 
@@ -496,12 +494,15 @@ router.put("/orders/bulk-status", authorizeBranch, allowKitchen, async (req, res
                                status === 'ready' ? 'ready' : 
                                status === 'completed' ? 'completed' : 'cancelled';
 
+            // Tenant-isolated update (D15-B)
             await client.query(
-                "UPDATE orders SET status = $1, updated_at = NOW() WHERE id = $2",
-                [orderStatus, orderIdInt]
+                `UPDATE orders 
+                 SET status = $1, updated_at = NOW() 
+                 WHERE id = $2 AND company_id = $3 AND branch_id = $4`,
+                [orderStatus, orderIdInt, companyId, branchId]
             );
 
-            // 5. Stock deduction (inside the same transaction)
+            // 4. Stock deduction inside the same transaction (D15-A)
             if (status === 'ready' && !alreadyDeducted) {
                 const itemsRes = await client.query(
                     `SELECT product_id, quantity FROM order_items WHERE order_id = $1`,
@@ -516,7 +517,7 @@ router.put("/orders/bulk-status", authorizeBranch, allowKitchen, async (req, res
                 );
             }
 
-            // 6. Auto-confirm pickup for cashier-manual orders
+            // 5. Auto-confirm pickup for cashier-manual orders
             if (status === 'ready') {
                 await client.query(
                     `UPDATE orders
@@ -547,6 +548,7 @@ router.put("/orders/bulk-status", authorizeBranch, allowKitchen, async (req, res
         }
     }
 
+    // Socket emissions (after all transactions are committed)
     const io = req.app.get('io');
     if (io && results.length > 0) {
         const orderStatus = status === 'pending' ? 'pending' : 
@@ -562,8 +564,7 @@ router.put("/orders/bulk-status", authorizeBranch, allowKitchen, async (req, res
 
         if (status === 'ready') {
             const checkResult = await pool.query(
-                `SELECT id, order_number, table_id, source,
-                        waiter_confirmed_pickup
+                `SELECT id, order_number, table_id, source
                  FROM orders
                  WHERE id = ANY($1::int[])`,
                 [results.map(r => r.order_id)]
