@@ -49,24 +49,28 @@ const generateSaleNumber = () => {
     return `SALE-${timestamp}${random}`;
 };
 
+// ... [Previous imports and helper functions remain unchanged] ...
+
 const calculateProductCost = async (productId, quantity, client) => {
     const recipeResult = await client.query(
         `SELECT ri.quantity_required, i.unit_cost,
-                ri.wastage_percentage, ri.cooking_loss_percentage
-         FROM recipe_ingredients ri
-         JOIN ingredients i ON ri.ingredient_id = i.id
-         WHERE ri.recipe_id IN (SELECT id FROM recipes WHERE product_id = $1)`,
+        ri.wastage_percentage, ri.cooking_loss_percentage, r.yield_quantity
+        FROM recipe_ingredients ri
+        JOIN ingredients i ON ri.ingredient_id = i.id
+        JOIN recipes r ON ri.recipe_id = r.id
+        WHERE r.product_id = $1`,
         [productId]
     );
-    
     let totalCost = 0;
     for (const item of recipeResult.rows) {
         const qtyRequired = parseFloat(item.quantity_required) || 0;
+        const yieldQty = parseFloat(item.yield_quantity) || 1; // ✅ FIX: Default to 1
         const wastagePct = parseFloat(item.wastage_percentage) || 0;
         const cookingLossPct = parseFloat(item.cooking_loss_percentage) || 0;
         const unitCost = parseFloat(item.unit_cost) || 0;
         
-        const effectiveQty = qtyRequired * quantity * (1 + wastagePct / 100) * (1 + cookingLossPct / 100);
+        // ✅ FIX: Divide by yield_quantity to get per-portion quantity
+        const effectiveQty = (qtyRequired / yieldQty) * quantity * (1 + wastagePct / 100) * (1 + cookingLossPct / 100);
         totalCost += effectiveQty * unitCost;
     }
     return totalCost;
