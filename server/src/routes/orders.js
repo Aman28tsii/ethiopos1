@@ -49,8 +49,6 @@ const generateSaleNumber = () => {
     return `SALE-${timestamp}${random}`;
 };
 
-// ... [Previous imports and helper functions remain unchanged] ...
-
 const calculateProductCost = async (productId, quantity, client) => {
     const recipeResult = await client.query(
         `SELECT ri.quantity_required, i.unit_cost,
@@ -64,12 +62,12 @@ const calculateProductCost = async (productId, quantity, client) => {
     let totalCost = 0;
     for (const item of recipeResult.rows) {
         const qtyRequired = parseFloat(item.quantity_required) || 0;
-        const yieldQty = parseFloat(item.yield_quantity) || 1; // ✅ FIX: Default to 1
+        const yieldQty = parseFloat(item.yield_quantity) || 1; // ✅ Safe fallback prevents division by zero
         const wastagePct = parseFloat(item.wastage_percentage) || 0;
         const cookingLossPct = parseFloat(item.cooking_loss_percentage) || 0;
         const unitCost = parseFloat(item.unit_cost) || 0;
         
-        // ✅ FIX: Divide by yield_quantity to get per-portion quantity
+        // ✅ FIN-01 / D6 FIX: Divide by yield_quantity to get per-portion quantity
         const effectiveQty = (qtyRequired / yieldQty) * quantity * (1 + wastagePct / 100) * (1 + cookingLossPct / 100);
         totalCost += effectiveQty * unitCost;
     }
