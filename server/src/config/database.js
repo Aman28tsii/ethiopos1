@@ -12,10 +12,10 @@ const pool = new Pool({
   user: process.env.DB_USER || 'postgres',
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME || 'restaurant_pos_db',
-  ...(isProduction && {
-    ssl: { rejectUnauthorized: false }
-  }),
+  ...(isProduction && { ssl: { rejectUnauthorized: false } }),
   connectionTimeoutMillis: 30000,
+  max: 20,                // ✅ ADD: Increase pool size for concurrent POS usage
+  statement_timeout: 15000 // ✅ ADD: Kill queries running longer than 15 seconds
 });
 
 export const query = (text, params) => pool.query(text, params);
