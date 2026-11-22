@@ -56,13 +56,12 @@ const CashierPOS = () => {
         }
     };
 
-      const processPayment = async () => {
+    const processPayment = async () => {
         if (!selectedOrder) return;
         
         setProcessing(true);
         try {
             // ✅ FIX: Get a STABLE idempotency key for this specific order payment.
-            // If the user double-clicks or retries, this returns the EXACT SAME key.
             const idempotencyKey = getStableIdempotencyKey('pay_order', selectedOrder.id);
             
             const response = await API.post(`/orders/${selectedOrder.id}/pay`, {
@@ -75,19 +74,23 @@ const CashierPOS = () => {
 
             if (response.data.success) {
                 // ✅ FIX: Only clear the key on SUCCESS. 
-                // If it fails, the key remains, allowing a safe retry.
                 clearIdempotencyKey('pay_order', selectedOrder.id);
                 
-                setNotification(`Payment successful! Sale #${response.data.data.sale_number}`);
+                // ✅ FIX: Replaced undefined setNotification with alert
+                alert(`Payment successful! Sale #${response.data.data.sale_number}`);
                 setSelectedOrder(null);
                 setPaymentMethod('cash');
-                // Refresh orders list (assuming fetchOrders exists in your component)
-                if (typeof fetchOrders === 'function') fetchOrders(); 
+                
+                // ✅ FIX: Replaced undefined fetchOrders with fetchReadyOrders
+                fetchReadyOrders();
+                fetchSalesHistory();
+                fetchTodaySales();
             }
         } catch (err) {
             console.error('Payment error:', err);
             const errorMsg = err.response?.data?.error || 'Payment failed. Please try again.';
-            setNotification(errorMsg);
+            // ✅ FIX: Replaced undefined setNotification with alert
+            alert(errorMsg);
             // DO NOT clear the idempotency key here. Let the user retry with the same key.
         } finally {
             setProcessing(false);
