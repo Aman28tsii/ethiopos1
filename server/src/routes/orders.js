@@ -524,12 +524,20 @@ router.put("/confirm/:orderId", authorizeBranch, allowWaiter, async (req, res) =
         const orderCheck = await client.query(`
             SELECT o.id, o.status, o.table_id, o.customer_name, o.order_number, o.waiter_id
             FROM orders o
-            WHERE o.id = $1 AND o.status = 'pending_confirmation' AND o.branch_id = $2 AND o.company_id = $3
+            WHERE o.id = $1
+  AND o.status = 'pending_confirmation'
+  AND o.branch_id = $2
+  AND o.company_id = $3
+FOR UPDATE
         `, [orderId, branchId, companyId]);
         
         if (orderCheck.rows.length === 0) {
-            return res.status(404).json({ success: false, error: "Order not found or already confirmed" });
-        }
+    await client.query("ROLLBACK");
+    return res.status(404).json({
+        success: false,
+        error: "Order not found or already confirmed"
+    });
+}
         
         const order = orderCheck.rows[0];
         
@@ -539,8 +547,12 @@ router.put("/confirm/:orderId", authorizeBranch, allowWaiter, async (req, res) =
         }
         
         if (order.waiter_id && order.waiter_id !== userId) {
-            return res.status(403).json({ success: false, error: "This order is not assigned to you" });
-        }
+    await client.query("ROLLBACK");
+    return res.status(403).json({
+        success: false,
+        error: "This order is not assigned to you"
+    });
+}
         
         await client.query(`
             UPDATE orders 

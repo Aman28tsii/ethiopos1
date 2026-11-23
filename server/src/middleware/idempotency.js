@@ -24,9 +24,31 @@ const getCacheKey = (key, companyId, branchId, resourceType = 'order') => {
 };
 
 // Generate request hash from payload
+// Recursively sort object keys while preserving array order.
+const canonicalize = (value) => {
+    if (Array.isArray(value)) {
+        return value.map(canonicalize);
+    }
+
+    if (value !== null && typeof value === 'object') {
+        return Object.keys(value)
+            .sort()
+            .reduce((result, key) => {
+                result[key] = canonicalize(value[key]);
+                return result;
+            }, {});
+    }
+
+    return value;
+};
+
 const generateRequestHash = (body) => {
-    const canonical = JSON.stringify(body, Object.keys(body).sort());
-    return crypto.createHash('sha256').update(canonical).digest('hex');
+    const canonical = JSON.stringify(canonicalize(body));
+
+    return crypto
+        .createHash('sha256')
+        .update(canonical)
+        .digest('hex');
 };
 
 // Ensure idempotency_records table exists
