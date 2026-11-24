@@ -1,20 +1,4 @@
-// server/src/middleware/errorHandler.js
-
-export class AppError extends Error {
-  constructor(message, statusCode, errorCode = null) {
-    super(message);
-    this.statusCode = statusCode;
-    this.errorCode = errorCode;
-    this.isOperational = true;
-  }
-}
-
-export const notFound = (req, res, next) => {
-  const error = new AppError(`Cannot ${req.method} ${req.path} - Not found`, 404);
-  next(error);
-};
-
-export const errorHandler = (err, req, res, next) => {
+export const errorHandler = (err, res, req, next) => {
   // Log error with details
   console.error('Error:', err.message);
   console.error('Stack:', err.stack);
@@ -26,62 +10,65 @@ export const errorHandler = (err, req, res, next) => {
     branch: req.user?.branch_id
   });
   
-  const statusCode = err.statusCode || 500;
-  const message = err.message || 'Internal server error';
+  let statusCode = err.statusCode || 500;
+  let message = err.message || 'Internal server error';
+  let errorCode = err.errorCode;
   
-  // ✅ FIXED: Only show stack in development
+  // ✅ D10-C FIX: Detect PostgreSQL errors and map to appropriate HTTP status
+  if (err.code && typeof err.code === 'string' && err.code.startsWith('23')) {
+    // PostgreSQL class 23 errors: Integrity Constraint Violation
+    switch (err.code) {
+      case '23503': // foreign_key_violation
+        statusCode = 409;
+        message = 'Cannot delete this record: it is referenced by other data';
+        errorCode = 'REFERENCED';
+        break;
+      case '23505': // unique_violation
+        statusCode = 409;
+        message = 'A record with this value already exists';
+        errorCode = 'DUPLICATE';
+        break;
+      case '23502': // not_null_violation
+        statusCode = 400;
+        message = 'Required field is missing';
+        errorCode = 'MISSING_FIELD';
+        break;
+      case '23514': // check_violation
+        statusCode = 400;
+        message = 'Invalid data: does not meet validation rules';
+        errorCode = 'VALIDATION_FAILED';
+        break;
+      default:
+        statusCode = 400;
+        message = 'Database constraint violation';
+        errorCode = 'CONSTRAINT_VIOLATION';
+    }
+  }
+  
   const response = {
     success: false,
     error: message
   };
   
-  // Add error code if present
-  if (err.errorCode) {
-    response.code = err.errorCode;
+  if (errorCode) {
+    response.code = errorCode;
   }
   
-  // Add stack trace only in development
   if (process.env.NODE_ENV !== 'production') {
     response.stack = err.stack;
     response.details = err.details || null;
   }
   
-  // Log full error for production debugging
   if (process.env.NODE_ENV === 'production') {
     console.error('[PRODUCTION ERROR]', {
       message: err.message,
       stack: err.stack,
       statusCode,
+      pgCode: err.code || null,
       userId: req.user?.id,
       path: req.path
     });
   }
   
   res.status(statusCode).json(response);
-};
-
-export const catchAsync = (fn) => {
-  return (req, res, next) => {
-    Promise.resolve(fn(req, res, next)).catch(next);
-  };
-};
-
-// ============================================
-// GLOBAL UNHANDLED REJECTION HANDLER
-// ============================================
-
-export const setupUnhandledRejection = () => {
-  process.on('unhandledRejection', (err) => {
-    console.error('UNHANDLED REJECTION:', err);
-    // In production, you may want to notify monitoring
-  });
-
-  process.on('uncaughtException', (err) => {
-    console.error('UNCAUGHT EXCEPTION:', err);
-    // In production, log and exit gracefully
-    if (process.env.NODE_ENV === 'production') {
-      console.error('FATAL: Uncaught exception. Shutting down...');
-      process.exit(1);
-    }
-  });
 };
