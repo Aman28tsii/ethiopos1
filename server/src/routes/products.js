@@ -8,7 +8,8 @@ import {
     getCategories,
     getPublicProductsByTable
 } from "../controllers/productController.js";
-import { validateProduct, validatePagination } from "../middleware/validation.js";
+import { validateProduct } from "../middleware/validation.js";
+import { validatePagination } from "../middleware/validatePagination.js";
 import { protect, allowManager, allowOwner } from "../middleware/auth.js";
 import { authorizeCompany, requireCompanyContext } from "../middleware/authorization.js";
 
