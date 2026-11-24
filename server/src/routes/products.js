@@ -11,7 +11,7 @@ import {
 import { validateProduct, validatePagination } from "../middleware/validation.js";
 import { protect, allowManager, allowOwner } from "../middleware/auth.js";
 import { authorizeCompany, requireCompanyContext } from "../middleware/authorization.js";
-import { validatePagination } from '../middleware/validatePagination.js';
+
 
 const router = express.Router();
 
@@ -48,7 +48,6 @@ router.delete("/:id", authorizeCompany, allowOwner, deleteProduct);
 // "/categories", or "/admin".
 router.get("/:id", authorizeCompany, getProductById);
 
-// Add validatePagination to the GET route
-router.get('/', authorize, validatePagination, getProducts); 
+
 
 export default router;

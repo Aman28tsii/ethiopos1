@@ -14,6 +14,7 @@ const pool = new Pool({
   database: process.env.DB_NAME || 'restaurant_pos_db',
   ...(isProduction && { ssl: { rejectUnauthorized: false } }),
   connectionTimeoutMillis: 30000,
+  
   max: 20,                // ✅ ADD: Increase pool size for concurrent POS usage
   statement_timeout: 15000 // ✅ ADD: Kill queries running longer than 15 seconds
 });
