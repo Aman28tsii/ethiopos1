@@ -40,6 +40,7 @@ export const getAllRecipes = catchAsync(async (req, res) => {
         LEFT JOIN recipe_ingredients ri ON r.id = ri.recipe_id
         LEFT JOIN ingredients i ON ri.ingredient_id = i.id
         WHERE p.company_id = $1
+          AND p.is_available = true
         GROUP BY r.id, p.name, p.price, p.category, p.company_id
         ORDER BY p.name
     `, [companyId]);
@@ -493,7 +494,11 @@ export const getRecipeCount = catchAsync(async (req, res) => {
         [companyId]
     );
     const recipesWithRecipe = await query(
-        'SELECT COUNT(DISTINCT r.product_id) as count FROM recipes r JOIN products p ON r.product_id = p.id WHERE p.company_id = $1',
+        `SELECT COUNT(DISTINCT r.product_id) as count
+        FROM recipes r
+        JOIN products p ON r.product_id = p.id
+        WHERE p.company_id = $1
+        AND p.is_available = true`,
         [companyId]
     );
     const total = parseInt(totalProducts.rows[0].total) || 0;
@@ -507,6 +512,7 @@ export const getRecipeCount = catchAsync(async (req, res) => {
         }
     });
 });
+
 // ============================================================
 // CALCULATE ORDER WASTAGE
 // ============================================================
@@ -531,7 +537,7 @@ export const calculateOrderWastage = catchAsync(async (req, res) => {
     let totalWastageCost = 0;
     const wastageDetails = [];
 
-    // ✅ PERF FIX: Batch fetch all recipes for all products in the order (prevents N+1)
+    // ✅ PERF FIX: Batch fetch all recipes for all products in the order to prevent N+1 queries
     const productIds = orderItems.rows.map(item => item.product_id);
     const allRecipes = await query(`
         SELECT
@@ -551,9 +557,9 @@ export const calculateOrderWastage = catchAsync(async (req, res) => {
         WHERE r.product_id = ANY($1)
     `, [productIds]);
 
-    // Group recipes by product_id for lookup
+    // Group recipes by product_id for easy lookup
     const recipeMap = new Map();
-    for (const row of allRecipes.rows) {          // ✅ FIXED: was `of allRecipes`
+    for (const row of allRecipes.rows) {
         if (!recipeMap.has(row.product_id)) {
             recipeMap.set(row.product_id, []);
         }
