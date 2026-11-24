@@ -1,4 +1,4 @@
-export const errorHandler = (err, res, req, next) => {
+export const errorHandler = (err, req, res, next) => { // ✅ FIXED SIGNATURE (was res, req)
   // Log error with details
   console.error('Error:', err.message);
   console.error('Stack:', err.stack);
@@ -14,35 +14,30 @@ export const errorHandler = (err, res, req, next) => {
   let message = err.message || 'Internal server error';
   let errorCode = err.errorCode;
   
-  // ✅ D10-C FIX: Detect PostgreSQL errors and map to appropriate HTTP status
-  if (err.code && typeof err.code === 'string' && err.code.startsWith('23')) {
-    // PostgreSQL class 23 errors: Integrity Constraint Violation
-    switch (err.code) {
-      case '23503': // foreign_key_violation
-        statusCode = 409;
-        message = 'Cannot delete this record: it is referenced by other data';
-        errorCode = 'REFERENCED';
-        break;
-      case '23505': // unique_violation
-        statusCode = 409;
-        message = 'A record with this value already exists';
-        errorCode = 'DUPLICATE';
-        break;
-      case '23502': // not_null_violation
-        statusCode = 400;
-        message = 'Required field is missing';
-        errorCode = 'MISSING_FIELD';
-        break;
-      case '23514': // check_violation
-        statusCode = 400;
-        message = 'Invalid data: does not meet validation rules';
-        errorCode = 'VALIDATION_FAILED';
-        break;
-      default:
-        statusCode = 400;
-        message = 'Database constraint violation';
-        errorCode = 'CONSTRAINT_VIOLATION';
-    }
+  // ✅ D10-C FIX: Detect PostgreSQL errors by code OR message pattern
+  // (Controllers sometimes wrap PG errors in AppError, stripping the .code property)
+  const pgCode = err.code;
+  const msg = (message || '').toLowerCase();
+
+  if (pgCode === '23503' || msg.includes('violates foreign key constraint') || msg.includes('violates restrict setting')) {
+    statusCode = 409;
+    message = 'Cannot delete this record: it is referenced by other data';
+    errorCode = 'REFERENCED';
+  } 
+  else if (pgCode === '23505' || msg.includes('unique constraint') || msg.includes('duplicate key value')) {
+    statusCode = 409;
+    message = 'A record with this value already exists';
+    errorCode = 'DUPLICATE';
+  } 
+  else if (pgCode === '23502' || msg.includes('null value in column')) {
+    statusCode = 400;
+    message = 'Required field is missing';
+    errorCode = 'MISSING_FIELD';
+  } 
+  else if (pgCode === '23514' || msg.includes('check constraint')) {
+    statusCode = 400;
+    message = 'Invalid data: does not meet validation rules';
+    errorCode = 'VALIDATION_FAILED';
   }
   
   const response = {
@@ -64,7 +59,7 @@ export const errorHandler = (err, res, req, next) => {
       message: err.message,
       stack: err.stack,
       statusCode,
-      pgCode: err.code || null,
+      pgCode: pgCode || null,
       userId: req.user?.id,
       path: req.path
     });
