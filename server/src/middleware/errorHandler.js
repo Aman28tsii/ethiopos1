@@ -1,4 +1,20 @@
-export const errorHandler = (err, req, res, next) => { // ✅ FIXED SIGNATURE (was res, req)
+// server/src/middleware/errorHandler.js
+
+export class AppError extends Error {
+  constructor(message, statusCode, errorCode = null) {
+    super(message);
+    this.statusCode = statusCode;
+    this.errorCode = errorCode;
+    this.isOperational = true;
+  }
+}
+
+export const notFound = (req, res, next) => {
+  const error = new AppError(`Cannot ${req.method} ${req.path} - Not found`, 404);
+  next(error);
+};
+
+export const errorHandler = (err, req, res, next) => {
   // Log error with details
   console.error('Error:', err.message);
   console.error('Stack:', err.stack);
@@ -15,7 +31,6 @@ export const errorHandler = (err, req, res, next) => { // ✅ FIXED SIGNATURE (w
   let errorCode = err.errorCode;
   
   // ✅ D10-C FIX: Detect PostgreSQL errors by code OR message pattern
-  // (Controllers sometimes wrap PG errors in AppError, stripping the .code property)
   const pgCode = err.code;
   const msg = (message || '').toLowerCase();
 
@@ -66,4 +81,24 @@ export const errorHandler = (err, req, res, next) => { // ✅ FIXED SIGNATURE (w
   }
   
   res.status(statusCode).json(response);
+};
+
+export const catchAsync = (fn) => {
+  return (req, res, next) => {
+    Promise.resolve(fn(req, res, next)).catch(next);
+  };
+};
+
+export const setupUnhandledRejection = () => {
+  process.on('unhandledRejection', (err) => {
+    console.error('UNHANDLED REJECTION:', err);
+  });
+
+  process.on('uncaughtException', (err) => {
+    console.error('UNCAUGHT EXCEPTION:', err);
+    if (process.env.NODE_ENV === 'production') {
+      console.error('FATAL: Uncaught exception. Shututting down...');
+      process.exit(1);
+    }
+  });
 };
