@@ -507,7 +507,6 @@ export const getRecipeCount = catchAsync(async (req, res) => {
         }
     });
 });
-
 // ============================================================
 // CALCULATE ORDER WASTAGE
 // ============================================================
@@ -532,7 +531,7 @@ export const calculateOrderWastage = catchAsync(async (req, res) => {
     let totalWastageCost = 0;
     const wastageDetails = [];
 
-    // ✅ PERF FIX: Batch fetch all recipes for all products in the order to prevent N+1 queries
+    // ✅ PERF FIX: Batch fetch all recipes for all products in the order (prevents N+1)
     const productIds = orderItems.rows.map(item => item.product_id);
     const allRecipes = await query(`
         SELECT
@@ -552,9 +551,9 @@ export const calculateOrderWastage = catchAsync(async (req, res) => {
         WHERE r.product_id = ANY($1)
     `, [productIds]);
 
-    // Group recipes by product_id for easy lookup
+    // Group recipes by product_id for lookup
     const recipeMap = new Map();
-    for (const row of allRecipes) {
+    for (const row of allRecipes.rows) {          // ✅ FIXED: was `of allRecipes`
         if (!recipeMap.has(row.product_id)) {
             recipeMap.set(row.product_id, []);
         }
