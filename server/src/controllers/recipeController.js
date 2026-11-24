@@ -172,18 +172,26 @@ export const createOrUpdateRecipe = catchAsync(async (req, res) => {
             );
             recipeId = result.rows[0].id;
         }
+
+        // ✅ PERF FIX: Batch fetch all ingredients to prevent N+1 queries
+        const ingredientIds = ingredients.map(item => item.ingredient_id);
+        const validIngredients = await client.query(
+            'SELECT id, unit FROM ingredients WHERE id = ANY($1) AND company_id = $2',
+            [ingredientIds, companyId]
+        );
+        const validIngredientMap = new Map(validIngredients.rows.map(row => [row.id, row]));
+
         for (const item of ingredients) {
             if (!item.ingredient_id || !item.quantity_required || item.quantity_required <= 0) {
                 throw new AppError('Each ingredient requires valid ingredient_id and quantity_required', 400);
             }
-            const ingredientCheck = await client.query(
-                'SELECT id, unit FROM ingredients WHERE id = $1 AND company_id = $2',
-                [item.ingredient_id, companyId]
-            );
-            if (ingredientCheck.rows.length === 0) {
+            
+            const dbIng = validIngredientMap.get(item.ingredient_id);
+            if (!dbIng) {
                 throw new AppError(`Ingredient ID ${item.ingredient_id} not found in this company`, 404);
             }
-            const unit = item.unit || ingredientCheck.rows[0].unit || 'pcs';
+            
+            const unit = item.unit || dbIng.unit || 'pcs';
             await client.query(
                 `INSERT INTO recipe_ingredients (
                     recipe_id, ingredient_id, unit, quantity_required,
@@ -523,24 +531,39 @@ export const calculateOrderWastage = catchAsync(async (req, res) => {
     }
     let totalWastageCost = 0;
     const wastageDetails = [];
+
+    // ✅ PERF FIX: Batch fetch all recipes for all products in the order to prevent N+1 queries
+    const productIds = orderItems.rows.map(item => item.product_id);
+    const allRecipes = await query(`
+        SELECT
+            r.product_id,
+            ri.ingredient_id,
+            ri.quantity_required,
+            ri.wastage_percentage,
+            ri.cooking_loss_percentage,
+            i.name as ingredient_name,
+            i.unit,
+            i.unit_cost,
+            i.quantity as current_stock,
+            r.yield_quantity
+        FROM recipe_ingredients ri
+        JOIN ingredients i ON ri.ingredient_id = i.id
+        JOIN recipes r ON ri.recipe_id = r.id
+        WHERE r.product_id = ANY($1)
+    `, [productIds]);
+
+    // Group recipes by product_id for easy lookup
+    const recipeMap = new Map();
+    for (const row of allRecipes) {
+        if (!recipeMap.has(row.product_id)) {
+            recipeMap.set(row.product_id, []);
+        }
+        recipeMap.get(row.product_id).push(row);
+    }
+
     for (const item of orderItems.rows) {
-        const recipeResult = await query(`
-            SELECT
-                ri.ingredient_id,
-                ri.quantity_required,
-                ri.wastage_percentage,
-                ri.cooking_loss_percentage,
-                i.name as ingredient_name,
-                i.unit,
-                i.unit_cost,
-                i.quantity as current_stock,
-                r.yield_quantity
-            FROM recipe_ingredients ri
-            JOIN ingredients i ON ri.ingredient_id = i.id
-            JOIN recipes r ON ri.recipe_id = r.id
-            WHERE r.product_id = $1
-        `, [item.product_id]);
-        for (const ing of recipeResult.rows) {
+        const recipeResult = recipeMap.get(item.product_id) || [];
+        for (const ing of recipeResult) {
             const yieldQty = parseFloat(ing.yield_quantity) || 1;
             const expectedQty = (parseFloat(ing.quantity_required) / yieldQty) * item.quantity;
             const wastagePct = parseFloat(ing.wastage_percentage) || 0;
