@@ -76,7 +76,10 @@ const corsOptions = {
                 callback(null, true);
             } else {
                 console.log(`[CORS] Blocked origin: ${origin}`);
-                callback(new Error('Not allowed by CORS'));
+                const corsError = new Error('Not allowed by CORS');
+                corsError.statusCode = 403;
+                corsError.status = 403;
+                callback(corsError);
             }
         }
     },
