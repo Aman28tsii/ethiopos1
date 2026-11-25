@@ -6,7 +6,10 @@ import { query } from '../config/database.js';
 import { AppError, catchAsync } from '../middleware/errorHandler.js';
 import { ALLOWED_ROLES } from '../middleware/auth.js';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'your_super_secret_key';
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  throw new Error('FATAL ERROR: JWT_SECRET is not defined in environment variables.');
+}
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
 
 const generateToken = (user) => {

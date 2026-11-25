@@ -144,7 +144,7 @@ export const createOrder = catchAsync(async (req, res) => {
             };
             
             // Emit to kitchen room (branch-specific)
-            io.to(`kitchen_${branchId}`).emit('new_order', orderData);
+           io.to(`kitchen_${companyId}_${branchId}`).emit('new_order', orderData);
             
             // Emit to branch room
             io.to(`branch_${companyId}_${branchId}`).emit('new_order_branch', orderData);

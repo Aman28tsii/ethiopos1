@@ -40,7 +40,11 @@ dotenv.config();
 const app = express();
 const server = createServer(app);
 
-const JWT_SECRET = process.env.JWT_SECRET || 'your_super_secret_key';
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  console.error('FATAL ERROR: JWT_SECRET is not defined in environment variables.');
+  process.exit(1);
+}
 const PORT = process.env.PORT || 5000;
 
 // ============================================================
@@ -50,10 +54,13 @@ const PORT = process.env.PORT || 5000;
 const allowedOrigins = [
     'https://ethiopos1-1.onrender.com',
     'https://ethiopos1.onrender.com',
-    'http://localhost:3000',
-    'http://localhost:3001',
     'https://ethiopos-offline-pos.onrender.com'
 ];
+
+// Only allow localhost origins in development
+if (process.env.NODE_ENV !== 'production') {
+    allowedOrigins.push('http://localhost:3000', 'http://localhost:3001');
+}
 
 // ============================================================
 // CORS CONFIGURATION
