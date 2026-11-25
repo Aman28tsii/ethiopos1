@@ -196,17 +196,16 @@ app.use("/api/platform-admin", platformAdminRoutes);
 // Health Check - Must be before static files
 // ============================================================
 
-app.get("/health", (req, res) => {
-    const origin = req.headers.origin;
-    if (origin && allowedOrigins.includes(origin)) {
-        res.setHeader('Access-Control-Allow-Origin', origin);
-    } else {
-        res.setHeader('Access-Control-Allow-Origin', '*');
+app.get("/health", async (req, res) => {
+    try {
+        // Verify database connectivity with a short timeout
+        await pool.query('SELECT 1');
+        res.json({ status: "ok", database: "connected", timestamp: new Date().toISOString() });
+    } catch (err) {
+        console.error('Health check failed:', err.message);
+        // Return 503 to signal to Render/load balancers that the app is not ready
+        res.status(503).json({ status: "error", database: "disconnected", timestamp: new Date().toISOString() });
     }
-    res.setHeader('Access-Control-Allow-Credentials', 'true');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, cache-control');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
 app.get("/", (req, res) => {

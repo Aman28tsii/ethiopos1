@@ -22,6 +22,11 @@ const pool = new Pool({
 export const query = (text, params) => pool.query(text, params);
 export const getClient = () => pool.connect();
 
+// === CRITICAL SAFETY GUARD: Handle idle connection drops gracefully ===
+pool.on('error', (err) => {
+    console.error('Unexpected error on idle PostgreSQL client (expected on proxy drop):', err.message);
+});
+
 export const testConnection = async () => {
   try {
     const client = await pool.connect();
