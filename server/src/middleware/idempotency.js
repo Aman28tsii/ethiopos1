@@ -141,8 +141,8 @@ const getResourceType = (req) => {
 //   2. Request body's table_id → look up tables row
 //
 // Never falls back to any hardcoded company or branch.
-// Returns { companyId, branchId } or null if no context can be
-// resolved. Callers must handle the null case.
+// Returns { companyId, branchId } or an error object if no context can be
+// resolved. Callers must handle the null/error case.
 // ============================================================
 const resolveTenantContext = async (req) => {
     // 1. Authenticated user (staff endpoints)
@@ -156,30 +156,37 @@ const resolveTenantContext = async (req) => {
     // 2. Public QR flow — derive tenant from the table
     const tableId = req.body?.table_id;
     if (tableId === undefined || tableId === null || tableId === '') {
-        return null;
+        return { error: 'Table ID is required for QR orders', status: 400 };
     }
 
     const numericTableId = parseInt(tableId, 10);
     if (!Number.isFinite(numericTableId) || numericTableId <= 0) {
-        return null;
+        return { error: 'Invalid table ID format', status: 400 };
     }
 
     try {
+        // ✅ FIX: Added is_active to the SELECT query
         const tableResult = await query(
-            `SELECT id, company_id, branch_id FROM tables WHERE id = $1`,
+            `SELECT id, company_id, branch_id, is_active FROM tables WHERE id = $1`,
             [numericTableId]
         );
         if (tableResult.rows.length === 0) {
-            return null;
+            return { error: 'Table not found', status: 404 };
         }
         const table = tableResult.rows[0];
+        
+        // ✅ FIX: Reject orders from inactive tables
+        if (!table.is_active) {
+            return { error: 'This table is currently inactive and cannot accept orders', status: 400 };
+        }
+        
         if (!table.company_id || !table.branch_id) {
-            return null;
+            return { error: 'Table missing tenant context', status: 500 };
         }
         return { companyId: table.company_id, branchId: table.branch_id };
     } catch (err) {
         console.error('[IDEMPOTENCY] Table lookup error:', err.message);
-        return null;
+        return { error: 'Database error during table lookup', status: 500 };
     }
 };
 
@@ -211,10 +218,11 @@ export const idempotent = (req, res, next) => {
 
     resolveTenantContext(req)
         .then(async (tenant) => {
-            if (!tenant) {
-                return res.status(401).json({
+            // ✅ FIX: Handle both null and error object returns from resolveTenantContext
+            if (!tenant || tenant.error) {
+                return res.status(tenant?.status || 401).json({
                     success: false,
-                    error: 'Unable to resolve company context for idempotent operation'
+                    error: tenant?.error || 'Unable to resolve company context for idempotent operation'
                 });
             }
 
