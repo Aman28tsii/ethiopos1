@@ -127,16 +127,23 @@ export const sync = async () => {
         }
 
         console.log(`[SYNC] Found ${pendingOrders.length} pending orders for branch ${context.branch_id}`);
-
         let synced = 0;
         let failed = 0;
 
-        for (const order of pendingOrders) {
+        for (let i = 0; i < pendingOrders.length; i++) {
+            const order = pendingOrders[i];
             const result = await syncSingleOrder(order);
+            
             if (result === 'synced') {
                 synced++;
             } else if (result === 'failed') {
                 failed++;
+            }
+
+            // ✅ FIX: Throttle requests to respect backend rate limiter (30 req/min = 1 req / 2 sec)
+            // Prevents 429 Too Many Requests during bulk offline syncs
+            if (i < pendingOrders.length - 1) {
+                await new Promise(resolve => setTimeout(resolve, 2000));
             }
         }
 
