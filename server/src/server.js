@@ -92,7 +92,8 @@ const corsOptions = {
         "cache-control",
         "X-Requested-With",
         "Accept",
-        "Origin"
+        "Origin",
+        "X-Client-Order-Id"
     ]
 };
 
