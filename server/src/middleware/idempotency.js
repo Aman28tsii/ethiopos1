@@ -165,9 +165,9 @@ const resolveTenantContext = async (req) => {
     }
 
     try {
-        // ✅ FIX: Added is_active to the SELECT query
+        // ✅ FIX: Check the 'status' column instead of 'is_active'
         const tableResult = await query(
-            `SELECT id, company_id, branch_id, is_active FROM tables WHERE id = $1`,
+            `SELECT id, company_id, branch_id, status FROM tables WHERE id = $1`,
             [numericTableId]
         );
         if (tableResult.rows.length === 0) {
@@ -175,9 +175,10 @@ const resolveTenantContext = async (req) => {
         }
         const table = tableResult.rows[0];
         
-        // ✅ FIX: Reject orders from inactive tables
-        if (!table.is_active) {
-            return { error: 'This table is currently inactive and cannot accept orders', status: 400 };
+        // ✅ FIX: Reject orders if table is not 'available' 
+        // (Adjust 'available' to 'active' if your DB uses that specific string)
+        if (table.status !== 'available') {
+            return { error: `This table is currently ${table.status} and cannot accept orders`, status: 400 };
         }
         
         if (!table.company_id || !table.branch_id) {
