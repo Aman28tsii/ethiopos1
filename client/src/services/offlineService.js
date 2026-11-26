@@ -18,7 +18,7 @@ import { generateLocalOrderId, generateIdempotencyKey, generateClientOrderId } f
 export const isApiReachable = async () => {
     try {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 5000);
+       const timeoutId = setTimeout(() => controller.abort(), 20000);
         const response = await fetch('/health', { 
             signal: controller.signal,
             method: 'GET',
