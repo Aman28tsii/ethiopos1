@@ -102,28 +102,30 @@ const IngredientRow = ({ ingredient, onEdit, onDelete, onMarkEmpty, onBrokenBott
 const ProductCard = ({ product, onEdit, onDelete, onRecipe, formatCurrency }) => {
     const { t } = useLanguage();
     
-    const getCategoryEmoji = (category) => {
+        const getCategoryEmoji = (category) => {
+        const cp = String.fromCodePoint;
         const emojis = {
-            'Main Course': '??',
-            'Beverage': '??',
-            'Drink': '??',
-            'Juice': '??',
-            'Coffee': '?',
-            'Tea': '??',
-            'Dessert': '??',
-            'Appetizer': '??',
-            'Soup': '??',
-            'Salad': '??',
-            'Breakfast': '??',
-            'Traditional': '????',
-            'Ethiopian': '????',
-            'Side': '??',
-            'Main Dish': '??',
-            'Vegetarian': '??'
+            'Main Course': cp(0x1F35B),
+            'Beverage': cp(0x1F964),
+            'Drink': cp(0x1F964),
+            'Juice': cp(0x1F9C3),
+            'Coffee': cp(0x2615),
+            'Tea': cp(0x1F375),
+            'Dessert': cp(0x1F370),
+            'Appetizer': cp(0x1F362),
+            'Soup': cp(0x1F372),
+            'Salad': cp(0x1F957),
+            'Breakfast': cp(0x1F373),
+            'Traditional': cp(0x1F1EA, 0x1F1F9),
+            'Ethiopian': cp(0x1F1EA, 0x1F1F9),
+            'Side': cp(0x1F957),
+            'Main Dish': cp(0x1F35B),
+            'Vegetarian': cp(0x1F96C)
         };
-        return emojis[category] || '???';
+        return emojis[category] || cp(0x1F37D, 0xFE0F);
     };
 
+    
     return (
         <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden hover:border-purple-500/50 transition-all shadow-sm hover:shadow-md">
             <div className="h-32 bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-700 dark:to-gray-800 flex items-center justify-center">
