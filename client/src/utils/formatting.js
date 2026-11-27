@@ -1,4 +1,4 @@
-﻿export const formatCurrency = function(value) {
+export const formatCurrency = function(value) {
   const num = parseFloat(value || 0);
   const rounded = Math.round(num * 100) / 100;
   return 'Br ' + rounded.toLocaleString(undefined, { 

@@ -1,4 +1,4 @@
-﻿// client/src/pages/waiter/TableGrid.js
+// client/src/pages/waiter/TableGrid.js
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import API from '../../api/axios';

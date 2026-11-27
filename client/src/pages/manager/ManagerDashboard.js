@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import API from '../../api/axios';
 import { Loader2, DollarSign, Package, Users, TrendingUp, AlertTriangle } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';

@@ -1,4 +1,4 @@
-﻿import React from 'react';
+import React from 'react';
 import { FileText, FileSpreadsheet } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';

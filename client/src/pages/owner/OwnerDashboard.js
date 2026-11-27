@@ -1,4 +1,4 @@
-﻿// client/src/pages/owner/OwnerDashboard.js
+// client/src/pages/owner/OwnerDashboard.js
 
 import React, { useState, useEffect } from 'react';
 import API from '../../api/axios';

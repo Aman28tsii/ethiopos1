@@ -1,4 +1,4 @@
-﻿// client/src/socket.js
+// client/src/socket.js
 // Socket.IO is DISABLED to prevent flickering
 
 export const connectSocket = () => {

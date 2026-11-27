@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useCallback, useRef, memo } from 'react';
+import React, { useState, useEffect, useCallback, useRef, memo } from 'react';
 import API from '../api/axios';
 import socket from '../socket';
 import { Bell, AlertTriangle, ShoppingBag, CheckCircle } from 'lucide-react';

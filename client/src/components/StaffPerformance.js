@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useCallback, useRef, memo } from 'react';
+import React, { useState, useEffect, useCallback, useRef, memo } from 'react';
 import API from '../api/axios';
 import { Award, Loader2, Medal, Crown } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';

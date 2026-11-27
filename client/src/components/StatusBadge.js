@@ -1,4 +1,4 @@
-﻿import React from 'react';
+import React from 'react';
 import { getOrderStatusInfo } from '../utils/formatting';
 import * as Icons from 'lucide-react';
 

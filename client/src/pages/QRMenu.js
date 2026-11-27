@@ -1,4 +1,4 @@
-﻿// client/src/pages/QRMenu.js
+// client/src/pages/QRMenu.js
 import React, { useState, useEffect } from 'react';
 import API from '../api/axios';
 import { 
