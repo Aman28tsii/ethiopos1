@@ -433,11 +433,11 @@ input[type="button"],
    ============================================ */
 
 .qr-menu-container {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: #2563eb;
 }
 
 .dark .qr-menu-container {
-  background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+  background: #1d4ed8;
 }
 
 .qr-menu-header {
@@ -468,13 +468,13 @@ input[type="button"],
 }
 
 .category-tab.active {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: #2563eb;
   color: white;
   box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
 }
 
 .dark .category-tab.active {
-  background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+  background: #1d4ed8;
 }
 
 .category-tab.active::after {
@@ -628,14 +628,14 @@ input[type="button"],
 }
 
 .gradient-text {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: #2563eb;
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
 }
 
 .dark .gradient-text {
-  background: linear-gradient(135deg, #818cf8 0%, #c084fc 100%);
+  background: #3b82f6;
   -webkit-background-clip: text;
   background-clip: text;
 }
@@ -666,10 +666,10 @@ input[type="button"],
    ============================================ */
 
 :root {
-  --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  --secondary-gradient: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-  --success-gradient: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
-  --warning-gradient: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
+  --primary-gradient: #2563eb;
+  --secondary-gradient: #dc2626;
+  --success-gradient: #059669;
+  --warning-gradient: #d97706;
   --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
   --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
   --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
