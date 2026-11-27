@@ -6,7 +6,8 @@ import {
 } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 import RecipeManager from '../components/RecipeManager';
-import { formatCurrency, getProductEmoji } from '../utils/formatting';
+import { formatCurrency } from '../utils/formatting';
+import { getProductEmoji } from '../utils/emojiMap';
 
 // ============================================
 // PRODUCT CARD COMPONENT
