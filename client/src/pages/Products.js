@@ -438,15 +438,15 @@ const Products = () => {
                                     className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                                 >
                                     <option value="">Select category</option>
-                                    <option value="Main Course">🍛 Main Course</option>
-                                    <option value="Beverage">🥤 Beverage</option>
-                                    <option value="Coffee">☕ Coffee</option>
-                                    <option value="Tea">🍵 Tea</option>
-                                    <option value="Dessert">🍰 Dessert</option>
-                                    <option value="Appetizer">🍢 Appetizer</option>
-                                    <option value="Soup">🍲 Soup</option>
+                                    <option value="Main Course">{String.fromCodePoint(0x1F35B)} Main Course</option>
+                                    <option value="Beverage">{String.fromCodePoint(0x1F964)} Beverage</option>
+                                    <option value="Coffee">{String.fromCodePoint(0x2615)} Coffee</option>
+                                    <option value="Tea">{String.fromCodePoint(0x1F375)} Tea</option>
+                                    <option value="Dessert">{String.fromCodePoint(0x1F370)} Dessert</option>
+                                    <option value="Appetizer">{String.fromCodePoint(0x1F362)} Appetizer</option>
+                                    <option value="Soup">{String.fromCodePoint(0x1F372)} Soup</option>
                                     <option value="Salad">🥗 Salad</option>
-                                    <option value="Breakfast">🍳 Breakfast</option>
+                                    <option value="Breakfast">{String.fromCodePoint(0x1F373)} Breakfast</option>
                                     <option value="Traditional">🇪🇹 Traditional</option>
                                     <option value="Side">🥗 Side</option>
                                     <option value="Vegetarian">🥬 Vegetarian</option>
