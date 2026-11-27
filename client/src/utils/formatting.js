@@ -66,7 +66,7 @@ export const getOrderStatusInfo = function(status) {
   };
 };
 
-getProductEmoji = function (category) {
+export const getProductEmoji = function (category) {
   const cp = String.fromCodePoint;
   const emojis = {
     'main course':    cp(0x1F35B),
