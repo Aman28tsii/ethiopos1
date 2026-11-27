@@ -147,7 +147,7 @@ const BranchManagement = () => {
                         onClick={openCreateModal}
                         className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl flex items-center gap-2 transition"
                     >
-                        <Plus size={18} />
+                        <Plus size={18} aria-label="Add new item" />
                         Add Branch
                     </button>
                 </div>
@@ -163,7 +163,7 @@ const BranchManagement = () => {
                     {notification.type === 'success' ? <CheckCircle size={20} /> : <AlertCircle size={20} />}
                     <span>{notification.message}</span>
                     <button onClick={() => setNotification(null)} className="ml-auto">
-                        <X size={18} />
+                        <X size={18} aria-label="Close" />
                     </button>
                 </div>
             )}
@@ -258,7 +258,7 @@ const BranchManagement = () => {
                                 {editingBranch ? 'Edit Branch' : 'Add New Branch'}
                             </h2>
                             <button onClick={resetModal} className="text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
-                                <X size={24} />
+                                <X size={24} aria-label="Close" />
                             </button>
                         </div>
                         <form onSubmit={handleSubmit} className="p-5 space-y-4">
@@ -339,7 +339,7 @@ const BranchManagement = () => {
                                 Delete Branch
                             </h2>
                             <button onClick={() => setDeleteConfirm(null)} className="text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
-                                <X size={24} />
+                                <X size={24} aria-label="Close" />
                             </button>
                         </div>
                         <div className="p-5">

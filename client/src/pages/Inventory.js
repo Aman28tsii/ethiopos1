@@ -1,8 +1,8 @@
-﻿import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import API from '../api/axios';
 import { 
     Package, Plus, Edit2, Trash2, AlertTriangle, Search, X, Loader2,
-    UtensilsCrossed, Wine, AlertCircle  // ★ Wine icon for bottle actions
+    UtensilsCrossed, Wine, AlertCircle  // ? Wine icon for bottle actions
 } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 import { useDebounce } from '../hooks/useDebounce';
@@ -45,7 +45,7 @@ const IngredientRow = ({ ingredient, onEdit, onDelete, onMarkEmpty, onBrokenBott
                     <span className="text-xs text-gray-500 ml-1">({t('safetyStock')}: {ingredient.safety_stock})</span>
                 )}
             </td>
-            {/* ★ NEW: Bottle column */}
+            {/* ? NEW: Bottle column */}
             <td className="px-6 py-4 text-gray-600 dark:text-gray-300">
                 {bottleInfo ? (
                     <div className="flex flex-col text-xs">
@@ -57,7 +57,7 @@ const IngredientRow = ({ ingredient, onEdit, onDelete, onMarkEmpty, onBrokenBott
                         </span>
                     </div>
                 ) : (
-                    <span className="text-gray-400">—</span>
+                    <span className="text-gray-400">�</span>
                 )}
             </td>
             <td className="px-6 py-4 text-gray-600 dark:text-gray-300">{ingredient.min_stock}</td>
@@ -65,7 +65,7 @@ const IngredientRow = ({ ingredient, onEdit, onDelete, onMarkEmpty, onBrokenBott
             <td className="px-6 py-4 text-gray-600 dark:text-gray-300">{ingredient.category || '-'}</td>
             <td className="px-6 py-4">
                 <div className="flex gap-2">
-                    {/* ★ NEW: bottle action buttons (only if bottle ingredient) */}
+                    {/* ? NEW: bottle action buttons (only if bottle ingredient) */}
                     {bottleInfo && (
                         <>
                             <button
@@ -104,24 +104,24 @@ const ProductCard = ({ product, onEdit, onDelete, onRecipe, formatCurrency }) =>
     
     const getCategoryEmoji = (category) => {
         const emojis = {
-            'Main Course': '🍛',
-            'Beverage': '🥤',
-            'Drink': '🥤',
-            'Juice': '🧃',
-            'Coffee': '☕',
-            'Tea': '🍵',
-            'Dessert': '🍰',
-            'Appetizer': '🍢',
-            'Soup': '🍲',
-            'Salad': '🥗',
-            'Breakfast': '🍳',
-            'Traditional': '🇪🇹',
-            'Ethiopian': '🇪🇹',
-            'Side': '🥗',
-            'Main Dish': '🍛',
-            'Vegetarian': '🥬'
+            'Main Course': '??',
+            'Beverage': '??',
+            'Drink': '??',
+            'Juice': '??',
+            'Coffee': '?',
+            'Tea': '??',
+            'Dessert': '??',
+            'Appetizer': '??',
+            'Soup': '??',
+            'Salad': '??',
+            'Breakfast': '??',
+            'Traditional': '????',
+            'Ethiopian': '????',
+            'Side': '??',
+            'Main Dish': '??',
+            'Vegetarian': '??'
         };
-        return emojis[category] || '🍽️';
+        return emojis[category] || '???';
     };
 
     return (
@@ -210,7 +210,7 @@ const Inventory = () => {
         unit_cost: 0,
         category: '',
         supplier: '',
-        bottle_size_ml: ''  // ★ NEW
+        bottle_size_ml: ''  // ? NEW
     });
     
     const [productForm, setProductForm] = useState({
@@ -278,7 +278,7 @@ const Inventory = () => {
         
         try {
             if (editType === 'ingredient') {
-                // ★ Clean payload: send bottle_size_ml only if it's a positive number
+                // ? Clean payload: send bottle_size_ml only if it's a positive number
                 const payload = { ...ingredientForm };
                 if (payload.bottle_size_ml === '' || payload.bottle_size_ml === null) {
                     payload.bottle_size_ml = null;
@@ -323,7 +323,7 @@ const Inventory = () => {
         }
     };
 
-    // ★ NEW: Mark bottle empty
+    // ? NEW: Mark bottle empty
     const handleMarkEmpty = async (ingredient) => {
         const size = parseFloat(ingredient.bottle_size_ml);
         const qty  = parseFloat(ingredient.quantity) || 0;
@@ -350,7 +350,7 @@ const Inventory = () => {
         }
     };
 
-    // ★ NEW: Record broken bottle
+    // ? NEW: Record broken bottle
     const handleBrokenBottle = async (ingredient) => {
         const size = parseFloat(ingredient.bottle_size_ml);
         const qty  = parseFloat(ingredient.quantity) || 0;
@@ -389,7 +389,7 @@ const Inventory = () => {
                 unit_cost: item.unit_cost,
                 category: item.category || '',
                 supplier: item.supplier || '',
-                bottle_size_ml: item.bottle_size_ml || ''  // ★ NEW
+                bottle_size_ml: item.bottle_size_ml || ''  // ? NEW
             });
         } else {
             setProductForm({
@@ -416,7 +416,7 @@ const Inventory = () => {
             unit_cost: 0,
             category: '',
             supplier: '',
-            bottle_size_ml: ''  // ★ NEW
+            bottle_size_ml: ''  // ? NEW
         });
         setProductForm({
             name: '',
@@ -471,7 +471,7 @@ const Inventory = () => {
                     }}
                     className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl font-semibold flex items-center gap-2 transition"
                 >
-                    <Plus size={18} />
+                    <Plus size={18} aria-label="Add new item" />
                     {activeTab === 'ingredients' ? t('addIngredient') : t('addProduct')}
                 </button>
             </div>
@@ -501,7 +501,7 @@ const Inventory = () => {
                             : 'text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200'
                     }`}
                 >
-                    🧂 {t('ingredients')}
+                    ?? {t('ingredients')}
                 </button>
                 <button
                     onClick={() => setActiveTab('products')}
@@ -511,7 +511,7 @@ const Inventory = () => {
                             : 'text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200'
                     }`}
                 >
-                    🛒 {t('products')}
+                    ?? {t('products')}
                 </button>
             </div>
 
@@ -544,7 +544,7 @@ const Inventory = () => {
                                     <th className="px-6 py-3 text-gray-600 dark:text-gray-400 text-sm font-semibold">{t('name')}</th>
                                     <th className="px-6 py-3 text-gray-600 dark:text-gray-400 text-sm font-semibold">{t('unit')}</th>
                                     <th className="px-6 py-3 text-gray-600 dark:text-gray-400 text-sm font-semibold">{t('stock')}</th>
-                                    {/* ★ NEW: Bottle column */}
+                                    {/* ? NEW: Bottle column */}
                                     <th className="px-6 py-3 text-gray-600 dark:text-gray-400 text-sm font-semibold">Bottle</th>
                                     <th className="px-6 py-3 text-gray-600 dark:text-gray-400 text-sm font-semibold">{t('minStock')}</th>
                                     <th className="px-6 py-3 text-gray-600 dark:text-gray-400 text-sm font-semibold">{t('unitCost')}</th>
@@ -559,8 +559,8 @@ const Inventory = () => {
                                         ingredient={ing}
                                         onEdit={(item) => handleEdit(item, 'ingredient')}
                                         onDelete={handleDelete}
-                                        onMarkEmpty={handleMarkEmpty}      // ★ NEW
-                                        onBrokenBottle={handleBrokenBottle} // ★ NEW
+                                        onMarkEmpty={handleMarkEmpty}      // ? NEW
+                                        onBrokenBottle={handleBrokenBottle} // ? NEW
                                         formatCurrency={formatCurrency}
                                     />
                                 ))}
@@ -632,7 +632,7 @@ const Inventory = () => {
                                     {editingItem ? `${t('edit')} ${editType === 'ingredient' ? t('ingredient') : t('product')}` : `${t('addNew')} ${editType === 'ingredient' ? t('ingredient') : t('product')}`}
                                 </h2>
                                 <button onClick={resetModal} className="text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
-                                    <X size={24} />
+                                    <X size={24} aria-label="Close" />
                                 </button>
                             </div>
                         </div>
@@ -720,12 +720,12 @@ const Inventory = () => {
                                             />
                                         </div>
                                     </div>
-                                    {/* ★ NEW: Bottle size field */}
+                                    {/* ? NEW: Bottle size field */}
                                     <div>
                                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 flex items-center gap-1">
                                             <Wine size={14} />
                                             Bottle Size (ml)
-                                            <span className="text-xs text-gray-500 font-normal">— optional, for bar items</span>
+                                            <span className="text-xs text-gray-500 font-normal">� optional, for bar items</span>
                                         </label>
                                         <input
                                             type="number"
@@ -762,18 +762,18 @@ const Inventory = () => {
                                             className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                                         >
                                             <option value="">{t('selectCategory')}</option>
-                                            <option value="Main Course">🍛 Main Course</option>
-                                            <option value="Beverage">🥤 Beverage</option>
-                                            <option value="Coffee">☕ Coffee</option>
-                                            <option value="Tea">🍵 Tea</option>
-                                            <option value="Dessert">🍰 Dessert</option>
-                                            <option value="Appetizer">🍢 Appetizer</option>
-                                            <option value="Soup">🍲 Soup</option>
-                                            <option value="Salad">🥗 Salad</option>
-                                            <option value="Breakfast">🍳 Breakfast</option>
-                                            <option value="Traditional">🇪🇹 Traditional</option>
-                                            <option value="Side">🥗 Side</option>
-                                            <option value="Vegetarian">🥬 Vegetarian</option>
+                                            <option value="Main Course">?? Main Course</option>
+                                            <option value="Beverage">?? Beverage</option>
+                                            <option value="Coffee">? Coffee</option>
+                                            <option value="Tea">?? Tea</option>
+                                            <option value="Dessert">?? Dessert</option>
+                                            <option value="Appetizer">?? Appetizer</option>
+                                            <option value="Soup">?? Soup</option>
+                                            <option value="Salad">?? Salad</option>
+                                            <option value="Breakfast">?? Breakfast</option>
+                                            <option value="Traditional">???? Traditional</option>
+                                            <option value="Side">?? Side</option>
+                                            <option value="Vegetarian">?? Vegetarian</option>
                                         </select>
                                     </div>
                                     <div>

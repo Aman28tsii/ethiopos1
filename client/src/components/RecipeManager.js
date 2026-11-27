@@ -317,7 +317,7 @@ const RecipeManager = ({ productId, productName, productPrice, onSave, onClose }
               onClick={onClose}
               className="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
             >
-              <X size={24} />
+              <X size={24} aria-label="Close" />
             </button>
           </div>
         </div>
@@ -332,7 +332,7 @@ const RecipeManager = ({ productId, productName, productPrice, onSave, onClose }
               <AlertCircle size={18} />
               <span>{error}</span>
               <button onClick={() => setError(null)} className="ml-auto">
-                <X size={16} />
+                <X size={16} aria-label="Close" />
               </button>
             </div>
           )}

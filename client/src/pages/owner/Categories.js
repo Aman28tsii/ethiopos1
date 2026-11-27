@@ -145,7 +145,7 @@ const Categories = () => {
             onClick={() => setShowModal(true)}
             className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl flex items-center gap-2 transition"
           >
-            <Plus size={18} />
+            <Plus size={18} aria-label="Add new item" />
             Add Category
           </button>
         </div>
@@ -282,7 +282,7 @@ const Categories = () => {
                 </div>
               </div>
               <button onClick={() => { setSelectedCategory(null); setCategoryProducts([]); }} className="text-gray-500 hover:text-gray-600">
-                <X size={24} />
+                <X size={24} aria-label="Close" />
               </button>
             </div>
             <div className="p-4 overflow-y-auto max-h-[60vh]">
@@ -313,7 +313,7 @@ const Categories = () => {
                 {editingCategory ? 'Edit Category' : 'Add New Category'}
               </h2>
               <button onClick={resetModal} className="text-gray-500 dark:text-gray-400 hover:text-gray-600">
-                <X size={24} />
+                <X size={24} aria-label="Close" />
               </button>
             </div>
             <form onSubmit={handleSubmit} className="p-5 space-y-4">

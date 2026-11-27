@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ShoppingBag, Eye, X } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 import { formatCurrency, getOrderStatusInfo } from '../utils/formatting';
@@ -34,7 +34,7 @@ const ActiveOrderSummary = ({ order, onClose, onTrack }) => {
           <h3 className="text-white font-semibold text-sm">Your Active Order</h3>
         </div>
         <button onClick={onClose} className="text-white/80 hover:text-white">
-          <X size={16} />
+          <X size={16} aria-label="Close" />
         </button>
       </div>
 

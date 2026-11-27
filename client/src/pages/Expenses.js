@@ -1,9 +1,9 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import API from '../api/axios';
 import { 
   Receipt, Plus, Edit2, Trash2, Search, X, 
   Calendar, DollarSign, TrendingUp, TrendingDown,
-  PieChart, Loader2, Copy  // ★ Copy icon added
+  PieChart, Loader2, Copy  // ? Copy icon added
 } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 import { formatCurrency } from '../utils/formatting';
@@ -13,7 +13,7 @@ const Expenses = () => {
   const [expenses, setExpenses] = useState([]);
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [copying, setCopying] = useState(false);  // ★ NEW
+  const [copying, setCopying] = useState(false);  // ? NEW
   const [showModal, setShowModal] = useState(false);
   const [editingExpense, setEditingExpense] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -54,12 +54,12 @@ const Expenses = () => {
     }
   };
 
-  // ★ NEW: Copy last month's expenses
+  // ? NEW: Copy last month's expenses
   const handleCopyPreviousMonth = async () => {
     const confirmed = window.confirm(
       'Copy all expenses from LAST MONTH into THIS MONTH?\n\n' +
-      '• Items already present this month (same category + amount) will be skipped.\n' +
-      '• You can edit or delete any copied item afterward.\n\n' +
+      '� Items already present this month (same category + amount) will be skipped.\n' +
+      '� You can edit or delete any copied item afterward.\n\n' +
       'Continue?'
     );
     if (!confirmed) return;
@@ -70,9 +70,9 @@ const Expenses = () => {
       const { copied_count, skipped_count } = res.data.data;
 
       if (copied_count === 0) {
-        alert(`ℹ️ Nothing new to copy.\n\n${skipped_count} expense(s) from last month already exist this month.`);
+        alert(`?? Nothing new to copy.\n\n${skipped_count} expense(s) from last month already exist this month.`);
       } else {
-        let msg = `✅ Copied ${copied_count} expense(s) from last month.`;
+        let msg = `? Copied ${copied_count} expense(s) from last month.`;
         if (skipped_count > 0) {
           msg += `\n\n${skipped_count} expense(s) already existed this month and were skipped.`;
         }
@@ -81,7 +81,7 @@ const Expenses = () => {
       fetchData();
     } catch (err) {
       const msg = err.response?.data?.error || 'Failed to copy expenses';
-      alert('❌ ' + msg);
+      alert('? ' + msg);
     } finally {
       setCopying(false);
     }
@@ -147,7 +147,7 @@ const Expenses = () => {
           <p className="text-gray-500 dark:text-gray-400 mt-1">{t('trackBusinessOperationalCosts')}</p>
         </div>
         <div className="flex gap-3 flex-wrap">
-          {/* ★ NEW: Copy Last Month button */}
+          {/* ? NEW: Copy Last Month button */}
           <button
             onClick={handleCopyPreviousMonth}
             disabled={copying}
@@ -161,7 +161,7 @@ const Expenses = () => {
             onClick={() => setShowModal(true)}
             className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl font-semibold flex items-center gap-2 transition"
           >
-            <Plus size={18} />
+            <Plus size={18} aria-label="Add new item" />
             {t('addExpense')}
           </button>
         </div>
@@ -382,7 +382,7 @@ const Expenses = () => {
                   {editingExpense ? t('editExpense') : t('addExpense')}
                 </h2>
                 <button onClick={resetModal} className="text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
-                  <X size={20} />
+                  <X size={20} aria-label="Close" />
                 </button>
               </div>
 

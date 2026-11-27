@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import API from '../api/axios';
 import { 
   Users, Plus, Edit2, Trash2, Search, X, 
@@ -263,7 +263,7 @@ const Customers = () => {
                 {editingCustomer ? t('editCustomer') : t('addCustomer')}
               </h2>
               <button onClick={resetModal} className="text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
-                <X size={24} />
+                <X size={24} aria-label="Close" />
               </button>
             </div>
 
@@ -344,7 +344,7 @@ const Customers = () => {
             <div className="p-5 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
               <h2 className="text-xl font-bold text-gray-900 dark:text-white">{t('customerDetails')}</h2>
               <button onClick={() => setShowDetailsModal(false)} className="text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
-                <X size={24} />
+                <X size={24} aria-label="Close" />
               </button>
             </div>
 
