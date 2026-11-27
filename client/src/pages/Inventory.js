@@ -49,7 +49,7 @@ const IngredientRow = ({ ingredient, onEdit, onDelete, onMarkEmpty, onBrokenBott
             <td className="px-6 py-4 text-gray-600 dark:text-gray-300">
                 {bottleInfo ? (
                     <div className="flex flex-col text-xs">
-                        <span className="font-semibold text-purple-600 dark:text-purple-400">
+                        <span className="font-semibold text-orange-600 dark:text-purple-400">
                             {bottleInfo.bottles} bottles
                         </span>
                         <span className="text-gray-500">
@@ -84,7 +84,7 @@ const IngredientRow = ({ ingredient, onEdit, onDelete, onMarkEmpty, onBrokenBott
                             </button>
                         </>
                     )}
-                    <button onClick={() => onEdit(ingredient, 'ingredient')} className="text-blue-600 dark:text-blue-400 hover:text-blue-700 transition">
+                    <button onClick={() => onEdit(ingredient, 'ingredient')} className="text-emerald-600 dark:text-emerald-400 hover:text-blue-700 transition">
                         <Edit2 size={16} />
                     </button>
                     <button onClick={() => onDelete(ingredient.id, 'ingredient')} className="text-red-600 dark:text-red-400 hover:text-red-700 transition">
@@ -127,8 +127,8 @@ const ProductCard = ({ product, onEdit, onDelete, onRecipe, formatCurrency }) =>
 
 
     return (
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden hover:border-purple-500/50 transition-all shadow-sm hover:shadow-md">
-            <div className="h-32 bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-700 dark:to-gray-800 flex items-center justify-center">
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden hover:border-emerald-500/50 transition-all shadow-sm hover:shadow-md">
+            <div className="h-32 bg-gray-100 dark:bg-gray-800/50 flex items-center justify-center">
                 <span className="text-6xl">{getCategoryEmoji(product.category)}</span>
             </div>
             
@@ -152,12 +152,12 @@ const ProductCard = ({ product, onEdit, onDelete, onRecipe, formatCurrency }) =>
                     </button>
                 </div>
                 
-                <p className="text-blue-600 dark:text-blue-400 font-bold text-xl">{formatCurrency(product.price)}</p>
+                <p className="text-emerald-600 dark:text-emerald-400 font-bold text-xl">{formatCurrency(product.price)}</p>
                 
                 <div className="flex gap-2 mt-4">
                     <button
                         onClick={() => onRecipe(product)}
-                        className="flex-1 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-sm font-semibold transition flex items-center justify-center gap-1"
+                        className="flex-1 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg text-sm font-semibold transition flex items-center justify-center gap-1"
                     >
                         <UtensilsCrossed size={14} />
                         {t('recipe')}
@@ -471,7 +471,7 @@ const Inventory = () => {
                         setEditingItem(null);
                         setShowModal(true);
                     }}
-                    className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl font-semibold flex items-center gap-2 transition"
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl font-semibold flex items-center gap-2 transition"
                 >
                     <Plus size={18} aria-label="Add new item" />
                     {activeTab === 'ingredients' ? t('addIngredient') : t('addProduct')}
@@ -499,7 +499,7 @@ const Inventory = () => {
                     onClick={() => setActiveTab('ingredients')}
                     className={`px-6 py-3 font-semibold transition-all ${
                         activeTab === 'ingredients'
-                            ? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 dark:border-blue-400'
+                            ? 'text-emerald-600 dark:text-emerald-400 border-b-2 border-emerald-600 dark:border-emerald-400'
                             : 'text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200'
                     }`}
                 >
@@ -509,7 +509,7 @@ const Inventory = () => {
                     onClick={() => setActiveTab('products')}
                     className={`px-6 py-3 font-semibold transition-all ${
                         activeTab === 'products'
-                            ? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 dark:border-blue-400'
+                            ? 'text-emerald-600 dark:text-emerald-400 border-b-2 border-emerald-600 dark:border-emerald-400'
                             : 'text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200'
                     }`}
                 >
@@ -525,7 +525,7 @@ const Inventory = () => {
                     placeholder={`${t('search')} ${activeTab === 'ingredients' ? t('ingredients') : t('products')}...`}
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full px-4 py-3 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-xl text-gray-900 dark:text-white pl-10 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-4 py-3 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-xl text-gray-900 dark:text-white pl-10 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                 />
                 {searchTerm && (
                     <button onClick={() => setSearchTerm('')} className="absolute right-3 top-1/2 -translate-y-1/2">
@@ -650,7 +650,7 @@ const Inventory = () => {
                                             required
                                             value={ingredientForm.name}
                                             onChange={(e) => setIngredientForm({ ...ingredientForm, name: e.target.value })}
-                                            className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                            className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                                         />
                                     </div>
                                     <div>
@@ -659,7 +659,7 @@ const Inventory = () => {
                                             type="text"
                                             value={ingredientForm.category}
                                             onChange={(e) => setIngredientForm({ ...ingredientForm, category: e.target.value })}
-                                            className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                            className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                                             placeholder={t('egVegetables')}
                                         />
                                     </div>
@@ -669,7 +669,7 @@ const Inventory = () => {
                                             required
                                             value={ingredientForm.unit}
                                             onChange={(e) => setIngredientForm({ ...ingredientForm, unit: e.target.value })}
-                                            className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                            className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                                         >
                                             <option value="">{t('selectUnit')}</option>
                                             <option value="kg">{t('kilogram')}</option>
@@ -687,7 +687,7 @@ const Inventory = () => {
                                                 step="0.01"
                                                 value={ingredientForm.quantity}
                                                 onChange={(e) => setIngredientForm({ ...ingredientForm, quantity: parseFloat(e.target.value) || 0 })}
-                                                className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                                className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                                             />
                                         </div>
                                         <div>
@@ -697,7 +697,7 @@ const Inventory = () => {
                                                 step="0.01"
                                                 value={ingredientForm.min_stock}
                                                 onChange={(e) => setIngredientForm({ ...ingredientForm, min_stock: parseFloat(e.target.value) || 0 })}
-                                                className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                                className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                                             />
                                         </div>
                                     </div>
@@ -709,7 +709,7 @@ const Inventory = () => {
                                                 step="0.01"
                                                 value={ingredientForm.unit_cost}
                                                 onChange={(e) => setIngredientForm({ ...ingredientForm, unit_cost: parseFloat(e.target.value) || 0 })}
-                                                className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                                className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                                             />
                                         </div>
                                         <div>
@@ -718,7 +718,7 @@ const Inventory = () => {
                                                 type="text"
                                                 value={ingredientForm.supplier}
                                                 onChange={(e) => setIngredientForm({ ...ingredientForm, supplier: e.target.value })}
-                                                className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                                className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                                             />
                                         </div>
                                     </div>
@@ -736,7 +736,7 @@ const Inventory = () => {
                                             placeholder="e.g., 750 for whisky, 330 for beer"
                                             value={ingredientForm.bottle_size_ml}
                                             onChange={(e) => setIngredientForm({ ...ingredientForm, bottle_size_ml: e.target.value })}
-                                            className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                            className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                                         />
                                         <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                                             Leave empty for normal ingredients. Set to bottle volume in ml to track bottles remaining.
@@ -753,7 +753,7 @@ const Inventory = () => {
                                             required
                                             value={productForm.name}
                                             onChange={(e) => setProductForm({ ...productForm, name: e.target.value })}
-                                            className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                            className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                                         />
                                     </div>
                                     <div>
@@ -761,7 +761,7 @@ const Inventory = () => {
                                         <select
                                             value={productForm.category}
                                             onChange={(e) => setProductForm({ ...productForm, category: e.target.value })}
-                                            className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                            className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                                         >
                                             <option value="">{t('selectCategory')}</option>
                                             <option value="Main Course">{String.fromCodePoint(0x1F35B)} Main Course</option>
@@ -786,7 +786,7 @@ const Inventory = () => {
                                             required
                                             value={productForm.price}
                                             onChange={(e) => setProductForm({ ...productForm, price: parseFloat(e.target.value) || 0 })}
-                                            className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                            className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                                         />
                                     </div>
                                     <div>
@@ -795,7 +795,7 @@ const Inventory = () => {
                                             rows="2"
                                             value={productForm.description}
                                             onChange={(e) => setProductForm({ ...productForm, description: e.target.value })}
-                                            className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                            className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                                         />
                                     </div>
                                     <div className="flex items-center gap-2">
@@ -804,7 +804,7 @@ const Inventory = () => {
                                             id="is_available"
                                             checked={productForm.is_available}
                                             onChange={(e) => setProductForm({ ...productForm, is_available: e.target.checked })}
-                                            className="w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
+                                            className="w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-emerald-600 focus:ring-emerald-500"
                                         />
                                         <label htmlFor="is_available" className="text-sm text-gray-700 dark:text-gray-300">
                                             {t('availableForSale')}
@@ -814,7 +814,7 @@ const Inventory = () => {
                             )}
 {String.fromCodePoint(0x1F96C)} {t('ingredients')}
                             <div className="flex gap-3 pt-4">
-                                <button type="submit" disabled={isSubmitting} className="flex-1 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold transition disabled:opacity-50 flex items-center justify-center gap-2">
+                                <button type="submit" disabled={isSubmitting} className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-semibold transition disabled:opacity-50 flex items-center justify-center gap-2">
                                     {isSubmitting && <Loader2 className="animate-spin" size={18} />}
                                     {editingItem ? t('update') : t('create')}
                                 </button>

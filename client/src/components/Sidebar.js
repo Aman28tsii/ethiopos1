@@ -135,7 +135,7 @@ const Sidebar = ({ user, onLogout }) => {
         <div className={`p-6 border-b border-gray-200 dark:border-gray-800 ${isCollapsed && !isMobile ? 'px-4' : ''}`}>
           <div className={`flex items-center ${isCollapsed && !isMobile ? 'justify-center' : 'gap-3'}`}>
             {isCollapsed && !isMobile ? (
-              <Store className="text-blue-600 dark:text-blue-500 flex-shrink-0" size={32} />
+              <Store className="text-emerald-600 dark:text-blue-500 flex-shrink-0" size={32} />
             ) : (
               <Branding
                 user={user}
@@ -170,7 +170,7 @@ const Sidebar = ({ user, onLogout }) => {
               className={({ isActive }) =>
                 `flex items-center ${isCollapsed && !isMobile ? 'justify-center' : 'gap-3'} px-4 py-3 rounded-xl transition-all duration-200 ${
                   isActive
-                    ? 'bg-blue-600 text-white shadow-lg'
+                    ? 'bg-emerald-600 text-white shadow-lg'
                     : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white'
                 }`
               }

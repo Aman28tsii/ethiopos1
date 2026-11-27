@@ -16,8 +16,8 @@ const ProductCard = ({ product, onEdit, onDelete, onRecipe, hasRecipe }) => {
     const { t } = useLanguage();
 
     return (
-        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden hover:border-purple-500/50 transition-all shadow-sm hover:shadow-md">
-            <div className="h-32 bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-700 dark:to-gray-800 flex items-center justify-center relative">
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden hover:border-emerald-500/50 transition-all shadow-sm hover:shadow-md">
+            <div className="h-32 bg-gray-100 dark:bg-gray-800/50 flex items-center justify-center relative">
                 <span className="text-6xl">{getProductEmoji(product.category)}</span>
                 {hasRecipe ? (
                     <div className="absolute top-2 right-2 bg-green-500 text-white text-xs px-2 py-1 rounded-full flex items-center gap-1">
@@ -48,12 +48,12 @@ const ProductCard = ({ product, onEdit, onDelete, onRecipe, hasRecipe }) => {
                     </button>
                 </div>
                 
-                <p className="text-blue-600 dark:text-blue-400 font-bold text-xl">{formatCurrency(product.price)}</p>
+                <p className="text-emerald-600 dark:text-emerald-400 font-bold text-xl">{formatCurrency(product.price)}</p>
                 
                 <div className="flex gap-2 mt-4">
                     <button
                         onClick={() => onRecipe(product)}
-                        className={"flex-1 py-2 rounded-lg text-sm font-semibold transition flex items-center justify-center gap-1 " + (hasRecipe ? 'bg-purple-600 hover:bg-purple-700 text-white' : 'bg-red-600 hover:bg-red-700 text-white animate-pulse')}
+                        className={"flex-1 py-2 rounded-lg text-sm font-semibold transition flex items-center justify-center gap-1 " + (hasRecipe ? 'bg-orange-600 hover:bg-orange-700 text-white' : 'bg-red-600 hover:bg-red-700 text-white animate-pulse')}
                     >
                         <UtensilsCrossed size={14} />
                         {hasRecipe ? 'Recipe' : 'Add Recipe!'}
@@ -253,7 +253,7 @@ const Products = () => {
             <div className="flex justify-between items-center flex-wrap gap-4">
                 <div>
                     <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
-                        <Package size={24} className="text-blue-600 dark:text-blue-400" />
+                        <Package size={24} className="text-emerald-600 dark:text-emerald-400" />
                         Products
                     </h1>
                     <p className="text-gray-500 dark:text-gray-400 mt-1">
@@ -272,7 +272,7 @@ const Products = () => {
                             setEditingProduct(null);
                             setShowModal(true);
                         }}
-                        className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl font-semibold flex items-center gap-2 transition"
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl font-semibold flex items-center gap-2 transition"
                     >
                         <Plus size={18} />
                         Add Product
@@ -318,7 +318,7 @@ const Products = () => {
                     <button
                         key={cat}
                         onClick={() => setSelectedCategory(cat)}
-                        className={"px-4 py-2 rounded-full text-sm font-semibold whitespace-nowrap transition " + (selectedCategory === cat ? 'bg-blue-600 text-white shadow-lg' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600')}
+                        className={"px-4 py-2 rounded-full text-sm font-semibold whitespace-nowrap transition " + (selectedCategory === cat ? 'bg-emerald-600 text-white shadow-lg' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600')}
                     >
                         {cat === 'all' ? 'All Items' : cat}
                     </button>
@@ -335,7 +335,7 @@ const Products = () => {
                     placeholder="Search products..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full px-4 py-3 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-xl text-gray-900 dark:text-white pl-10 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-4 py-3 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-xl text-gray-900 dark:text-white pl-10 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                 />
                 {searchTerm && (
                     <button onClick={() => setSearchTerm('')} className="absolute right-3 top-1/2 -translate-y-1/2">
@@ -369,7 +369,7 @@ const Products = () => {
                             setEditingProduct(null);
                             setShowModal(true);
                         }}
-                        className="mt-4 text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300"
+                        className="mt-4 text-emerald-600 dark:text-emerald-400 hover:text-blue-700 dark:hover:text-blue-300"
                     >
                         Add your first product
                     </button>
@@ -425,7 +425,7 @@ const Products = () => {
                                     required
                                     value={formData.name}
                                     onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                                    className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                                     placeholder="Enter product name"
                                 />
                             </div>
@@ -436,7 +436,7 @@ const Products = () => {
                                 <select
                                     value={formData.category}
                                     onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                                    className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                                 >
                                     <option value="">Select category</option>
                                     <option value="Main Course">{String.fromCodePoint(0x1F35B)} Main Course</option>
@@ -465,7 +465,7 @@ const Products = () => {
                                     required
                                     value={formData.price}
                                     onChange={(e) => setFormData({ ...formData, price: parseFloat(e.target.value) || 0 })}
-                                    className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                                     placeholder="0.00"
                                 />
                             </div>
@@ -477,7 +477,7 @@ const Products = () => {
                                     rows="3"
                                     value={formData.description}
                                     onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                                    className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                                     placeholder="Describe your product..."
                                 />
                             </div>
@@ -489,7 +489,7 @@ const Products = () => {
                                     id="is_available"
                                     checked={formData.is_available}
                                     onChange={(e) => setFormData({ ...formData, is_available: e.target.checked })}
-                                    className="w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
+                                    className="w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-emerald-600 focus:ring-emerald-500"
                                 />
                                 <label htmlFor="is_available" className="text-sm text-gray-700 dark:text-gray-300">
                                     Available for sale
@@ -498,7 +498,7 @@ const Products = () => {
 
                             {/* Info: Recipe Required */}
                             <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
-                                <p className="text-blue-700 dark:text-blue-400 text-sm flex items-start gap-2">
+                                <p className="text-blue-700 dark:text-emerald-400 text-sm flex items-start gap-2">
                                     <Info size={16} className="mt-0.5 flex-shrink-0" />
                                     <span>
                                         <strong>Recipe Required:</strong> After creating this product, 
@@ -513,7 +513,7 @@ const Products = () => {
                                 <button 
                                     type="submit" 
                                     disabled={isSubmitting}
-                                    className="flex-1 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold transition flex items-center justify-center gap-2 disabled:opacity-50"
+                                    className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-semibold transition flex items-center justify-center gap-2 disabled:opacity-50"
                                 >
                                     {isSubmitting && <Loader2 className="animate-spin" size={18} />}
                                     {editingProduct ? 'Update Product' : 'Create Product'}
