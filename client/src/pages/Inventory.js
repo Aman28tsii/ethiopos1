@@ -57,7 +57,7 @@ const IngredientRow = ({ ingredient, onEdit, onDelete, onMarkEmpty, onBrokenBott
                         </span>
                     </div>
                 ) : (
-                    <span className="text-gray-400">—</span>
+                    <span className="text-gray-400">ï¿½</span>
                 )}
             </td>
             <td className="px-6 py-4 text-gray-600 dark:text-gray-300">{ingredient.min_stock}</td>
@@ -501,7 +501,7 @@ const Inventory = () => {
                             : 'text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200'
                     }`}
                 >
-                    ?? {t('ingredients')}
+                    {String.fromCodePoint(0x1F96C)} {t('ingredients')}
                 </button>
                 <button
                     onClick={() => setActiveTab('products')}
@@ -511,7 +511,7 @@ const Inventory = () => {
                             : 'text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200'
                     }`}
                 >
-                    ?? {t('products')}
+                    {String.fromCodePoint(0x1F4E6)} {t('products')}
                 </button>
             </div>
 
@@ -725,7 +725,7 @@ const Inventory = () => {
                                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 flex items-center gap-1">
                                             <Wine size={14} />
                                             Bottle Size (ml)
-                                            <span className="text-xs text-gray-500 font-normal">— optional, for bar items</span>
+                                            <span className="text-xs text-gray-500 font-normal">ï¿½ optional, for bar items</span>
                                         </label>
                                         <input
                                             type="number"
