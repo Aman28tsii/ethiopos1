@@ -57,7 +57,7 @@ const IngredientRow = ({ ingredient, onEdit, onDelete, onMarkEmpty, onBrokenBott
                         </span>
                     </div>
                 ) : (
-                    <span className="text-gray-400">�</span>
+                       <span className="text-gray-400">-</span>
                 )}
             </td>
             <td className="px-6 py-4 text-gray-600 dark:text-gray-300">{ingredient.min_stock}</td>
@@ -125,7 +125,7 @@ const ProductCard = ({ product, onEdit, onDelete, onRecipe, formatCurrency }) =>
         return emojis[category] || cp(0x1F37D, 0xFE0F);
     };
 
-    
+
     return (
         <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden hover:border-purple-500/50 transition-all shadow-sm hover:shadow-md">
             <div className="h-32 bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-700 dark:to-gray-800 flex items-center justify-center">
