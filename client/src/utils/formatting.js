@@ -66,7 +66,7 @@ export const getOrderStatusInfo = function(status) {
   };
 };
 
-export const getProductEmoji = function(category) {
+export const getProductEmoji = (category) => {
   const cp = String.fromCodePoint;
   const key = String(category || '').trim().toLowerCase();
   const map = {

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+﻿import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import API from '../api/axios';
 import { 
     Package, Plus, Edit2, Trash2, AlertTriangle, Search, X, Loader2,
@@ -810,7 +810,7 @@ const Inventory = () => {
                                     </div>
                                 </>
                             )}
-
+{String.fromCodePoint(0x1F96C)} {t('ingredients')}
                             <div className="flex gap-3 pt-4">
                                 <button type="submit" disabled={isSubmitting} className="flex-1 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold transition disabled:opacity-50 flex items-center justify-center gap-2">
                                     {isSubmitting && <Loader2 className="animate-spin" size={18} />}
