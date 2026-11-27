@@ -3,40 +3,34 @@
 @tailwind utilities;
 
 /* ============================================
-   DARK MODE VARIABLES
+   1. DESIGN TOKENS & VARIABLES
    ============================================ */
-
-/* Light mode (default) */
 :root {
-  --bg-primary: 249, 250, 251;
-  --bg-secondary: 255, 255, 255;
-  --text-primary: 17, 24, 39;
-  --text-secondary: 75, 85, 99;
-  --border-color: 229, 231, 235;
-  --bg-card: 255, 255, 255;
+  --bg-primary: 249, 250, 251;       /* gray-50 */
+  --bg-secondary: 255, 255, 255;     /* white */
+  --text-primary: 17, 24, 39;        /* gray-900 */
+  --text-secondary: 75, 85, 99;      /* gray-600 */
+  --border-color: 229, 231, 235;     /* gray-200 */
+  --bg-card: 255, 255, 255;          /* white */
+  
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
 }
 
-/* Dark mode */
 .dark {
-  --bg-primary: 17, 24, 39;
-  --bg-secondary: 31, 41, 55;
-  --text-primary: 243, 244, 246;
-  --text-secondary: 156, 163, 175;
-  --border-color: 55, 65, 81;
-  --bg-card: 31, 41, 55;
+  --bg-primary: 17, 24, 39;          /* gray-900 */
+  --bg-secondary: 31, 41, 55;        /* gray-800 */
+  --text-primary: 243, 244, 246;     /* gray-100 */
+  --text-secondary: 156, 163, 175;   /* gray-400 */
+  --border-color: 55, 65, 81;        /* gray-700 */
+  --bg-card: 31, 41, 55;             /* gray-800 */
   color-scheme: dark;
 }
 
-body {
-  background-color: rgb(var(--bg-primary));
-  color: rgb(var(--text-primary));
-  transition: background-color 0.3s ease, color 0.3s ease;
-}
-
 /* ============================================
-   GLOBAL RESET & BASE STYLES
+   2. GLOBAL RESET & BASE STYLES
    ============================================ */
-
 * {
   margin: 0;
   padding: 0;
@@ -45,146 +39,89 @@ body {
 
 html {
   font-size: 16px;
+  -webkit-text-size-adjust: 100%;
 }
 
-@media (max-width: 768px) {
-  html {
-    font-size: 14px;
-  }
-}
-
-/* Smooth transitions for theme switching */
-* {
-  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+body {
+  background-color: rgb(var(--bg-primary));
+  color: rgb(var(--text-primary));
+  transition: background-color 0.3s ease, color 0.3s ease;
+  overflow-x: hidden;
 }
 
 /* ============================================
-   TOUCH TARGETS & INTERACTIVITY
+   3. REUSABLE COMPONENTS (The "Human" Touch)
    ============================================ */
+@layer components {
+  .btn-primary {
+    @apply bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5 px-4 rounded-lg transition-all duration-200 shadow-sm hover:shadow-md active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  
+  .btn-secondary {
+    @apply bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 font-medium py-2.5 px-4 rounded-lg transition-all duration-200 active:scale-[0.98];
+  }
 
-button, 
-a, 
-[role="button"],
-input[type="submit"],
-input[type="button"],
-.clickable {
+  .card {
+    @apply bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm transition-colors duration-200;
+  }
+
+  .input-field {
+    @apply w-full bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-lg px-4 py-2.5 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200;
+  }
+}
+
+/* ============================================
+   4. TOUCH TARGETS & INTERACTIVITY
+   ============================================ */
+button, a, [role="button"], input[type="submit"], input[type="button"], .clickable {
   min-height: 44px;
   min-width: 44px;
 }
 
 @media (max-width: 768px) {
-  button:active {
+  button:active, .touch-card:active {
     transform: scale(0.97);
     transition: transform 0.05s ease;
   }
-  
-  html {
-    -webkit-text-size-adjust: 100%;
-  }
-  
-  .overflow-auto,
-  .overflow-y-auto {
+  .overflow-auto, .overflow-y-auto {
     -webkit-overflow-scrolling: touch;
   }
 }
 
-.touch-card {
-  transition: transform 0.2s;
-}
-
-@media (max-width: 768px) {
-  .touch-card:active {
-    transform: scale(0.98);
-  }
-}
-
-.touch-target {
-  min-height: 44px;
-  min-width: 44px;
-}
-
 /* ============================================
-   CUSTOM SCROLLBARS
+   5. CUSTOM SCROLLBARS
    ============================================ */
-
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
-
 ::-webkit-scrollbar-track {
-  background: #e5e7eb;
-  border-radius: 10px;
+  background: transparent;
 }
-
 ::-webkit-scrollbar-thumb {
-  background: #9ca3af;
+  background: #cbd5e1;
   border-radius: 10px;
 }
-
 ::-webkit-scrollbar-thumb:hover {
-  background: #6b7280;
+  background: #94a3b8;
 }
-
-.dark ::-webkit-scrollbar-track {
-  background: #1e293b;
-}
-
 .dark ::-webkit-scrollbar-thumb {
   background: #475569;
 }
-
 .dark ::-webkit-scrollbar-thumb:hover {
   background: #64748b;
 }
 
-.overflow-x-auto::-webkit-scrollbar {
-  height: 6px;
-}
-
-.no-scrollbar {
-  -ms-overflow-style: none;
-  scrollbar-width: none;
-}
-
-.no-scrollbar::-webkit-scrollbar {
-  display: none;
-}
-
 /* ============================================
-   MODAL STYLES
+   6. RESPONSIVE LAYOUTS & GRIDS
    ============================================ */
-
-@media (max-width: 640px) {
-  .modal-mobile-full {
-    position: fixed !important;
-    top: 0 !important;
-    left: 0 !important;
-    right: 0 !important;
-    bottom: 0 !important;
-    width: 100% !important;
-    max-width: 100% !important;
-    height: 100% !important;
-    border-radius: 0 !important;
-    margin: 0 !important;
-  }
-}
-
-/* ============================================
-   RESPONSIVE GRID SYSTEMS
-   ============================================ */
-
 .responsive-grid {
   display: grid;
   gap: 1rem;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
 }
-
 @media (max-width: 640px) {
-  .responsive-grid {
-    grid-template-columns: 1fr;
-    gap: 0.75rem;
-  }
+  .responsive-grid { grid-template-columns: 1fr; gap: 0.75rem; }
 }
 
 .stats-grid {
@@ -192,291 +129,57 @@ input[type="button"],
   gap: 1rem;
   grid-template-columns: repeat(2, 1fr);
 }
-
 @media (min-width: 640px) {
-  .stats-grid {
-    grid-template-columns: repeat(4, 1fr);
-  }
+  .stats-grid { grid-template-columns: repeat(4, 1fr); }
 }
-
-/* ============================================
-   RESPONSIVE TABLES
-   ============================================ */
-
-.responsive-table-wrapper {
-  width: 100%;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-  margin: 1rem 0;
-}
-
-.responsive-table-wrapper table {
-  min-width: 600px;
-  width: 100%;
-}
-
-@media (max-width: 768px) {
-  .responsive-table-wrapper {
-    margin: 0 -1rem;
-    width: calc(100% + 2rem);
-    padding: 0 1rem;
-  }
-}
-
-/* ============================================
-   RESPONSIVE CARDS & FORMS
-   ============================================ */
-
-.responsive-card {
-  padding: 1rem;
-}
-
-@media (min-width: 768px) {
-  .responsive-card {
-    padding: 1.5rem;
-  }
-}
-
-.responsive-form {
-  width: 100%;
-}
-
-.responsive-form input,
-.responsive-form select,
-.responsive-form textarea {
-  width: 100%;
-  padding: 0.5rem;
-}
-
-@media (min-width: 640px) {
-  .responsive-form input,
-  .responsive-form select,
-  .responsive-form textarea {
-    padding: 0.75rem;
-  }
-}
-
-@media (max-width: 640px) {
-  input, select, textarea {
-    font-size: 16px !important;
-  }
-}
-
-/* ============================================
-   POS PRODUCT GRID
-   ============================================ */
 
 .pos-product-grid {
   display: grid;
   gap: 0.75rem;
   grid-template-columns: repeat(2, 1fr);
 }
+@media (min-width: 480px) { .pos-product-grid { grid-template-columns: repeat(3, 1fr); } }
+@media (min-width: 768px) { .pos-product-grid { grid-template-columns: repeat(4, 1fr); } }
+@media (min-width: 1024px) { .pos-product-grid { grid-template-columns: repeat(5, 1fr); } }
 
-@media (min-width: 480px) {
-  .pos-product-grid {
-    grid-template-columns: repeat(3, 1fr);
-  }
+/* ============================================
+   7. RESPONSIVE TABLES & FORMS
+   ============================================ */
+.responsive-table-wrapper {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin: 1rem 0;
 }
-
-@media (min-width: 768px) {
-  .pos-product-grid {
-    grid-template-columns: repeat(4, 1fr);
-  }
+.responsive-table-wrapper table {
+  min-width: 600px;
+  width: 100%;
 }
-
-@media (min-width: 1024px) {
-  .pos-product-grid {
-    grid-template-columns: repeat(5, 1fr);
-  }
-}
-
 @media (max-width: 768px) {
-  .pos-cart-sidebar {
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    z-index: 40;
-    max-height: 60vh;
-    overflow-y: auto;
-    border-radius: 1rem 1rem 0 0;
-    background: rgb(var(--bg-card));
-  }
+  .responsive-table-wrapper { margin: 0 -1rem; width: calc(100% + 2rem); padding: 0 1rem; }
+  input, select, textarea { font-size: 16px !important; } /* Prevents iOS zoom */
 }
 
 /* ============================================
-   RESPONSIVE CHARTS
+   8. QR MENU & CUSTOMER FACING STYLES
    ============================================ */
-
-@media (max-width: 640px) {
-  .recharts-wrapper {
-    font-size: 10px;
-  }
-  .recharts-default-tooltip {
-    font-size: 10px !important;
-  }
-}
-
-/* ============================================
-   RESPONSIVE TEXT & SPACING
-   ============================================ */
-
-@media (max-width: 640px) {
-  .text-responsive-sm {
-    font-size: 0.875rem;
-  }
-  .p-responsive {
-    padding: 0.75rem !important;
-  }
-  .gap-responsive {
-    gap: 0.5rem !important;
-  }
-}
-
-/* ============================================
-   DASHBOARD STATS CARDS (Mobile Fixes)
-   ============================================ */
-
-@media (max-width: 640px) {
-  .stats-card {
-    padding: 0.75rem !important;
-  }
-  .stats-card .stat-value {
-    font-size: 1.25rem !important;
-  }
-  .stats-card .stat-label {
-    font-size: 0.7rem !important;
-  }
-}
-
-@media (max-width: 480px) {
-  .stats-card .stat-value {
-    font-size: 1rem !important;
-  }
-  .stats-grid {
-    gap: 0.5rem !important;
-  }
-}
-
-/* ============================================
-   TABLE OVERLAP FIXES
-   ============================================ */
-
-@media (max-width: 640px) {
-  .expense-table td,
-  .expense-table th {
-    padding: 0.5rem !important;
-    font-size: 0.75rem !important;
-  }
-  
-  .profit-table td,
-  .profit-table th {
-    padding: 0.5rem !important;
-    font-size: 0.7rem !important;
-  }
-  
-  .profit-numbers {
-    font-size: 0.9rem !important;
-    word-break: break-word !important;
-  }
-  
-  .responsive-table-wrapper {
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-  }
-  
-  .responsive-table-wrapper table {
-    min-width: 500px;
-  }
-  
-  .text-right {
-    white-space: nowrap;
-  }
-  
-  .currency-value {
-    white-space: nowrap;
-    overflow-x: auto;
-    max-width: 80px;
-    display: inline-block;
-  }
-}
-
-/* ============================================
-   PWA & STANDALONE MODE
-   ============================================ */
-
-@media (display-mode: standalone) {
-  body {
-    overscroll-behavior: none;
-  }
-}
-
-/* ============================================
-   UTILITY CLASSES
-   ============================================ */
-
-.text-truncate {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.line-clamp-2 {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-/* ============================================
-   CUSTOMER FACING PAGES
-   ============================================ */
-
 .qr-menu-container {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-}
-
-.dark .qr-menu-container {
   background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
 }
-
 .qr-menu-header {
   background: rgba(255, 255, 255, 0.95);
   backdrop-filter: blur(10px);
   border-bottom: 1px solid rgba(0, 0, 0, 0.05);
 }
-
 .dark .qr-menu-header {
   background: rgba(31, 41, 55, 0.95);
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 }
-
-.qr-menu-card {
-  transition: all 0.3s ease;
-  border: 1px solid rgba(0, 0, 0, 0.05);
-  background: rgb(var(--bg-card));
-}
-
-.qr-menu-card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 20px 25px -12px rgba(0, 0, 0, 0.15);
-}
-
-.category-tab {
-  position: relative;
-  transition: all 0.2s ease;
-}
-
 .category-tab.active {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
-}
-
-.dark .category-tab.active {
   background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+  color: white;
+  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
 }
-
 .category-tab.active::after {
   content: '';
   position: absolute;
@@ -489,561 +192,30 @@ input[type="button"],
   border-radius: 3px;
 }
 
-.floating-cart-btn {
-  animation: bounce 2s infinite;
+/* ============================================
+   9. ANIMATIONS & UTILITIES
+   ============================================ */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
 }
-
-@keyframes bounce {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-5px); }
-}
-
-.timeline-step {
-  position: relative;
-  cursor: pointer;
-}
-
-.timeline-step.completed .timeline-dot {
-  background: linear-gradient(135deg, #10b981, #059669);
-  box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.2);
-  animation: pulse-completed 2s infinite;
-}
-
-.timeline-step.current .timeline-dot {
-  background: linear-gradient(135deg, #3b82f6, #2563eb);
-  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.3);
-  animation: pulse-current 1.5s infinite;
-}
-
-@keyframes pulse-completed {
-  0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4); }
-  70% { box-shadow: 0 0 0 8px rgba(16, 185, 129, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
-}
-
-@keyframes pulse-current {
-  0% { box-shadow: 0 0 0 0 rgba(59, 130, 242, 0.4); }
-  70% { box-shadow: 0 0 0 8px rgba(59, 130, 242, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(59, 130, 242, 0); }
-}
-
-.timer-animation {
-  animation: timer-pulse 1s ease-in-out infinite;
-}
-
-@keyframes timer-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.7; }
-}
-
-.order-success {
-  animation: success-pop 0.5s ease-out;
-}
-
-@keyframes success-pop {
-  0% { transform: scale(0.8); opacity: 0; }
-  80% { transform: scale(1.05); }
-  100% { transform: scale(1); opacity: 1; }
-}
+.animate-fadeIn { animation: fadeIn 0.4s ease-out; }
 
 .skeleton {
-  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+  background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%);
   background-size: 200% 100%;
   animation: loading 1.5s infinite;
 }
-
 .dark .skeleton {
-  background: linear-gradient(90deg, #1f2937 25%, #374151 50%, #1f2937 75%);
+  background: linear-gradient(90deg, #1e293b 25%, #334155 50%, #1e293b 75%);
 }
-
 @keyframes loading {
   0% { background-position: 200% 0; }
   100% { background-position: -200% 0; }
 }
 
-.price-update {
-  animation: price-flash 0.3s ease-out;
-}
-
-@keyframes price-flash {
-  0% { color: #10b981; transform: scale(1.05); }
-  100% { color: inherit; transform: scale(1); }
-}
-
-.qty-btn {
-  transition: all 0.2s ease;
-}
-
-.qty-btn:hover {
-  transform: scale(1.05);
-}
-
-.qty-btn:active {
-  transform: scale(0.95);
-}
-
-.restaurant-info-card {
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.9));
-  backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-}
-
-.dark .restaurant-info-card {
-  background: linear-gradient(135deg, rgba(31, 41, 55, 0.95), rgba(31, 41, 55, 0.9));
-  border: 1px solid rgba(255, 255, 255, 0.05);
-}
-
-@media (max-width: 640px) {
-  .qr-menu-card {
-    margin-bottom: 12px;
-  }
-  .category-tab {
-    padding: 8px 16px;
-    font-size: 14px;
-  }
-  .cart-sidebar {
-    width: 100%;
-    max-width: 100%;
-  }
-  .timeline-step .timeline-label {
-    font-size: 10px;
-  }
-  .floating-cart-btn {
-    bottom: 16px;
-    right: 16px;
-    padding: 14px;
-  }
-}
-
-.glass-card {
-  background: rgba(255, 255, 255, 0.95);
-  backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
-}
-
-.dark .glass-card {
-  background: rgba(31, 41, 55, 0.95);
-  border: 1px solid rgba(255, 255, 255, 0.05);
-}
-
-.gradient-text {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-}
-
-.dark .gradient-text {
-  background: linear-gradient(135deg, #818cf8 0%, #c084fc 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-}
-
-.hover-lift {
-  transition: all 0.3s ease;
-}
-
-.hover-lift:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1);
-}
-
-.skeleton-card {
-  background: linear-gradient(90deg, #f0f0f0 25%, #f8f8f8 50%, #f0f0f0 75%);
-  background-size: 200% 100%;
-  animation: loading 1.5s infinite;
-  border-radius: 12px;
-  height: 120px;
-}
-
-.dark .skeleton-card {
-  background: linear-gradient(90deg, #1f2937 25%, #374151 50%, #1f2937 75%);
-}
-
-/* ============================================
-   CSS VARIABLES
-   ============================================ */
-
-:root {
-  --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  --secondary-gradient: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-  --success-gradient: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
-  --warning-gradient: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
-  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
-  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
-}
-
-/* ============================================
-   ANIMATIONS
-   ============================================ */
-
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.animate-fadeIn {
-  animation: fadeIn 0.5s ease-out;
-}
-
-@keyframes slide-up {
-  from {
-    opacity: 0;
-    transform: translateY(20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.animate-slide-up {
-  animation: slide-up 0.3s ease-out;
-}
-
-/* ============================================
-   DARK MODE TEXT VISIBILITY & COLOR WARMTH
-   ============================================ */
-
-/* Improve text contrast */
-.dark .text-gray-500,
-.dark .text-gray-400,
-.dark .text-gray-300 {
-  color: #d1d5db !important;
-}
-
-.dark .text-gray-600,
-.dark .text-gray-700,
-.dark .text-gray-800 {
-  color: #e5e7eb !important;
-}
-
-.dark .text-gray-900,
-.dark .text-black {
-  color: #ffffff !important;
-}
-
-/* Fix placeholder text */
-.dark ::placeholder,
-.dark input::placeholder,
-.dark textarea::placeholder {
-  color: #6b7280 !important;
-  opacity: 1 !important;
-}
-
-/* Restore color warmth - remove excessive blur */
-.dark .backdrop-blur-sm,
-.dark .backdrop-blur-md,
-.dark .backdrop-blur-lg {
-  backdrop-filter: blur(0px) !important;
-}
-
-/* Make cards warmer */
-.dark .bg-white,
-.dark .bg-gray-50,
-.dark .bg-gray-100,
-.dark .card {
-  background-color: #1e293b !important;
-}
-
-.dark .bg-gray-200,
-.dark .bg-gray-300 {
-  background-color: #334155 !important;
-}
-
-/* Fix borders */
-.dark .border,
-.dark .border-gray-200,
-.dark .border-gray-300,
-.dark .border-gray-100 {
-  border-color: #334155 !important;
-}
-
-/* Fix buttons */
-.dark .bg-blue-600 {
-  background-color: #3b82f6 !important;
-  color: #ffffff !important;
-}
-
-.dark .bg-gray-600 {
-  background-color: #475569 !important;
-  color: #ffffff !important;
-}
-
-/* Fix status badges */
-.dark .bg-green-100 {
-  background-color: #065f46 !important;
-  color: #ffffff !important;
-}
-
-.dark .bg-yellow-100 {
-  background-color: #92400e !important;
-  color: #ffffff !important;
-}
-
-.dark .bg-red-100 {
-  background-color: #991b1b !important;
-  color: #ffffff !important;
-}
-
-.dark .bg-blue-100 {
-  background-color: #1e3a8a !important;
-  color: #ffffff !important;
-}
-
-.dark .bg-purple-100 {
-  background-color: #4c1d95 !important;
-  color: #ffffff !important;
-}
-
-/* Fix links */
-.dark a,
-.dark .text-blue-600,
-.dark .text-blue-500 {
-  color: #60a5fa !important;
-}
-
-.dark a:hover {
-  color: #93c5fd !important;
-}
-
-/* Fix icons */
-.dark svg.text-gray-400,
-.dark svg.text-gray-500 {
-  color: #9ca3af !important;
-}
-
-/* Fix modals and dropdowns */
-.dark .fixed.bg-white,
-.dark .absolute.bg-white,
-.dark [class*="dropdown"] {
-  background-color: #1e293b !important;
-  border-color: #334155 !important;
-}
-
-/* Fix inputs focus */
-.dark input:focus,
-.dark select:focus,
-.dark textarea:focus {
-  --tw-ring-color: #3b82f6 !important;
-  border-color: #3b82f6 !important;
-}
-
-/* Fix radio and checkbox */
-.dark input[type="radio"],
-.dark input[type="checkbox"] {
-  background-color: #1e293b !important;
-  border-color: #475569 !important;
-}
-
-.dark input[type="radio"]:checked,
-.dark input[type="checkbox"]:checked {
-  background-color: #3b82f6 !important;
-  border-color: #3b82f6 !important;
-}
-
-/* Fix shadow in dark mode */
-.dark .shadow-sm,
-.dark .shadow-md,
-.dark .shadow-lg {
-  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.3) !important;
-}
-/* ============================================
-   SIMPLE DARK MODE FIX - Minimal & Effective
-   ============================================ */
-
-/* Force body backgrounds */
-body {
-  background-color: #f9fafb;
-}
-.dark body {
-  background-color: #111827;
-}
-
-/* Force card backgrounds */
-.dark .bg-white,
-.dark .bg-gray-50,
-.dark .bg-gray-100 {
-  background-color: #1f2937;
-}
-
-/* Force text colors */
-.dark .text-gray-900,
-.dark .text-gray-800,
-.dark .text-gray-700 {
-  color: #f3f4f6;
-}
-
-.dark .text-gray-600,
-.dark .text-gray-500 {
-  color: #9ca3af;
-}
-
-/* Force borders */
-.dark .border-gray-200,
-.dark .border-gray-300 {
-  border-color: #374151;
-}
-
-/* Force inputs */
-.dark input,
-.dark select,
-.dark textarea {
-  background-color: #374151;
-  border-color: #4b5563;
-  color: #f3f4f6;
-}
-/* ============================================
-   ADDITIONAL RESPONSIVE IMPROVEMENTS
-   ============================================ */
-
-/* Better mobile spacing */
-@media (max-width: 640px) {
-  .container {
-    padding-left: 1rem;
-    padding-right: 1rem;
-  }
-  
-  /* Stack buttons on mobile */
-  .mobile-stack {
-    flex-direction: column !important;
-  }
-  
-  /* Full width buttons on mobile */
-  .mobile-full-width {
-    width: 100% !important;
-  }
-  
-  /* Smaller padding on mobile cards */
-  .card-padding {
-    padding: 1rem !important;
-  }
-  
-  /* Hide less important elements on mobile */
-  .mobile-hide {
-    display: none !important;
-  }
-  
-  /* Show mobile-only elements */
-  .mobile-show {
-    display: block !important;
-  }
-}
-
-/* Mobile navigation improvements */
-@media (max-width: 768px) {
-  .sidebar-collapsed {
-    transform: translateX(-100%);
-    position: fixed;
-    z-index: 50;
-  }
-  
-  .sidebar-open {
-    transform: translateX(0);
-  }
-}
-
-/* Better touch targets for mobile */
-@media (max-width: 640px) {
-  button, 
-  .clickable,
-  .nav-link,
-  .menu-item {
-    min-height: 48px;
-    padding: 0.75rem 1rem;
-  }
-  
-  /* Larger touch targets for table rows */
-  table tbody tr {
-    cursor: pointer;
-  }
-  
-  table td {
-    padding: 0.75rem 0.5rem !important;
-  }
-}
-
-/* Prevent horizontal scroll on mobile */
-@media (max-width: 640px) {
-  body {
-    overflow-x: hidden;
-  }
-  
-  .overflow-x-auto {
-    -webkit-overflow-scrolling: touch;
-  }
-}
-
-/* Responsive typography */
-@media (max-width: 640px) {
-  h1, .text-2xl {
-    font-size: 1.25rem !important;
-  }
-  
-  h2, .text-xl {
-    font-size: 1.125rem !important;
-  }
-  
-  .text-lg {
-    font-size: 1rem !important;
-  }
-}
-
-/* Responsive sidebar for mobile */
-@media (max-width: 768px) {
-  .sidebar {
-    position: fixed;
-    left: -280px;
-    transition: left 0.3s ease;
-    z-index: 1000;
-  }
-  
-  .sidebar.open {
-    left: 0;
-  }
-  
-  .sidebar-overlay {
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.5);
-    z-index: 999;
-  }
-}
-
-/* Responsive modal for mobile */
-@media (max-width: 640px) {
-  .modal {
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    top: auto;
-    transform: none;
-    border-radius: 1rem 1rem 0 0;
-    max-height: 85vh;
-  }
-}
-
-/* Responsive font sizes for mobile */
-@media (max-width: 640px) {
-  .text-xs {
-    font-size: 0.7rem !important;
-  }
-  
-  .text-sm {
-    font-size: 0.8rem !important;
-  }
-  
-  .text-base {
-    font-size: 0.9rem !important;
-  }
+.text-truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
