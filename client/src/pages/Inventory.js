@@ -104,8 +104,7 @@ const ProductCard = ({ product, onEdit, onDelete, onRecipe, formatCurrency }) =>
     
         const getCategoryEmoji = (category) => {
         const cp = String.fromCodePoint;
-        const cp = String.fromCodePoint;
-  const key = String(category || '').trim().toLowerCase();
+        const key = String(category || '').trim().toLowerCase();
   const emojis = {
     'main course': String.fromCodePoint(0x1F35B),
     'main dish': String.fromCodePoint(0x1F35B),
