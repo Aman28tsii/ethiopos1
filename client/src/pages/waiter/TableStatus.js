@@ -309,7 +309,7 @@ const TableStatus = () => {
           <div className="bg-white dark:bg-gray-800 rounded-2xl max-w-md w-full border border-gray-200 dark:border-gray-700">
             <div className="p-5 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
               <h2 className="text-xl font-bold text-gray-900 dark:text-white">{t('assignWaiterToTable')} {selectedTableForAssign.table_number}</h2>
-              <button onClick={function() { setShowAssignModal(false); setSelectedTableForAssign(null); setSelectedWaiter(''); }} className="text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:text-gray-300">X</button>
+              <button onClick={function() { setShowAssignModal(false); setSelectedTableForAssign(null); setSelectedWaiter(''); }} className="text-gray-500 hover:text-gray-600 dark:text-gray-300">X</button>
             </div>
             <div className="p-5">
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{t('selectWaiter')}</label>
@@ -340,7 +340,7 @@ const TableStatus = () => {
           <div className="bg-white dark:bg-gray-800 rounded-2xl max-w-md w-full max-h-[80vh] overflow-y-auto border border-gray-200 dark:border-gray-700">
             <div className="sticky top-0 bg-white dark:bg-gray-800 p-4 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
               <h2 className="text-xl font-bold text-gray-900 dark:text-white">{t('orderDetails')}</h2>
-              <button onClick={function() { setShowOrderModal(false); }} className="text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:text-gray-300">X</button>
+              <button onClick={function() { setShowOrderModal(false); }} className="text-gray-500 hover:text-gray-600 dark:text-gray-300">X</button>
             </div>
             <div className="p-4 space-y-4">
               <div><p className="text-gray-500 dark:text-gray-400 text-xs">{t('orderNumber')}</p><p className="text-gray-900 dark:text-white font-bold text-lg">{selectedOrderDetails.order_number}</p></div>

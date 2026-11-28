@@ -237,7 +237,7 @@ const OnboardCompany = () => {
                     <button
                         type="submit"
                         disabled={loading}
-                        className="w-full py-4 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white rounded-xl font-bold text-lg transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                        className="w-full py-4 bg-emerald-600 hover:from-blue-700 hover:to-purple-700 text-white rounded-xl font-bold text-lg transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                     >
                         {loading ? (
                             <>

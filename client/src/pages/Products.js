@@ -446,11 +446,11 @@ const Products = () => {
                                     <option value="Dessert">{String.fromCodePoint(0x1F370)} Dessert</option>
                                     <option value="Appetizer">{String.fromCodePoint(0x1F362)} Appetizer</option>
                                     <option value="Soup">{String.fromCodePoint(0x1F372)} Soup</option>
-                                    <option value="Salad">🥗 Salad</option>
+                                    <option value="Salad">{String.fromCodePoint(0x1F957)} Salad</option>
                                     <option value="Breakfast">{String.fromCodePoint(0x1F373)} Breakfast</option>
-                                    <option value="Traditional">🇪🇹 Traditional</option>
-                                    <option value="Side">🥗 Side</option>
-                                    <option value="Vegetarian">🥬 Vegetarian</option>
+                                    <option value="Traditional">{String.fromCodePoint(0x1F1EA, 0x1F1F9)} Traditional</option>
+                                    <option value="Side">{String.fromCodePoint(0x1F957)} Side</option>
+                                    <option value="Vegetarian">{String.fromCodePoint(0x1F96C)} Vegetarian</option>
                                 </select>
                             </div>
 

@@ -32,8 +32,8 @@ const PrintQRCodes = () => {
       {/* Header */}
       <div className="flex justify-between items-center flex-wrap gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-900 dark:text-gray-900 dark:text-white">{t('printQRCodes')}</h1>
-          <p className="text-gray-500 dark:text-gray-500 dark:text-gray-500 dark:text-gray-400 mt-1">{t('generateAndPrintQRCodes')}</p>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-900 dark:text-white">{t('printQRCodes')}</h1>
+          <p className="text-gray-500 dark:text-gray-400 mt-1">{t('generateAndPrintQRCodes')}</p>
         </div>
         <button
           onClick={printPage}
@@ -49,10 +49,10 @@ const PrintQRCodes = () => {
         {tables.map(table => (
           <div 
             key={table} 
-            className="bg-white dark:bg-white dark:bg-white dark:bg-gray-800 rounded-xl p-4 text-center border border-gray-200 dark:border-gray-200 dark:border-gray-200 dark:border-gray-700 shadow-sm hover:shadow-md transition-all print:shadow-none print:border print:border-gray-300"
+            className="bg-white dark:bg-white dark:bg-gray-800 rounded-xl p-4 text-center border border-gray-200 dark:border-gray-700 shadow-sm hover:shadow-md transition-all print:shadow-none print:border print:border-gray-300"
           >
             {/* QR Code */}
-            <div className="bg-gray-50 dark:bg-gray-100 dark:bg-gray-700 p-3 rounded-lg mb-3">
+            <div className="bg-gray-50 dark:bg-gray-700 p-3 rounded-lg mb-3">
               <QRCodeCanvas
                 id={`qr-canvas-${table}`}
                 value={`${baseUrl}/qr-menu?table=${table}`}
@@ -64,8 +64,8 @@ const PrintQRCodes = () => {
             </div>
             
             {/* Table Info */}
-            <p className="font-bold text-gray-900 dark:text-gray-900 dark:text-gray-900 dark:text-white text-lg">{t('table')} {table}</p>
-            <p className="text-xs text-gray-500 dark:text-gray-500 dark:text-gray-500 dark:text-gray-400 mt-1 break-all hidden print:block">
+            <p className="font-bold text-gray-900 dark:text-gray-900 dark:text-white text-lg">{t('table')} {table}</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 break-all hidden print:block">
               {baseUrl}/qr-menu?table={table}
             </p>
             
@@ -73,7 +73,7 @@ const PrintQRCodes = () => {
             <div className="mt-3 flex gap-2 justify-center print:hidden">
               <button
                 onClick={() => copyUrl(`${baseUrl}/qr-menu?table=${table}`)}
-                className="text-xs bg-gray-100 dark:bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-600 dark:text-gray-600 dark:text-gray-300 px-2 py-1 rounded flex items-center gap-1 hover:bg-gray-200 dark:hover:bg-gray-200 dark:hover:bg-gray-600 transition"
+                className="text-xs bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 px-2 py-1 rounded flex items-center gap-1 hover:bg-gray-200 dark:hover:bg-gray-600 transition"
               >
                 <Copy size={12} />
                 {t('copyUrl')}
@@ -100,7 +100,7 @@ const PrintQRCodes = () => {
 
       {/* Print Instructions (visible only when printing) */}
       <div className="hidden print:block text-center mt-8">
-        <p className="text-gray-500 dark:text-gray-500 dark:text-gray-500 dark:text-gray-400 text-sm">
+        <p className="text-gray-500 dark:text-gray-400 text-sm">
           {t('cutAndPlaceOnTables')}
         </p>
       </div>

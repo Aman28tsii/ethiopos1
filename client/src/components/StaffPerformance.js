@@ -108,7 +108,7 @@ const StaffPerformance = memo(() => {
       </div>
 
       {topPerformer && (
-        <div className="m-4 p-4 bg-gradient-to-r from-yellow-600/20 to-orange-600/20 rounded-xl border border-yellow-500/30">
+        <div className="m-4 p-4 bg-amber-500/10 rounded-xl border border-yellow-500/30">
           <div className="flex items-center gap-3">
             <Crown size={28} className="text-yellow-400" />
             <div>

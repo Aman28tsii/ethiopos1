@@ -11,26 +11,30 @@ import { useLanguage } from '../../context/LanguageContext';
 // HELPER FUNCTIONS
 // ============================================
 const getProductEmoji = (category) => {
-    const emojis = {
-        'Main Course': '🍛',
-        'Beverage': '🥤',
-        'Drink': '🥤',
-        'Juice': '🧃',
-        'Coffee': '☕',
-        'Tea': '🍵',
-        'Dessert': '🍰',
-        'Appetizer': '🍢',
-        'Soup': '🍲',
-        'Salad': '🥗',
-        'Breakfast': '🍳',
-        'Traditional': '🇪🇹',
-        'Ethiopian': '🇪🇹',
-        'Side': '🥗',
-        'Main Dish': '🍛',
-        'Vegetarian': '🥬',
-        'Bread': '🍞'
-    };
-    return emojis[category] || '🍽️';
+    const cp = String.fromCodePoint;
+  const key = String(category || '').trim().toLowerCase();
+  const emojis = {
+    'main course': String.fromCodePoint(0x1F35B),
+    'main dish': String.fromCodePoint(0x1F35B),
+    'beverage': String.fromCodePoint(0x1F964),
+    'drink': String.fromCodePoint(0x1F964),
+    'drinks': String.fromCodePoint(0x1F964),
+    'juice': String.fromCodePoint(0x1F9C3),
+    'coffee': String.fromCodePoint(0x2615),
+    'tea': String.fromCodePoint(0x1F375),
+    'dessert': String.fromCodePoint(0x1F370),
+    'appetizer': String.fromCodePoint(0x1F362),
+    'soup': String.fromCodePoint(0x1F372),
+    'salad': String.fromCodePoint(0x1F957),
+    'side': String.fromCodePoint(0x1F957),
+    'breakfast': String.fromCodePoint(0x1F373),
+    'traditional': String.fromCodePoint(0x1F1EA, 0x1F1F9),
+    'ethiopian': String.fromCodePoint(0x1F1EA, 0x1F1F9),
+    'ethiopian food': String.fromCodePoint(0x1F1EA, 0x1F1F9),
+    'vegetarian': String.fromCodePoint(0x1F96C),
+    'bread': String.fromCodePoint(0x1F35E)
+  };
+  return emojis[key] || cp(0x1F37D, 0xFE0F);
 };
 
 const formatCurrency = (value) => {
@@ -692,7 +696,7 @@ const ManualOrder = () => {
                     <button
                         onClick={placeOrder}
                         disabled={cart.length === 0 || (orderType === 'dine_in' && !selectedTableId) || processing}
-                        className="w-full py-3 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white rounded-xl font-bold transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                        className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                     >
                         {processing ? (
                             <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>

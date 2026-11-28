@@ -58,8 +58,8 @@ const Expenses = () => {
   const handleCopyPreviousMonth = async () => {
     const confirmed = window.confirm(
       'Copy all expenses from LAST MONTH into THIS MONTH?\n\n' +
-      '• Items already present this month (same category + amount) will be skipped.\n' +
-      '• You can edit or delete any copied item afterward.\n\n' +
+      '- Items already present this month (same category + amount) will be skipped.\n' +
+      '- You can edit or delete any copied item afterward.\n\n' +
       'Continue?'
     );
     if (!confirmed) return;
@@ -70,9 +70,9 @@ const Expenses = () => {
       const { copied_count, skipped_count } = res.data.data;
 
       if (copied_count === 0) {
-        alert(`?? Nothing new to copy.\n\n${skipped_count} expense(s) from last month already exist this month.`);
+        alert(`Nothing new to copy.\n\n${skipped_count} expense(s) from last month already exist this month.`);
       } else {
-        let msg = `? Copied ${copied_count} expense(s) from last month.`;
+        let msg = `Copied ${copied_count} expense(s) from last month.`;
         if (skipped_count > 0) {
           msg += `\n\n${skipped_count} expense(s) already existed this month and were skipped.`;
         }
@@ -81,7 +81,7 @@ const Expenses = () => {
       fetchData();
     } catch (err) {
       const msg = err.response?.data?.error || 'Failed to copy expenses';
-      alert('? ' + msg);
+      alert(msg);
     } finally {
       setCopying(false);
     }

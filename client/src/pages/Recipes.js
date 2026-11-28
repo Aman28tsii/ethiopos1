@@ -138,8 +138,8 @@ ${t('profitMargin')}: ${response.data.data.profit_margin}%
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-900 dark:text-gray-900 dark:text-white">{t('recipeManagement')}</h1>
-        <p className="text-gray-500 dark:text-gray-500 dark:text-gray-500 dark:text-gray-400 mt-1">{t('defineProductRecipes')}</p>
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-900 dark:text-white">{t('recipeManagement')}</h1>
+        <p className="text-gray-500 dark:text-gray-400 mt-1">{t('defineProductRecipes')}</p>
       </div>
 
       {/* Info Card */}
@@ -148,7 +148,7 @@ ${t('profitMargin')}: ${response.data.data.profit_margin}%
           <UtensilsCrossed size={20} className="text-blue-600 dark:text-blue-400 mt-0.5" />
           <div>
             <p className="text-blue-700 dark:text-blue-400 font-semibold">{t('howRecipesWork')}</p>
-            <p className="text-gray-600 dark:text-gray-500 dark:text-gray-500 dark:text-gray-400 text-sm mt-1">
+            <p className="text-gray-600 dark:text-gray-400 text-sm mt-1">
               {t('recipeDescription')}
             </p>
           </div>
@@ -157,17 +157,17 @@ ${t('profitMargin')}: ${response.data.data.profit_margin}%
 
       {/* Search */}
       <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-500 dark:text-gray-400 dark:text-gray-500" size={18} />
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-500" size={18} />
         <input
           type="text"
           placeholder={`${t('search')} ${t('products')}...`}
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
-          className="w-full px-4 py-3 bg-white dark:bg-white dark:bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-300 dark:border-gray-600 rounded-xl text-gray-900 dark:text-gray-900 dark:text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 pl-10"
+          className="w-full px-4 py-3 bg-white dark:bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-xl text-gray-900 dark:text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 pl-10"
         />
         {searchTerm && (
           <button onClick={() => setSearchTerm('')} className="absolute right-3 top-1/2 -translate-y-1/2">
-            <X size={18} className="text-gray-500 dark:text-gray-500 dark:text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-600 dark:text-gray-600 dark:text-gray-300" />
+            <X size={18} className="text-gray-500 hover:text-gray-600 dark:hover:text-gray-600 dark:text-gray-300" />
           </button>
         )}
       </div>
@@ -178,11 +178,11 @@ ${t('profitMargin')}: ${response.data.data.profit_margin}%
           const hasRecipeFlag = hasRecipe(product.id);
           
           return (
-            <div key={product.id} className="bg-white dark:bg-white dark:bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-200 dark:border-gray-200 dark:border-gray-700 p-4 hover:border-gray-300 dark:hover:border-gray-300 dark:border-gray-600 transition-all shadow-sm hover:shadow-md">
+            <div key={product.id} className="bg-white dark:bg-white dark:bg-gray-800 rounded-xl border border-gray-200 p-4 hover:border-gray-300 dark:hover:border-gray-300 dark:border-gray-600 transition-all shadow-sm hover:shadow-md">
               <div className="flex justify-between items-start">
                 <div>
-                  <h3 className="font-semibold text-gray-900 dark:text-gray-900 dark:text-gray-900 dark:text-white text-lg">{product.name}</h3>
-                  <p className="text-sm text-gray-500 dark:text-gray-500 dark:text-gray-500 dark:text-gray-400">{product.category || t('uncategorized')}</p>
+                  <h3 className="font-semibold text-gray-900 dark:text-gray-900 dark:text-white text-lg">{product.name}</h3>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">{product.category || t('uncategorized')}</p>
                   <p className="text-blue-600 dark:text-blue-400 font-bold mt-1">Br {parseFloat(product.price).toFixed(2)}</p>
                 </div>
                 {hasRecipeFlag ? (
@@ -201,7 +201,7 @@ ${t('profitMargin')}: ${response.data.data.profit_margin}%
                 </button>
                 <button
                   onClick={() => calculateCost(product.id)}
-                  className="py-2 px-3 bg-gray-100 dark:bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-600 dark:text-gray-600 dark:text-gray-300 rounded-lg transition"
+                  className="py-2 px-3 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-lg transition"
                   title={t('calculateCost')}
                 >
                   <DollarSign size={16} />
@@ -209,7 +209,7 @@ ${t('profitMargin')}: ${response.data.data.profit_margin}%
               </div>
               
               {hasRecipeFlag && (
-                <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-200 dark:border-gray-200 dark:border-gray-700">
+                <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-700">
                   <p className="text-xs text-green-600 dark:text-green-400">✓ {t('recipeExists')}</p>
                 </div>
               )}
@@ -219,25 +219,25 @@ ${t('profitMargin')}: ${response.data.data.profit_margin}%
       </div>
 
       {filteredProducts.length === 0 && (
-        <div className="text-center py-12 bg-white dark:bg-white dark:bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-200 dark:border-gray-200 dark:border-gray-700">
-          <UtensilsCrossed size={48} className="mx-auto text-gray-500 dark:text-gray-500 dark:text-gray-400 dark:text-gray-600 mb-3" />
-          <p className="text-gray-500 dark:text-gray-500 dark:text-gray-500 dark:text-gray-400">{t('noProductsFound')}</p>
+        <div className="text-center py-12 bg-white dark:bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700">
+          <UtensilsCrossed size={48} className="mx-auto text-gray-500 dark:text-gray-600 mb-3" />
+          <p className="text-gray-500 dark:text-gray-400">{t('noProductsFound')}</p>
         </div>
       )}
 
       {/* Recipe Modal */}
       {showModal && selectedProduct && (
         <div className="fixed inset-0 bg-black/50 dark:bg-black/70 flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-white dark:bg-white dark:bg-gray-800 rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto border border-gray-200 dark:border-gray-200 dark:border-gray-200 dark:border-gray-700">
-            <div className="sticky top-0 bg-white dark:bg-white dark:bg-white dark:bg-gray-800 p-6 border-b border-gray-200 dark:border-gray-200 dark:border-gray-200 dark:border-gray-700">
+          <div className="bg-white dark:bg-white dark:bg-gray-800 rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto border border-gray-200 dark:border-gray-700">
+            <div className="sticky top-0 bg-white dark:bg-white dark:bg-gray-800 p-6 border-b border-gray-200 dark:border-gray-700">
               <div className="flex justify-between items-center">
                 <div>
-                  <h2 className="text-xl font-bold text-gray-900 dark:text-gray-900 dark:text-gray-900 dark:text-white">{t('recipe')}: {selectedProduct.product_name}</h2>
-                  <p className="text-gray-500 dark:text-gray-500 dark:text-gray-500 dark:text-gray-400 text-sm mt-1">
+                  <h2 className="text-xl font-bold text-gray-900 dark:text-gray-900 dark:text-white">{t('recipe')}: {selectedProduct.product_name}</h2>
+                  <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">
                     {t('sellingPrice')}: Br {selectedProduct.selling_price}
                   </p>
                 </div>
-                <button onClick={() => setShowModal(false)} className="text-gray-500 dark:text-gray-500 dark:text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-600 dark:text-gray-600 dark:text-gray-300">
+                <button onClick={() => setShowModal(false)} className="text-gray-500 hover:text-gray-600 dark:hover:text-gray-600 dark:text-gray-300">
                   <X size={24} />
                 </button>
               </div>
@@ -246,25 +246,25 @@ ${t('profitMargin')}: ${response.data.data.profit_margin}%
             <div className="p-6 space-y-6">
               {/* Profit Summary */}
               {costData && (
-                <div className="bg-gray-50 dark:bg-gray-100 dark:bg-gray-700 rounded-xl p-4">
-                  <h3 className="font-semibold text-gray-900 dark:text-gray-900 dark:text-gray-900 dark:text-white mb-3">{t('profitSummary')}</h3>
+                <div className="bg-gray-50 dark:bg-gray-700 rounded-xl p-4">
+                  <h3 className="font-semibold text-gray-900 dark:text-gray-900 dark:text-white mb-3">{t('profitSummary')}</h3>
                   <div className="grid grid-cols-3 gap-4">
                     <div>
-                      <p className="text-gray-500 dark:text-gray-500 dark:text-gray-500 dark:text-gray-400 text-sm">{t('sellingPrice')}</p>
-                      <p className="text-gray-900 dark:text-gray-900 dark:text-gray-900 dark:text-white font-bold">Br {costData.selling_price}</p>
+                      <p className="text-gray-500 dark:text-gray-400 text-sm">{t('sellingPrice')}</p>
+                      <p className="text-gray-900 dark:text-gray-900 dark:text-white font-bold">Br {costData.selling_price}</p>
                     </div>
                     <div>
-                      <p className="text-gray-500 dark:text-gray-500 dark:text-gray-500 dark:text-gray-400 text-sm">{t('ingredientCost')}</p>
+                      <p className="text-gray-500 dark:text-gray-400 text-sm">{t('ingredientCost')}</p>
                       <p className="text-red-600 dark:text-red-400 font-bold">Br {costData.total_ingredient_cost}</p>
                     </div>
                     <div>
-                      <p className="text-gray-500 dark:text-gray-500 dark:text-gray-500 dark:text-gray-400 text-sm">{t('profit')}</p>
+                      <p className="text-gray-500 dark:text-gray-400 text-sm">{t('profit')}</p>
                       <p className="text-green-600 dark:text-green-400 font-bold">Br {costData.profit}</p>
                     </div>
                   </div>
-                  <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-300 dark:border-gray-600">
+                  <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-600">
                     <div className="flex justify-between items-center">
-                      <span className="text-gray-500 dark:text-gray-500 dark:text-gray-500 dark:text-gray-400 text-sm">{t('profitMargin')}</span>
+                      <span className="text-gray-500 dark:text-gray-400 text-sm">{t('profitMargin')}</span>
                       <span className="text-green-600 dark:text-green-400 font-bold">{costData.profit_margin}%</span>
                     </div>
                   </div>
@@ -273,13 +273,13 @@ ${t('profitMargin')}: ${response.data.data.profit_margin}%
 
               {/* Ingredients List */}
               <div>
-                <h3 className="font-semibold text-gray-900 dark:text-gray-900 dark:text-gray-900 dark:text-white mb-3">{t('ingredientsNeeded')}</h3>
+                <h3 className="font-semibold text-gray-900 dark:text-gray-900 dark:text-white mb-3">{t('ingredientsNeeded')}</h3>
                 <div className="space-y-2">
                   {recipeIngredients.map((ing, idx) => (
-                    <div key={idx} className="flex justify-between items-center bg-gray-50 dark:bg-gray-100 dark:bg-gray-700 rounded-lg p-3">
+                    <div key={idx} className="flex justify-between items-center bg-gray-50 dark:bg-gray-700 rounded-lg p-3">
                       <div>
-                        <p className="text-gray-900 dark:text-gray-900 dark:text-gray-900 dark:text-white font-medium">{ing.ingredient_name}</p>
-                        <p className="text-gray-500 dark:text-gray-500 dark:text-gray-500 dark:text-gray-400 text-sm">
+                        <p className="text-gray-900 dark:text-gray-900 dark:text-white font-medium">{ing.ingredient_name}</p>
+                        <p className="text-gray-500 dark:text-gray-400 text-sm">
                           {ing.quantity_required} {ing.unit} × Br {ing.unit_cost} = Br {ing.cost_per_product}
                         </p>
                       </div>
@@ -293,7 +293,7 @@ ${t('profitMargin')}: ${response.data.data.profit_margin}%
                   ))}
                   
                   {recipeIngredients.length === 0 && (
-                    <div className="text-center py-6 text-gray-500 dark:text-gray-500 dark:text-gray-500 dark:text-gray-400">
+                    <div className="text-center py-6 text-gray-500 dark:text-gray-400">
                       {t('noIngredientsAddedYet')}
                     </div>
                   )}
@@ -301,13 +301,13 @@ ${t('profitMargin')}: ${response.data.data.profit_margin}%
               </div>
 
               {/* Add Ingredient Form */}
-              <div className="border-t border-gray-200 dark:border-gray-200 dark:border-gray-200 dark:border-gray-700 pt-4">
-                <h3 className="font-semibold text-gray-900 dark:text-gray-900 dark:text-gray-900 dark:text-white mb-3">{t('addIngredient')}</h3>
+              <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
+                <h3 className="font-semibold text-gray-900 dark:text-gray-900 dark:text-white mb-3">{t('addIngredient')}</h3>
                 <div className="grid grid-cols-2 gap-3 mb-3">
                   <select
                     value={selectedIngredient.ingredient_id}
                     onChange={(e) => setSelectedIngredient({ ...selectedIngredient, ingredient_id: e.target.value })}
-                    className="px-3 py-2 bg-gray-50 dark:bg-gray-50 dark:bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-gray-900 dark:text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="px-3 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
                     <option value="">{t('selectIngredient')}</option>
                     {ingredients.map(ing => (
@@ -322,7 +322,7 @@ ${t('profitMargin')}: ${response.data.data.profit_margin}%
                     placeholder={t('quantityRequired')}
                     value={selectedIngredient.quantity_required}
                     onChange={(e) => setSelectedIngredient({ ...selectedIngredient, quantity_required: e.target.value })}
-                    className="px-3 py-2 bg-gray-50 dark:bg-gray-50 dark:bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-gray-900 dark:text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="px-3 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
                 <button
@@ -335,7 +335,7 @@ ${t('profitMargin')}: ${response.data.data.profit_margin}%
               </div>
 
               {/* Save Button */}
-              <div className="flex gap-3 pt-4 border-t border-gray-200 dark:border-gray-200 dark:border-gray-200 dark:border-gray-700">
+              <div className="flex gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
                 <button
                   onClick={saveRecipe}
                   className="flex-1 py-3 bg-green-600 hover:bg-green-700 text-gray-900 dark:text-gray-900 dark:text-white rounded-xl font-bold transition"
@@ -344,7 +344,7 @@ ${t('profitMargin')}: ${response.data.data.profit_margin}%
                 </button>
                 <button
                   onClick={() => setShowModal(false)}
-                  className="flex-1 py-3 bg-gray-100 dark:bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-600 dark:text-gray-600 dark:text-gray-300 rounded-xl font-semibold transition"
+                  className="flex-1 py-3 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-xl font-semibold transition"
                 >
                   {t('cancel')}
                 </button>

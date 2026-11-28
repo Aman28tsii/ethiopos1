@@ -16,22 +16,30 @@ import { formatCurrency } from '../../utils/formatting';
 
 // Helper function for product emojis
 const getProductEmoji = (category) => {
-    const emojis = {
-        'Main Course': '🍛',
-        'Beverage': '🥤',
-        'Drink': '🥤',
-        'Juice': '🧃',
-        'Coffee': '☕',
-        'Tea': '🍵',
-        'Dessert': '🍰',
-        'Appetizer': '🍢',
-        'Soup': '🍲',
-        'Salad': '🥗',
-        'Breakfast': '🍳',
-        'Traditional': '🇪🇹',
-        'Ethiopian': '🇪🇹'
-    };
-    return emojis[category] || '🍽️';
+    const cp = String.fromCodePoint;
+  const key = String(category || '').trim().toLowerCase();
+  const emojis = {
+    'main course': String.fromCodePoint(0x1F35B),
+    'main dish': String.fromCodePoint(0x1F35B),
+    'beverage': String.fromCodePoint(0x1F964),
+    'drink': String.fromCodePoint(0x1F964),
+    'drinks': String.fromCodePoint(0x1F964),
+    'juice': String.fromCodePoint(0x1F9C3),
+    'coffee': String.fromCodePoint(0x2615),
+    'tea': String.fromCodePoint(0x1F375),
+    'dessert': String.fromCodePoint(0x1F370),
+    'appetizer': String.fromCodePoint(0x1F362),
+    'soup': String.fromCodePoint(0x1F372),
+    'salad': String.fromCodePoint(0x1F957),
+    'side': String.fromCodePoint(0x1F957),
+    'breakfast': String.fromCodePoint(0x1F373),
+    'traditional': String.fromCodePoint(0x1F1EA, 0x1F1F9),
+    'ethiopian': String.fromCodePoint(0x1F1EA, 0x1F1F9),
+    'ethiopian food': String.fromCodePoint(0x1F1EA, 0x1F1F9),
+    'vegetarian': String.fromCodePoint(0x1F96C),
+    'bread': String.fromCodePoint(0x1F35E)
+  };
+  return emojis[key] || cp(0x1F37D, 0xFE0F);
 };
 
 const TableGrid = () => {
@@ -259,11 +267,11 @@ const TableGrid = () => {
 
     const getTableGradient = useCallback((status) => {
         switch(status) {
-            case 'available': return 'from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700';
-            case 'occupied': return 'from-rose-500 to-rose-600 hover:from-rose-600 hover:to-rose-700';
-            case 'reserved': return 'from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700';
-            case 'cleaning': return 'from-slate-500 to-slate-600';
-            default: return 'from-gray-500 to-gray-600';
+            case 'available': return 'bg-emerald-500 hover:bg-emerald-600';
+            case 'occupied': return 'bg-rose-500 hover:bg-rose-600';
+            case 'reserved': return 'bg-amber-500 hover:bg-amber-600';
+            case 'cleaning': return 'bg-slate-500';
+            default: return 'bg-gray-500';
         }
     }, []);
 
@@ -709,7 +717,7 @@ const TableGrid = () => {
 
     // ========== RENDER ==========
     return (
-        <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900">
+        <div className="min-h-screen bg-gray-900">
             <div className="p-3 md:p-6 lg:p-8 space-y-4 md:space-y-6 pb-24 md:pb-8">
                 
                 {/* ============================================ */}
@@ -770,7 +778,7 @@ const TableGrid = () => {
                 {/* ============================================ */}
                 <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
                     <div>
-                        <h1 className="text-2xl md:text-3xl lg:text-4xl font-bold bg-gradient-to-r from-emerald-400 to-teal-400 bg-clip-text text-transparent">
+                        <h1 className="text-2xl md:text-3xl lg:text-4xl font-bold text-emerald-400">
                             {t('tableManagement')}
                         </h1>
                         <p className="text-gray-400 text-sm mt-1 flex items-center gap-2">
@@ -1169,11 +1177,11 @@ const TableGrid = () => {
                         <span className="text-gray-300 text-xs md:text-sm">{t('reserved')}</span>
                     </div>
                     <div className="flex items-center gap-1 md:gap-2">
-                        <div className="w-2 h-2 md:w-3 md:h-3 bg-gradient-to-r from-slate-500 to-slate-600 rounded-full"></div>
+                        <div className="w-2 h-2 md:w-3 md:h-3 bg-gradient-to-r bg-slate-500 rounded-full"></div>
                         <span className="text-gray-300 text-xs md:text-sm">{t('cleaning')}</span>
                     </div>
                     <div className="flex items-center gap-1 md:gap-2">
-                        <div className="w-2 h-2 md:w-3 md:h-3 bg-gradient-to-r from-blue-500 to-blue-600 rounded-full"></div>
+                        <div className="w-2 h-2 md:w-3 md:h-3 bg-gradient-to-r bg-emerald-500 rounded-full"></div>
                         <span className="text-gray-300 text-xs md:text-sm flex items-center gap-1">
                             <QrCode size={12} /> {t('qrCodeAvailable')}
                         </span>
@@ -1205,7 +1213,7 @@ const TableGrid = () => {
                 {tables.length > 0 && (
                     <div className="bg-white/5 backdrop-blur-sm rounded-xl p-4 md:p-6 border border-gray-700/50">
                         <h2 className="text-lg md:text-xl font-semibold text-white mb-4 md:mb-6 flex items-center gap-2">
-                            <div className="w-1 h-5 md:h-6 bg-gradient-to-b from-emerald-400 to-teal-400 rounded-full"></div>
+                            <div className="w-1 h-5 md:h-6 bg-emerald-400 rounded-full"></div>
                             {t('floorPlan')} - Your Assigned Tables
                         </h2>
                         
@@ -1214,7 +1222,7 @@ const TableGrid = () => {
                                 <div key={table.id} className="relative">
                                     <button
                                         onClick={() => handleTableClick(table)}
-                                        className={`relative group bg-gradient-to-br ${getTableGradient(table.status)} rounded-xl p-3 md:p-5 text-center transition-all duration-300 transform hover:scale-105 hover:shadow-2xl active:scale-95 w-full min-h-[100px] md:min-h-[120px]`}
+                                        className={`relative group ${getTableGradient(table.status)} rounded-xl p-3 md:p-5 text-center transition-all duration-300 transform hover:scale-105 hover:shadow-2xl active:scale-95 w-full min-h-[100px] md:min-h-[120px]`}
                                     >
                                         {table.status === 'occupied' && (
                                             <div className="absolute -top-1 -right-1 md:-top-2 md:-right-2 bg-blue-500 rounded-full p-1 md:p-1.5 shadow-lg animate-pulse">
@@ -1464,7 +1472,7 @@ const TableGrid = () => {
                                             <button
                                                 onClick={submitOrder}
                                                 disabled={cart.length === 0 || isSubmitting}
-                                                className="w-full py-2 md:py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-lg md:rounded-xl font-bold text-sm md:text-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                                                className="w-full py-2 md:py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg md:rounded-xl font-bold text-sm md:text-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                                             >
                                                 {isSubmitting ? (
                                                     <Loader2 className="animate-spin" size={isMobile ? 16 : 20} />
@@ -1540,7 +1548,7 @@ const TableGrid = () => {
                                 <div className="flex gap-3">
                                     <button
                                         onClick={() => cancelOrder(orderToCancel.id, cancelReason)}
-                                        className="flex-1 py-2 bg-gradient-to-r from-rose-600 to-rose-700 hover:from-rose-700 hover:to-rose-800 text-white rounded-lg md:rounded-xl font-semibold transition-all"
+                                        className="flex-1 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg md:rounded-xl font-semibold transition-all"
                                     >
                                         {t('yesCancel')}
                                     </button>
@@ -1693,7 +1701,7 @@ const TableGrid = () => {
                                             <button
                                                 onClick={addItemsToExistingOrder}
                                                 disabled={addItemsCart.length === 0 || isSubmitting}
-                                                className="w-full py-2 md:py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-lg md:rounded-xl font-bold text-sm md:text-base transition-all disabled:opacity-50"
+                                                className="w-full py-2 md:py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg md:rounded-xl font-bold text-sm md:text-base transition-all disabled:opacity-50"
                                             >
                                                 {isSubmitting ? t('adding') : t('addToOrder')}
                                             </button>

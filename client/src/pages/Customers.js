@@ -128,22 +128,22 @@ const Customers = () => {
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-gradient-to-r from-purple-600 to-purple-700 rounded-xl p-4 text-white">
+        <div className="bg-orange-600 rounded-xl p-4 text-white">
           <Users size={24} className="mb-2 opacity-80" />
           <p className="text-purple-200 text-sm">{t('totalCustomers')}</p>
           <p className="text-2xl font-bold">{totalCustomers}</p>
         </div>
-        <div className="bg-gradient-to-r from-yellow-600 to-yellow-700 rounded-xl p-4 text-white">
+        <div className="bg-amber-600 rounded-xl p-4 text-white">
           <Award size={24} className="mb-2 opacity-80" />
           <p className="text-yellow-200 text-sm">{t('totalLoyaltyPoints')}</p>
           <p className="text-2xl font-bold">{totalLoyaltyPoints}</p>
         </div>
-        <div className="bg-gradient-to-r from-green-600 to-green-700 rounded-xl p-4 text-white">
+        <div className="bg-emerald-600 rounded-xl p-4 text-white">
           <TrendingUp size={24} className="mb-2 opacity-80" />
           <p className="text-green-200 text-sm">{t('totalSpent')}</p>
           <p className="text-2xl font-bold">{formatCurrency(totalSpent)}</p>
         </div>
-        <div className="bg-gradient-to-r from-blue-600 to-blue-700 rounded-xl p-4 text-white">
+        <div className="bg-emerald-600 rounded-xl p-4 text-white">
           <Star size={24} className="mb-2 opacity-80" />
           <p className="text-blue-200 text-sm">{t('avgSpentPerCustomer')}</p>
           <p className="text-2xl font-bold">{formatCurrency(avgSpent)}</p>
@@ -174,7 +174,7 @@ const Customers = () => {
             <div className="p-5">
               <div className="flex justify-between items-start mb-3">
                 <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-full bg-gradient-to-r from-blue-500 to-purple-500 flex items-center justify-center text-white font-bold text-xl">
+                  <div className="w-12 h-12 rounded-full bg-emerald-500 flex items-center justify-center text-white font-bold text-xl">
                     {customer.name?.charAt(0)}
                   </div>
                   <div>
@@ -350,7 +350,7 @@ const Customers = () => {
 
             <div className="p-5 space-y-4">
               <div className="flex items-center gap-4">
-                <div className="w-16 h-16 rounded-full bg-gradient-to-r from-blue-500 to-purple-500 flex items-center justify-center text-white font-bold text-2xl">
+                <div className="w-16 h-16 rounded-full bg-emerald-500 flex items-center justify-center text-white font-bold text-2xl">
                   {selectedCustomer.name?.charAt(0)}
                 </div>
                 <div>

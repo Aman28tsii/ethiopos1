@@ -28,7 +28,7 @@ const ActiveOrderSummary = ({ order, onClose, onTrack }) => {
   return (
     <div className="fixed bottom-20 right-4 z-40 w-80 bg-white dark:bg-gray-800 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 overflow-hidden animate-slide-up">
       {/* Header */}
-      <div className="bg-gradient-to-r from-blue-600 to-purple-600 p-3 flex justify-between items-center">
+      <div className="bg-emerald-600 p-3 flex justify-between items-center">
         <div className="flex items-center gap-2">
           <ShoppingBag size={18} className="text-white" />
           <h3 className="text-white font-semibold text-sm">Your Active Order</h3>
@@ -55,7 +55,7 @@ const ActiveOrderSummary = ({ order, onClose, onTrack }) => {
         {/* Progress Bar */}
         <div className="h-1.5 bg-gray-700 rounded-full mb-3 overflow-hidden">
           <div 
-            className="h-full bg-gradient-to-r from-blue-500 to-purple-500 rounded-full transition-all duration-500"
+            className="h-full bg-emerald-500 rounded-full transition-all duration-500"
             style={{ 
               width: ${
                 order.status === 'pending_confirmation' ? '10%' :

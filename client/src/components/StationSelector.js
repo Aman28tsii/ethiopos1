@@ -12,9 +12,9 @@ const StationSelector = memo(({ user, onStationChange, initialStation }) => {
   });
 
   const stations = [
-    { id: 'kitchen', icon: ChefHat, label: 'Kitchen Only', color: 'orange', description: 'Food items only', emoji: '🍳' },
-    { id: 'bar', icon: Wine, label: 'Bar Only', color: 'blue', description: 'Drink items only', emoji: '🍺' },
-    { id: 'both', icon: Layers, label: 'Both Stations', color: 'purple', description: 'See all items', emoji: '📋' }
+    { id: 'kitchen', icon: ChefHat, label: 'Kitchen Only', color: 'orange', description: 'Food items only', emoji: String.fromCodePoint(0x1F373) },
+    { id: 'bar', icon: Wine, label: 'Bar Only', color: 'blue', description: 'Drink items only', emoji: String.fromCodePoint(0x1F37A) },
+    { id: 'both', icon: Layers, label: 'Both Stations', color: 'purple', description: 'See all items', emoji: String.fromCodePoint(0x1F4CB) }
   ];
 
   const handleStationChange = (stationId) => {
@@ -82,9 +82,9 @@ const StationSelector = memo(({ user, onStationChange, initialStation }) => {
             selectedStation === 'bar' ? 'text-blue-600 dark:text-blue-400' :
             'text-purple-600 dark:text-purple-400'
           }`}>
-            {selectedStation === 'kitchen' && '🍳 Kitchen Only'}
-            {selectedStation === 'bar' && '🍺 Bar Only'}
-            {selectedStation === 'both' && '📋 Both Stations'}
+            {selectedStation === 'kitchen' && String.fromCodePoint(0x1F373) + ' Kitchen Only'}
+            {selectedStation === 'bar' && String.fromCodePoint(0x1F37A) + ' Bar Only'}
+            {selectedStation === 'both' && String.fromCodePoint(0x1F4CB) + ' Both Stations'}
           </span>
         </div>
       </div>

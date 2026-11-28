@@ -7,7 +7,7 @@ import {
 import { useLanguage } from '../context/LanguageContext';
 import { formatCurrency } from '../utils/formatting';
 
-const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
+const COLORS = ['#059669', '#0d9488', '#d97706', '#dc2626', '#ea580c'];
 
 export const RevenueChart = ({ data, title }) => {
   const { t } = useLanguage();
@@ -34,7 +34,7 @@ export const RevenueChart = ({ data, title }) => {
             labelFormatter={function(label) { return t('date') + ': ' + label; }}
           />
           <Legend formatter={function(value) { return t(value.toLowerCase()); }} />
-          <Line type="monotone" dataKey="revenue" stroke="#3b82f6" name="revenue" strokeWidth={2} dot={{ r: 4 }} />
+          <Line type="monotone" dataKey="revenue" stroke="#059669" name="revenue" strokeWidth={2} dot={{ r: 4 }} />
           <Line type="monotone" dataKey="profit" stroke="#10b981" name="profit" strokeWidth={2} dot={{ r: 4 }} />
         </LineChart>
       </ResponsiveContainer>
@@ -66,7 +66,7 @@ export const TopProductsChart = ({ data, title }) => {
             formatter={function(value) { return formatCurrency(value); }}
             labelFormatter={function(label) { return t('product') + ': ' + label; }}
           />
-          <Bar dataKey="revenue" fill="#8b5cf6" name={t('revenue')} radius={[0, 4, 4, 0]} />
+          <Bar dataKey="revenue" fill="#ea580c" name={t('revenue')} radius={[0, 4, 4, 0]} />
         </BarChart>
       </ResponsiveContainer>
     </div>
@@ -112,7 +112,7 @@ export const PaymentMethodsChart = ({ data, title }) => {
             labelLine={false}
             label={function({ name, percent }) { return name + ': ' + (percent * 100).toFixed(0) + '%'; }}
             outerRadius={100}
-            fill="#8884d8"
+            fill="#0d9488"
             dataKey="total"
             nameKey="payment_method"
           >
@@ -163,7 +163,7 @@ export const HourlySalesChart = ({ data, title }) => {
             labelFormatter={function(label) { return t('hour') + ': ' + label; }}
           />
           <Legend formatter={function(value) { return t(value.toLowerCase()); }} />
-          <Area type="monotone" dataKey="revenue" stackId="1" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.3} name="revenue" />
+          <Area type="monotone" dataKey="revenue" stackId="1" stroke="#059669" fill="#059669" fillOpacity={0.3} name="revenue" />
           <Area type="monotone" dataKey="orders" stackId="2" stroke="#f59e0b" fill="#f59e0b" fillOpacity={0.3} name="orders" />
         </AreaChart>
       </ResponsiveContainer>

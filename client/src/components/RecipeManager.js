@@ -369,7 +369,7 @@ const RecipeManager = ({ productId, productName, productPrice, onSave, onClose }
           <div className={`rounded-xl p-4 border ${
             ingredients.length === 0 
               ? 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800'
-              : 'bg-gradient-to-r from-purple-50 to-indigo-50 dark:from-purple-900/20 dark:to-indigo-900/20 border-purple-200 dark:border-purple-800'
+              : 'bg-orange-50 dark:bg-orange-900/20 border-purple-200 dark:border-purple-800'
           }`}>
             <h3 className="font-semibold text-gray-900 dark:text-white mb-3 flex items-center gap-2">
               <DollarSign size={18} className="text-purple-600 dark:text-purple-400" />

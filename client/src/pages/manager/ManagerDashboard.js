@@ -96,12 +96,12 @@ const ManagerDashboard = () => {
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <button className="bg-white dark:bg-gray-800 hover:bg-gray-100 dark:bg-gray-700 rounded-xl p-6 text-left transition border border-gray-200 dark:border-gray-700">
+        <button className="bg-white hover:bg-gray-100 dark:bg-gray-700 rounded-xl p-6 text-left transition border border-gray-200 dark:border-gray-700">
           <Package size={24} className="text-blue-400 mb-3" />
           <h3 className="text-gray-900 dark:text-white font-semibold">{t('updateInventory')}</h3>
           <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">{t('addOrEditStockLevels')}</p>
         </button>
-        <button className="bg-white dark:bg-gray-800 hover:bg-gray-100 dark:bg-gray-700 rounded-xl p-6 text-left transition border border-gray-200 dark:border-gray-700">
+        <button className="bg-white hover:bg-gray-100 dark:bg-gray-700 rounded-xl p-6 text-left transition border border-gray-200 dark:border-gray-700">
           <TrendingUp size={24} className="text-green-400 mb-3" />
           <h3 className="text-gray-900 dark:text-white font-semibold">{t('viewReports')}</h3>
           <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">{t('salesAndProfitAnalytics')}</p>

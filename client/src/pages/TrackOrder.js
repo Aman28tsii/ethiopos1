@@ -387,7 +387,7 @@ const TrackOrder = () => {
               <div className="mb-6">
                 <div className="h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
                   <div 
-                    className="h-full bg-gradient-to-r from-blue-500 to-green-500 rounded-full transition-all duration-500"
+                    className="h-full bg-emerald-500 rounded-full transition-all duration-500"
                     style={{ width: progress + '%' }}
                   />
                 </div>

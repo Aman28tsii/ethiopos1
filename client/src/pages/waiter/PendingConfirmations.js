@@ -88,7 +88,7 @@ const PendingConfirmations = () => {
         </div>
       )}
 
-      <div className="bg-gradient-to-r from-yellow-50 to-orange-50 dark:from-yellow-900/20 dark:to-orange-900/20 border border-yellow-200 dark:border-yellow-800 rounded-xl p-4">
+      <div className="bg-amber-50 dark:bg-amber-900/20 border border-yellow-200 dark:border-yellow-800 rounded-xl p-4">
         <div className="flex items-center gap-3">
           <Clock size={24} className="text-yellow-600 dark:text-yellow-400" />
           <div>
@@ -109,7 +109,7 @@ const PendingConfirmations = () => {
           {pendingOrders.map(function(order) {
             return (
               <div key={order.id} className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden hover:border-yellow-500/50 transition-all shadow-sm hover:shadow-md">
-                <div className="bg-gradient-to-r from-yellow-50 to-orange-50 dark:from-yellow-900/20 dark:to-orange-900/20 p-4 border-b border-gray-200 dark:border-gray-700">
+                <div className="bg-amber-50 dark:bg-amber-900/20 p-4 border-b border-gray-200 dark:border-gray-700">
                   <div className="flex justify-between items-start">
                     <div>
                       <div className="flex items-center gap-2">

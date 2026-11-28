@@ -94,21 +94,21 @@ const OwnerDashboard = () => {
       <LowStockAlert />
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-gradient-to-r from-blue-600 to-blue-700 rounded-xl p-6 text-white">
+        <div className="bg-emerald-600 rounded-xl p-6 text-white">
           <DollarSign size={24} className="mb-2" />
           <p className="text-blue-200 text-sm">{t('totalRevenue')}</p>
           <p className="text-2xl font-bold">{formatCurrency(data?.month?.revenue)}</p>
           <p className="text-blue-200 text-xs mt-2">{t('last30Days')}</p>
         </div>
         
-        <div className="bg-gradient-to-r from-green-600 to-green-700 rounded-xl p-6 text-white">
+        <div className="bg-emerald-600 rounded-xl p-6 text-white">
           <TrendingUp size={24} className="mb-2" />
           <p className="text-green-200 text-sm">{t('totalProfit')}</p>
           <p className="text-2xl font-bold">{formatCurrency(data?.month?.profit)}</p>
           <p className="text-green-200 text-xs mt-2">{t('last30Days')}</p>
         </div>
         
-        <div className="bg-gradient-to-r from-purple-600 to-purple-700 rounded-xl p-6 text-white">
+        <div className="bg-orange-600 rounded-xl p-6 text-white">
           <Users size={24} className="mb-2" />
           <p className="text-purple-200 text-sm">{t('totalStaff')}</p>
           <p className="text-2xl font-bold">{data?.users?.length || 0}</p>

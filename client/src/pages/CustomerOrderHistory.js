@@ -57,7 +57,7 @@ const CustomerOrderHistory = () => {
       completed: 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400',
       cancelled: 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'
     };
-    return statuses[status] || 'bg-gray-100 dark:bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-600 dark:text-gray-300';
+    return statuses[status] || 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300';
   };
 
   const getStatusText = (status) => {
@@ -73,31 +73,31 @@ const CustomerOrderHistory = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-50 dark:bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
         <Loader2 className="animate-spin text-blue-600 dark:text-blue-500" size={40} />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-50 dark:bg-gray-50 dark:bg-gray-900">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
       <div className="container mx-auto px-4 py-8 max-w-4xl">
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-900 dark:text-gray-900 dark:text-white mb-2">{t('orderHistory')}</h1>
-          <p className="text-gray-500 dark:text-gray-500 dark:text-gray-500 dark:text-gray-400">{t('enterPhoneToViewOrders')}</p>
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-900 dark:text-white mb-2">{t('orderHistory')}</h1>
+          <p className="text-gray-500 dark:text-gray-400">{t('enterPhoneToViewOrders')}</p>
         </div>
 
         {/* Search Form */}
-        <div className="bg-white dark:bg-white dark:bg-white dark:bg-gray-800 rounded-2xl p-6 mb-8 border border-gray-200 dark:border-gray-200 dark:border-gray-200 dark:border-gray-700 shadow-sm">
+        <div className="bg-white dark:bg-white dark:bg-gray-800 rounded-2xl p-6 mb-8 border border-gray-200 dark:border-gray-700 shadow-sm">
           <form onSubmit={searchCustomer} className="flex flex-col sm:flex-row gap-4">
             <div className="relative flex-1">
-              <Phone className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-500 dark:text-gray-400 dark:text-gray-500" size={18} />
+              <Phone className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-500" size={18} />
               <input
                 type="tel"
                 placeholder={t('enterPhoneNumber')}
                 value={phoneNumber}
                 onChange={(e) => setPhoneNumber(e.target.value)}
-                className="w-full px-4 py-3 pl-10 bg-gray-50 dark:bg-gray-50 dark:bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-300 dark:border-gray-600 rounded-xl text-gray-900 dark:text-gray-900 dark:text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-4 py-3 pl-10 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-xl text-gray-900 dark:text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
             <button
@@ -115,7 +115,7 @@ const CustomerOrderHistory = () => {
         {searched && (
           <>
             {customer && (
-              <div className="bg-gradient-to-r from-blue-600 to-purple-600 rounded-2xl p-6 mb-6 text-gray-900 dark:text-gray-900 dark:text-white">
+              <div className="bg-emerald-600 rounded-2xl p-6 mb-6 text-gray-900 dark:text-gray-900 dark:text-white">
                 <div className="flex items-center gap-4 flex-wrap">
                   <div className="w-16 h-16 rounded-full bg-white/20 flex items-center justify-center">
                     <User size={32} className="text-gray-900 dark:text-gray-900 dark:text-white" />
@@ -144,24 +144,24 @@ const CustomerOrderHistory = () => {
             )}
 
             {orders.length === 0 ? (
-              <div className="bg-white dark:bg-white dark:bg-white dark:bg-gray-800 rounded-2xl p-12 text-center border border-gray-200 dark:border-gray-200 dark:border-gray-200 dark:border-gray-700 shadow-sm">
-                <Receipt size={48} className="mx-auto text-gray-500 dark:text-gray-500 dark:text-gray-400 dark:text-gray-600 mb-3" />
-                <p className="text-gray-500 dark:text-gray-500 dark:text-gray-500 dark:text-gray-400">{t('noOrdersFound')}</p>
+              <div className="bg-white dark:bg-white dark:bg-gray-800 rounded-2xl p-12 text-center border border-gray-200 dark:border-gray-700 shadow-sm">
+                <Receipt size={48} className="mx-auto text-gray-500 dark:text-gray-600 mb-3" />
+                <p className="text-gray-500 dark:text-gray-400">{t('noOrdersFound')}</p>
               </div>
             ) : (
               <div className="space-y-4">
-                <h3 className="text-gray-900 dark:text-gray-900 dark:text-gray-900 dark:text-white font-semibold text-lg mb-4 flex items-center gap-2">
+                <h3 className="text-gray-900 dark:text-gray-900 dark:text-white font-semibold text-lg mb-4 flex items-center gap-2">
                   <Clock size={20} className="text-blue-600 dark:text-blue-400" />
                   {t('recentOrders')}
                 </h3>
                 {orders.map(order => (
-                  <div key={order.id} className="bg-white dark:bg-white dark:bg-white dark:bg-gray-800 rounded-2xl p-5 border border-gray-200 dark:border-gray-200 dark:border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-300 dark:border-gray-600 transition-all shadow-sm hover:shadow-md">
+                  <div key={order.id} className="bg-white dark:bg-white dark:bg-gray-800 rounded-2xl p-5 border border-gray-200 hover:border-gray-300 dark:hover:border-gray-300 dark:border-gray-600 transition-all shadow-sm hover:shadow-md">
                     <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-3">
                       <div>
-                        <p className="text-gray-900 dark:text-gray-900 dark:text-gray-900 dark:text-white font-bold text-lg">#{order.order_number}</p>
+                        <p className="text-gray-900 dark:text-gray-900 dark:text-white font-bold text-lg">#{order.order_number}</p>
                         <div className="flex items-center gap-2 mt-1">
-                          <Calendar size={14} className="text-gray-500 dark:text-gray-500 dark:text-gray-400 dark:text-gray-500" />
-                          <p className="text-gray-500 dark:text-gray-500 dark:text-gray-500 dark:text-gray-400 text-sm">{formatDate(order.created_at)}</p>
+                          <Calendar size={14} className="text-gray-500 dark:text-gray-500" />
+                          <p className="text-gray-500 dark:text-gray-400 text-sm">{formatDate(order.created_at)}</p>
                         </div>
                       </div>
                       <div className="flex gap-2 items-center">
@@ -173,19 +173,19 @@ const CustomerOrderHistory = () => {
                     </div>
                     
                     {order.items && order.items.length > 0 && (
-                      <div className="border-t border-gray-100 dark:border-gray-200 dark:border-gray-200 dark:border-gray-700 pt-3 mt-2">
-                        <p className="text-gray-500 dark:text-gray-500 dark:text-gray-500 dark:text-gray-400 text-sm mb-2 flex items-center gap-1">
+                      <div className="border-t border-gray-100 dark:border-gray-700 pt-3 mt-2">
+                        <p className="text-gray-500 dark:text-gray-400 text-sm mb-2 flex items-center gap-1">
                           <DollarSign size={14} />
                           {t('items')}:
                         </p>
                         <div className="flex flex-wrap gap-2">
                           {order.items.slice(0, 3).map((item, idx) => (
-                            <span key={idx} className="text-gray-700 dark:text-gray-600 dark:text-gray-600 dark:text-gray-300 text-sm bg-gray-100 dark:bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded-lg">
+                            <span key={idx} className="text-gray-700 dark:text-gray-300 text-sm bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded-lg">
                               {item.quantity}x {item.product_name}
                             </span>
                           ))}
                           {order.items.length > 3 && (
-                            <span className="text-gray-500 dark:text-gray-500 dark:text-gray-500 dark:text-gray-400 text-sm">+{order.items.length - 3} {t('more')}</span>
+                            <span className="text-gray-500 dark:text-gray-400 text-sm">+{order.items.length - 3} {t('more')}</span>
                           )}
                         </div>
                         <button
@@ -211,33 +211,33 @@ const CustomerOrderHistory = () => {
       {/* Order Details Modal */}
       {showDetailsModal && selectedOrder && (
         <div className="fixed inset-0 bg-black/50 dark:bg-black/70 flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-white dark:bg-white dark:bg-gray-800 rounded-2xl max-w-md w-full max-h-[80vh] overflow-y-auto border border-gray-200 dark:border-gray-200 dark:border-gray-200 dark:border-gray-700">
-            <div className="sticky top-0 bg-white dark:bg-white dark:bg-white dark:bg-gray-800 p-4 border-b border-gray-200 dark:border-gray-200 dark:border-gray-200 dark:border-gray-700 flex justify-between items-center">
-              <h2 className="text-xl font-bold text-gray-900 dark:text-gray-900 dark:text-gray-900 dark:text-white">{t('orderDetails')}</h2>
-              <button onClick={() => setShowDetailsModal(false)} className="text-gray-500 dark:text-gray-500 dark:text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-600 dark:text-gray-600 dark:text-gray-300">✕</button>
+          <div className="bg-white dark:bg-white dark:bg-gray-800 rounded-2xl max-w-md w-full max-h-[80vh] overflow-y-auto border border-gray-200 dark:border-gray-700">
+            <div className="sticky top-0 bg-white dark:bg-white dark:bg-gray-800 p-4 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
+              <h2 className="text-xl font-bold text-gray-900 dark:text-gray-900 dark:text-white">{t('orderDetails')}</h2>
+              <button onClick={() => setShowDetailsModal(false)} className="text-gray-500 hover:text-gray-600 dark:hover:text-gray-600 dark:text-gray-300">✕</button>
             </div>
             <div className="p-4 space-y-4">
-              <div className="bg-gray-50 dark:bg-gray-100 dark:bg-gray-700/50 rounded-xl p-3">
-                <p className="text-gray-500 dark:text-gray-500 dark:text-gray-500 dark:text-gray-400 text-xs">{t('orderNumber')}</p>
-                <p className="text-gray-900 dark:text-gray-900 dark:text-gray-900 dark:text-white font-bold text-lg">{selectedOrder.order_number}</p>
+              <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-3">
+                <p className="text-gray-500 dark:text-gray-400 text-xs">{t('orderNumber')}</p>
+                <p className="text-gray-900 dark:text-gray-900 dark:text-white font-bold text-lg">{selectedOrder.order_number}</p>
               </div>
-              <div className="bg-gray-50 dark:bg-gray-100 dark:bg-gray-700/50 rounded-xl p-3">
-                <p className="text-gray-500 dark:text-gray-500 dark:text-gray-500 dark:text-gray-400 text-xs">{t('status')}</p>
+              <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-3">
+                <p className="text-gray-500 dark:text-gray-400 text-xs">{t('status')}</p>
                 <span className={`inline-flex px-2 py-1 rounded-full text-xs font-semibold ${getStatusBadge(selectedOrder.status)}`}>
                   {getStatusText(selectedOrder.status)}
                 </span>
               </div>
-              <div className="bg-gray-50 dark:bg-gray-100 dark:bg-gray-700/50 rounded-xl p-3">
-                <p className="text-gray-500 dark:text-gray-500 dark:text-gray-500 dark:text-gray-400 text-xs">{t('totalAmount')}</p>
+              <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-3">
+                <p className="text-gray-500 dark:text-gray-400 text-xs">{t('totalAmount')}</p>
                 <p className="text-green-600 dark:text-green-400 font-bold text-xl">{formatCurrency(selectedOrder.total_amount)}</p>
               </div>
-              <div className="border-t border-gray-200 dark:border-gray-200 dark:border-gray-200 dark:border-gray-700 pt-3">
-                <p className="text-gray-500 dark:text-gray-500 dark:text-gray-500 dark:text-gray-400 text-sm mb-2">{t('items')}:</p>
+              <div className="border-t border-gray-200 dark:border-gray-700 pt-3">
+                <p className="text-gray-500 dark:text-gray-400 text-sm mb-2">{t('items')}:</p>
                 <div className="space-y-2">
                   {selectedOrder.items && selectedOrder.items.map((item, idx) => (
-                    <div key={idx} className="flex justify-between text-sm py-1 border-b border-gray-100 dark:border-gray-200 dark:border-gray-200 dark:border-gray-700 last:border-0">
-                      <span className="text-gray-700 dark:text-gray-600 dark:text-gray-600 dark:text-gray-300">{item.quantity}x {item.product_name}</span>
-                      <span className="text-gray-900 dark:text-gray-900 dark:text-gray-900 dark:text-white font-medium">{formatCurrency(item.price * item.quantity)}</span>
+                    <div key={idx} className="flex justify-between text-sm py-1 border-b border-gray-100 dark:border-gray-700 last:border-0">
+                      <span className="text-gray-700 dark:text-gray-300">{item.quantity}x {item.product_name}</span>
+                      <span className="text-gray-900 dark:text-gray-900 dark:text-white font-medium">{formatCurrency(item.price * item.quantity)}</span>
                     </div>
                   ))}
                 </div>
@@ -245,13 +245,13 @@ const CustomerOrderHistory = () => {
               {selectedOrder.notes && (
                 <div className="bg-yellow-50 dark:bg-yellow-900/20 rounded-lg p-3">
                   <p className="text-yellow-700 dark:text-yellow-400 text-xs">{t('specialInstructions')}</p>
-                  <p className="text-gray-700 dark:text-gray-600 dark:text-gray-600 dark:text-gray-300 text-sm">{selectedOrder.notes}</p>
+                  <p className="text-gray-700 dark:text-gray-300 text-sm">{selectedOrder.notes}</p>
                 </div>
               )}
-              <div className="border-t border-gray-200 dark:border-gray-200 dark:border-gray-200 dark:border-gray-700 pt-3">
+              <div className="border-t border-gray-200 dark:border-gray-700 pt-3">
                 <div className="flex justify-between items-center">
-                  <span className="text-gray-500 dark:text-gray-500 dark:text-gray-500 dark:text-gray-400">{t('orderDate')}</span>
-                  <span className="text-gray-700 dark:text-gray-600 dark:text-gray-600 dark:text-gray-300 text-sm">{formatDate(selectedOrder.created_at)}</span>
+                  <span className="text-gray-500 dark:text-gray-400">{t('orderDate')}</span>
+                  <span className="text-gray-700 dark:text-gray-300 text-sm">{formatDate(selectedOrder.created_at)}</span>
                 </div>
               </div>
             </div>

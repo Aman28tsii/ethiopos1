@@ -113,7 +113,7 @@ const CashierPOS = () => {
         <div className="h-full flex flex-col gap-6">
             {/* Today's Sales Summary */}
             {todaySales && (
-                <div className="bg-gradient-to-r from-blue-600 to-blue-700 rounded-xl p-4 text-white">
+                <div className="bg-emerald-600 rounded-xl p-4 text-white">
                     <div className="flex justify-between items-center flex-wrap gap-4">
                         <div>
                             <p className="text-blue-200 text-sm">Today's Sales</p>

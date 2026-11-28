@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import API from '../api/axios';
 import { 
     Package, Plus, Edit2, Trash2, AlertTriangle, Search, X, Loader2,
@@ -104,26 +104,31 @@ const ProductCard = ({ product, onEdit, onDelete, onRecipe, formatCurrency }) =>
     
         const getCategoryEmoji = (category) => {
         const cp = String.fromCodePoint;
-        const emojis = {
-            'Main Course': cp(0x1F35B),
-            'Beverage': cp(0x1F964),
-            'Drink': cp(0x1F964),
-            'Juice': cp(0x1F9C3),
-            'Coffee': cp(0x2615),
-            'Tea': cp(0x1F375),
-            'Dessert': cp(0x1F370),
-            'Appetizer': cp(0x1F362),
-            'Soup': cp(0x1F372),
-            'Salad': cp(0x1F957),
-            'Breakfast': cp(0x1F373),
-            'Traditional': cp(0x1F1EA, 0x1F1F9),
-            'Ethiopian': cp(0x1F1EA, 0x1F1F9),
-            'Side': cp(0x1F957),
-            'Main Dish': cp(0x1F35B),
-            'Vegetarian': cp(0x1F96C)
-        };
-        return emojis[category] || cp(0x1F37D, 0xFE0F);
-    };
+        const cp = String.fromCodePoint;
+  const key = String(category || '').trim().toLowerCase();
+  const emojis = {
+    'main course': String.fromCodePoint(0x1F35B),
+    'main dish': String.fromCodePoint(0x1F35B),
+    'beverage': String.fromCodePoint(0x1F964),
+    'drink': String.fromCodePoint(0x1F964),
+    'drinks': String.fromCodePoint(0x1F964),
+    'juice': String.fromCodePoint(0x1F9C3),
+    'coffee': String.fromCodePoint(0x2615),
+    'tea': String.fromCodePoint(0x1F375),
+    'dessert': String.fromCodePoint(0x1F370),
+    'appetizer': String.fromCodePoint(0x1F362),
+    'soup': String.fromCodePoint(0x1F372),
+    'salad': String.fromCodePoint(0x1F957),
+    'side': String.fromCodePoint(0x1F957),
+    'breakfast': String.fromCodePoint(0x1F373),
+    'traditional': String.fromCodePoint(0x1F1EA, 0x1F1F9),
+    'ethiopian': String.fromCodePoint(0x1F1EA, 0x1F1F9),
+    'ethiopian food': String.fromCodePoint(0x1F1EA, 0x1F1F9),
+    'vegetarian': String.fromCodePoint(0x1F96C),
+    'bread': String.fromCodePoint(0x1F35E)
+  };
+  return emojis[key] || cp(0x1F37D, 0xFE0F);
+};
 
 
     return (
@@ -727,7 +732,7 @@ const Inventory = () => {
                                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 flex items-center gap-1">
                                             <Wine size={14} />
                                             Bottle Size (ml)
-                                            <span className="text-xs text-gray-500 font-normal">� optional, for bar items</span>
+                                            <span className="text-xs text-gray-500 font-normal">- optional, for bar items</span>
                                         </label>
                                         <input
                                             type="number"

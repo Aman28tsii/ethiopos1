@@ -605,7 +605,7 @@ const QRMenu = () => {
         <div className="bg-white dark:bg-gray-800 rounded-2xl max-w-md w-full max-h-[90vh] overflow-y-auto border border-gray-200 dark:border-gray-700">
           <div className="sticky top-0 bg-white dark:bg-gray-800 p-4 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
             <h2 className="text-xl font-bold text-gray-900 dark:text-white">Track Your Order</h2>
-            <button onClick={function() { setShowOrderTracking(false); }} className="text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:text-gray-300"><X size={24} /></button>
+            <button onClick={function() { setShowOrderTracking(false); }} className="text-gray-500 hover:text-gray-600 dark:text-gray-300"><X size={24} /></button>
           </div>
           <div className="p-4 space-y-4">
             {statusMessage && (
@@ -746,7 +746,7 @@ const QRMenu = () => {
           <>
             <div className="fixed inset-0 bg-black/50 dark:bg-black/70 z-40" onClick={function() { setShowCart(false); }} />
             <div className="fixed right-0 top-0 bottom-0 w-full max-w-md bg-white dark:bg-gray-800 shadow-2xl z-50 flex flex-col">
-              <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center bg-gradient-to-r from-blue-600 to-purple-600">
+              <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center bg-emerald-600">
                 <h2 className="text-xl font-bold text-white">Items to Add</h2>
                 <button onClick={function() { setShowCart(false); }} className="text-white"><X size={24} /></button>
               </div>
@@ -847,7 +847,7 @@ const QRMenu = () => {
 
             <div className="mb-6">
               <div className="h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
-                <div className="h-full bg-gradient-to-r from-blue-500 to-green-500 transition-all duration-500" style={{ width: progress + '%' }} />
+                <div className="h-full bg-emerald-500 transition-all duration-500" style={{ width: progress + '%' }} />
               </div>
               <div className="flex justify-between mt-2 text-xs text-gray-500 dark:text-gray-400">
                 <span>Placed</span><span>Confirm</span><span>Kitchen</span><span>Cooking</span><span>Ready</span><span>Done</span>
@@ -981,7 +981,7 @@ const QRMenu = () => {
   // Main Menu Screen
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-      <header className="bg-gradient-to-r from-blue-600 to-purple-600 text-white sticky top-0 z-30 shadow-lg">
+      <header className="bg-emerald-600 text-white sticky top-0 z-30 shadow-lg">
         <div className="container mx-auto px-4 py-4">
           <div className="flex justify-between items-center">
             <div>
@@ -1091,7 +1091,7 @@ const QRMenu = () => {
         <>
           <div className="fixed inset-0 bg-black/50 dark:bg-black/70 z-40" onClick={function() { setShowCart(false); }} />
           <div className="fixed right-0 top-0 bottom-0 w-full max-w-md bg-white dark:bg-gray-800 shadow-2xl z-50 flex flex-col">
-            <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center bg-gradient-to-r from-blue-600 to-purple-600">
+            <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center bg-emerald-600">
               <h2 className="text-xl font-bold text-white">Your Order</h2>
               <button onClick={function() { setShowCart(false); }} className="text-white"><X size={24} /></button>
             </div>

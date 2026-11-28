@@ -21,7 +21,7 @@ const Categories = () => {
     name: '',
     description: '',
     color: '#6B7280',
-    icon: '📁'
+    icon: String.fromCodePoint(0x1F37D)
   });
 
   const colorOptions = [
@@ -35,7 +35,7 @@ const Categories = () => {
     { value: '#6B7280', label: 'Gray' }
   ];
 
-  const iconOptions = ['🍛', '🥤', '🍢', '🥗', '🍰', '🍳', '🍲', '🇪🇹', '🍕', '🍔', '🍟', '🌮', '🧃', '☕', '🍵'];
+  const iconOptions = [0x1F37D, 0x1F964, 0x1F362, 0x1F957, 0x1F370, 0x1F373, 0x1F372, 0x1F1EA, 0x1F355, 0x1F354, 0x1F35F, 0x1F32E, 0x1F9C3, 0x2615, 0x1F375].map(c => String.fromCodePoint(c));
 
   useEffect(() => {
     fetchCategories();
@@ -110,7 +110,7 @@ const Categories = () => {
   const resetModal = () => {
     setShowModal(false);
     setEditingCategory(null);
-    setFormData({ name: '', description: '', color: '#6B7280', icon: '📁' });
+    setFormData({ name: '', description: '', color: '#6B7280', icon: String.fromCodePoint(0x1F37D) });
   };
 
   const formatCurrency = (value) => {
@@ -195,10 +195,10 @@ const Categories = () => {
             key={category.id} 
             className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden hover:border-blue-500/50 transition-all shadow-sm hover:shadow-md"
           >
-            <div className="p-4 border-b border-gray-200 dark:border-gray-700" style={{ borderTop: `4px solid ${category.color || '#6B7280'}` }}>
+            <div className="p-4 border-b border-gray-200 dark:border-gray-700" style={{ borderTop: `4px solid ${category.color || String.fromCodePoint(0x1F37D)}` }}>
               <div className="flex justify-between items-center">
                 <div className="flex items-center gap-2">
-                  <span className="text-2xl">{category.icon || '📁'}</span>
+                  <span className="text-2xl">{category.icon || String.fromCodePoint(0x1F37D)}</span>
                   <div>
                     <h3 className="font-bold text-gray-900 dark:text-white">{category.name}</h3>
                     {category.description && (
@@ -275,7 +275,7 @@ const Categories = () => {
           <div className="bg-white dark:bg-gray-800 rounded-2xl max-w-2xl w-full max-h-[80vh] overflow-hidden border border-gray-200 dark:border-gray-700">
             <div className="sticky top-0 bg-white dark:bg-gray-800 p-4 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
               <div className="flex items-center gap-2">
-                <span className="text-2xl">{selectedCategory.icon || '📁'}</span>
+                <span className="text-2xl">{selectedCategory.icon || String.fromCodePoint(0x1F37D)}</span>
                 <div>
                   <h2 className="text-xl font-bold text-gray-900 dark:text-white">{selectedCategory.name}</h2>
                   <p className="text-sm text-gray-500 dark:text-gray-400">{categoryProducts.length} products</p>

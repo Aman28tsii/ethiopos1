@@ -182,7 +182,7 @@ const MyOrders = () => {
                     <button
                       onClick={function() { confirmPickup(order.id); }}
                       disabled={confirmingId === order.id}
-                      className="mt-3 w-full py-3 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white rounded-lg text-sm font-bold transition flex items-center justify-center gap-2 disabled:opacity-60"
+                      className="mt-3 w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-bold transition flex items-center justify-center gap-2 disabled:opacity-60"
                     >
                       {confirmingId === order.id ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle size={16} />}
                       Confirm Pickup — Send to Cashier

@@ -140,15 +140,15 @@ const Staff = () => {
   };
 
   const getStationDisplay = (member) => {
-    if (member.role === 'both') return '?? Both Stations';
-    if (member.role === 'bar') return '?? Bar';
+    if (member.role === 'both') return String.fromCodePoint(0x1F373, 0x1F37A) + ' Both Stations';
+    if (member.role === 'bar') return String.fromCodePoint(0x1F37A) + ' Bar';
     if (member.role === 'kitchen') {
       const stationMap = {
-        kitchen: '?? Kitchen Only',
-        bar: '?? Bar Only',
-        both: '?? Both Stations'
+        kitchen: String.fromCodePoint(0x1F373) + ' Kitchen Only',
+        bar: String.fromCodePoint(0x1F37A) + ' Bar Only',
+        both: String.fromCodePoint(0x1F373, 0x1F37A) + ' Both Stations'
       };
-      return stationMap[member.station_type] || '?? Kitchen Only';
+      return stationMap[member.station_type] || String.fromCodePoint(0x1F373) + ' Kitchen Only';
     }
     return '-';
   };
@@ -402,9 +402,9 @@ const Staff = () => {
                     <option value="manager">{t('manager')} ({t('operationalAccess')})</option>
                     <option value="cashier">{t('cashier')} ({t('paymentOnly')})</option>
                     <option value="waiter">{t('waiter')} ({t('orderTaking')})</option>
-                    <option value="kitchen">?? {t('kitchen')} (Food Prep)</option>
-                    <option value="bar">?? Bar (Drinks Only)</option>
-                    <option value="both">?? Both Stations (Food & Drinks)</option>
+                    <option value="kitchen">{String.fromCodePoint(0x1F373)} {t('kitchen')} (Food Prep)</option>
+                    <option value="bar">{String.fromCodePoint(0x1F37A)} Bar (Drinks Only)</option>
+                    <option value="both">{String.fromCodePoint(0x1F373, 0x1F37A)} Both Stations (Food & Drinks)</option>
                   </select>
                 </div>
 
@@ -418,9 +418,9 @@ const Staff = () => {
                       onChange={(e) => setFormData({ ...formData, station_type: e.target.value })}
                       className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                     >
-                      <option value="kitchen">?? Kitchen Only (Food orders only)</option>
-                      <option value="bar">?? Bar Only (Drink orders only)</option>
-                      <option value="both">?? Both Stations (Food & Drink orders)</option>
+                      <option value="kitchen">{String.fromCodePoint(0x1F373)} Kitchen Only (Food orders only)</option>
+                      <option value="bar">{String.fromCodePoint(0x1F37A)} Bar Only (Drink orders only)</option>
+                      <option value="both">{String.fromCodePoint(0x1F373, 0x1F37A)} Both Stations (Food & Drink orders)</option>
                     </select>
                     <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                       {formData.station_type === 'kitchen' && 'This staff member will only see food orders'}

@@ -65,7 +65,7 @@ const AssignWaiters = () => {
       reserved: 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400',
       cleaning: 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400'
     };
-    return colors[status] || 'bg-gray-100 dark:bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-600 dark:text-gray-300';
+    return colors[status] || 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300';
   };
 
   if (loading) {
@@ -81,12 +81,12 @@ const AssignWaiters = () => {
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-900 dark:text-gray-900 dark:text-white">{t('assignWaitersToTables')}</h1>
-          <p className="text-gray-500 dark:text-gray-500 dark:text-gray-500 dark:text-gray-400 mt-1">{t('assignWaitersDescription')}</p>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-900 dark:text-white">{t('assignWaitersToTables')}</h1>
+          <p className="text-gray-500 dark:text-gray-400 mt-1">{t('assignWaitersDescription')}</p>
         </div>
         <button
           onClick={fetchData}
-          className="bg-gray-100 dark:bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-600 dark:text-gray-600 dark:text-gray-300 px-4 py-2 rounded-xl flex items-center gap-2 transition"
+          className="bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 px-4 py-2 rounded-xl flex items-center gap-2 transition"
         >
           <RefreshCw size={18} />
           {t('refresh')}
@@ -114,20 +114,20 @@ const AssignWaiters = () => {
       </div>
 
       {/* Waiters List Summary */}
-      <div className="bg-white dark:bg-white dark:bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-200 dark:border-gray-200 dark:border-gray-700">
+      <div className="bg-white dark:bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Users size={18} className="text-blue-600 dark:text-blue-400" />
-            <span className="text-gray-700 dark:text-gray-600 dark:text-gray-600 dark:text-gray-300">{t('availableWaiters')}:</span>
+            <span className="text-gray-700 dark:text-gray-300">{t('availableWaiters')}:</span>
           </div>
-          <span className="text-gray-900 dark:text-gray-900 dark:text-gray-900 dark:text-white font-bold">{waiters.length}</span>
+          <span className="text-gray-900 dark:text-gray-900 dark:text-white font-bold">{waiters.length}</span>
         </div>
         <div className="flex items-center justify-between mt-2">
           <div className="flex items-center gap-2">
             <UserCheck size={18} className="text-green-600 dark:text-green-400" />
-            <span className="text-gray-700 dark:text-gray-600 dark:text-gray-600 dark:text-gray-300">{t('assignedTables')}:</span>
+            <span className="text-gray-700 dark:text-gray-300">{t('assignedTables')}:</span>
           </div>
-          <span className="text-gray-900 dark:text-gray-900 dark:text-gray-900 dark:text-white font-bold">
+          <span className="text-gray-900 dark:text-gray-900 dark:text-white font-bold">
             {Object.values(selectedWaiters).filter(w => w && w !== '').length} / {tables.length}
           </span>
         </div>
@@ -136,15 +136,15 @@ const AssignWaiters = () => {
       {/* Tables Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
         {tables.map(table => (
-          <div key={table.id} className="bg-white dark:bg-white dark:bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-200 dark:border-gray-200 dark:border-gray-700 overflow-hidden hover:border-blue-500/50 transition-all shadow-sm hover:shadow-md">
-            <div className="bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-900/20 dark:to-purple-900/20 p-4 border-b border-gray-200 dark:border-gray-200 dark:border-gray-200 dark:border-gray-700">
+          <div key={table.id} className="bg-white dark:bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden hover:border-blue-500/50 transition-all shadow-sm hover:shadow-md">
+            <div className="bg-emerald-50 dark:bg-emerald-900/20 p-4 border-b border-gray-200 dark:border-gray-700">
               <div className="flex justify-between items-center">
                 <div>
-                  <h3 className="text-xl font-bold text-gray-900 dark:text-gray-900 dark:text-gray-900 dark:text-white">{t('table')} {table.table_number}</h3>
-                  <p className="text-gray-500 dark:text-gray-500 dark:text-gray-500 dark:text-gray-400 text-sm">{t('capacity')}: {table.capacity} {t('seats')}</p>
+                  <h3 className="text-xl font-bold text-gray-900 dark:text-gray-900 dark:text-white">{t('table')} {table.table_number}</h3>
+                  <p className="text-gray-500 dark:text-gray-400 text-sm">{t('capacity')}: {table.capacity} {t('seats')}</p>
                 </div>
                 <div className="text-right">
-                  <p className="text-gray-500 dark:text-gray-500 dark:text-gray-500 dark:text-gray-400 text-xs">{t('currentStatus')}</p>
+                  <p className="text-gray-500 dark:text-gray-400 text-xs">{t('currentStatus')}</p>
                   <p className={`text-sm font-semibold capitalize ${getStatusBadge(table.status)}`}>
                     {t(table.status)}
                   </p>
@@ -153,13 +153,13 @@ const AssignWaiters = () => {
             </div>
 
             <div className="p-4">
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-600 dark:text-gray-600 dark:text-gray-300 mb-2">{t('assignedWaiter')}</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{t('assignedWaiter')}</label>
               <div className="flex gap-3">
                 <select
                   value={selectedWaiters[table.id] || ''}
                   onChange={(e) => assignWaiter(table.id, parseInt(e.target.value))}
                   disabled={saving === table.id}
-                  className="flex-1 px-4 py-2 bg-gray-50 dark:bg-gray-50 dark:bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-300 dark:border-gray-600 rounded-xl text-gray-900 dark:text-gray-900 dark:text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+                  className="flex-1 px-4 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-xl text-gray-900 dark:text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
                 >
                   <option value="">-- {t('selectWaiter')} --</option>
                   {waiters.map(waiter => (
@@ -194,9 +194,9 @@ const AssignWaiters = () => {
       </div>
 
       {tables.length === 0 && (
-        <div className="text-center py-12 bg-white dark:bg-white dark:bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-200 dark:border-gray-200 dark:border-gray-700">
-          <Users size={48} className="mx-auto text-gray-500 dark:text-gray-500 dark:text-gray-400 dark:text-gray-600 mb-3" />
-          <p className="text-gray-500 dark:text-gray-500 dark:text-gray-500 dark:text-gray-400">{t('noTablesFound')}</p>
+        <div className="text-center py-12 bg-white dark:bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700">
+          <Users size={48} className="mx-auto text-gray-500 dark:text-gray-600 mb-3" />
+          <p className="text-gray-500 dark:text-gray-400">{t('noTablesFound')}</p>
         </div>
       )}
 

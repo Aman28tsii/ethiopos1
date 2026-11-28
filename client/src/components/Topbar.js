@@ -13,8 +13,8 @@ const Topbar = ({ user }) => {
   const [showLanguageMenu, setShowLanguageMenu] = useState(false);
 
   const languages = [
-    { code: 'en', name: 'English', flag: '🇬🇧' },
-    { code: 'am', name: 'አማርኛ', flag: '🇪🇹' }
+    { code: 'en', name: 'English', flag: String.fromCodePoint(0x1F1EC, 0x1F1E7) },
+    { code: 'am', name: String.fromCodePoint(0x12A0, 0x121B, 0x122D, 0x129B), flag: String.fromCodePoint(0x1F1EA, 0x1F1F9) }
   ];
 
   return (
@@ -59,7 +59,7 @@ const Topbar = ({ user }) => {
             >
               <Globe size={20} className="text-gray-600 dark:text-gray-400" />
               <span className="text-gray-700 dark:text-gray-300 text-sm hidden sm:inline">
-                {language === 'en' ? 'EN' : 'አማ'}
+                {language === 'en' ? 'EN' : String.fromCodePoint(0x12A0, 0x121B)}
               </span>
             </button>
             

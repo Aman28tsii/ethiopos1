@@ -106,7 +106,7 @@ const ProfitReports = () => {
       </div>
 
       {todayData && (
-        <div className="bg-gradient-to-r from-blue-600 to-blue-800 rounded-2xl p-6 text-white">
+        <div className="bg-emerald-700 rounded-2xl p-6 text-white">
           <h3 className="text-lg font-semibold mb-4">{t('todayPerformance')}</h3>
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
             <div>
